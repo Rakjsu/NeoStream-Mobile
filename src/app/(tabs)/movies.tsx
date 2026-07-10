@@ -1,3 +1,4 @@
+import { Ionicons } from '@expo/vector-icons'
 import { router, useFocusEffect } from 'expo-router'
 import { useCallback, useEffect, useMemo, useState } from 'react'
 import { FlatList, RefreshControl, StyleSheet, Text, TouchableOpacity, View } from 'react-native'
@@ -7,6 +8,7 @@ import { allowedCategoryIds, loadParental } from '../../services/parental'
 import { cachedFetch, getClient } from '../../services/session'
 import type { Category, VodMovie } from '../../services/xtream'
 import { CategoryChips, ContinueRail, EmptyState, Loading, PosterCard, SearchBar } from '../../ui/components'
+import { nextSortMode, SORT_LABELS, sortCatalog, type SortMode } from '../../services/sorting'
 import { colors, spacing } from '../../ui/theme'
 
 export default function MoviesTab() {
@@ -19,6 +21,7 @@ export default function MoviesTab() {
     const [refreshing, setRefreshing] = useState(false)
     const [error, setError] = useState('')
     const [allowed, setAllowed] = useState<Set<string> | null>(null)
+    const [sort, setSort] = useState<SortMode>('default')
 
     const load = useCallback(async (force = false) => {
         try {
@@ -57,8 +60,9 @@ export default function MoviesTab() {
         if (category === 'fav') list = list.filter(m => isFavorite(favorites, 'movie', String(m.stream_id)))
         else if (category !== 'all') list = list.filter(m => m.category_id === category)
         if (allowed) list = list.filter(item => !item.category_id || allowed.has(item.category_id))
-        return q ? list.filter(m => m.name.toLowerCase().includes(q)) : list
-    }, [movies, query, category, favorites, allowed])
+        if (q) list = list.filter(m => m.name.toLowerCase().includes(q))
+        return sortCatalog(list, sort, m => m.added)
+    }, [movies, query, category, favorites, allowed, sort])
 
     // Tocar abre a FICHA (sinopse + play); o rail continua indo direto pro player.
     const openDetails = (movie: VodMovie) => {
@@ -95,7 +99,15 @@ export default function MoviesTab() {
     return (
         <View style={styles.root}>
             <SearchBar value={query} onChange={setQuery} placeholder="Buscar filme…" />
-            <CategoryChips categories={allowed ? categories.filter(c => allowed.has(c.category_id)) : categories} selected={category} onSelect={setCategory} />
+            <View style={styles.filterRow}>
+                <View style={{ flex: 1 }}>
+                    <CategoryChips categories={allowed ? categories.filter(c => allowed.has(c.category_id)) : categories} selected={category} onSelect={setCategory} />
+                </View>
+                <TouchableOpacity style={styles.sortBtn} onPress={() => setSort(nextSortMode(sort))}>
+                    <Ionicons name="swap-vertical" size={14} color={sort === 'default' ? colors.textDim : colors.accent} />
+                    <Text style={[styles.sortText, sort !== 'default' && { color: colors.accent }]}>{SORT_LABELS[sort]}</Text>
+                </TouchableOpacity>
+            </View>
             {error ? <Text style={styles.error}>{error}</Text> : null}
             <FlatList
                 data={filtered}
@@ -142,6 +154,20 @@ export default function MoviesTab() {
 
 const styles = StyleSheet.create({
     root: { flex: 1, backgroundColor: colors.bg, paddingTop: spacing.sm },
+    filterRow: { flexDirection: 'row', alignItems: 'flex-start' },
+    sortBtn: {
+        flexDirection: 'row',
+        alignItems: 'center',
+        gap: 4,
+        marginRight: spacing.lg,
+        paddingHorizontal: spacing.sm,
+        paddingVertical: 6,
+        borderRadius: 16,
+        borderWidth: 1,
+        borderColor: colors.border,
+        backgroundColor: colors.card,
+    },
+    sortText: { color: colors.textDim, fontSize: 12 },
     error: { color: colors.danger, marginHorizontal: spacing.lg, marginBottom: spacing.sm },
     grid: { paddingHorizontal: spacing.md, paddingBottom: spacing.lg },
     cell: { flex: 1 / 3 },

@@ -16,6 +16,13 @@ export default function TabsLayout() {
             }}
         >
             <Tabs.Screen
+                name="home"
+                options={{
+                    title: 'Início',
+                    tabBarIcon: ({ color, size }) => <Ionicons name="home" size={size} color={color} />,
+                }}
+            />
+            <Tabs.Screen
                 name="live"
                 options={{
                     title: 'TV ao vivo',

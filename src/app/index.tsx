@@ -14,5 +14,5 @@ export default function Index() {
     }, [])
 
     if (state === 'checking') return <Loading />
-    return <Redirect href={state === 'in' ? '/(tabs)/live' : '/login'} />
+    return <Redirect href={state === 'in' ? '/(tabs)/home' : '/login'} />
 }

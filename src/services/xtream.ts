@@ -34,6 +34,8 @@ export interface VodMovie {
     container_extension?: string
     category_id?: string
     rating?: string | number
+    /** Epoch (s) de quando o provedor adicionou — alimenta "Recentes". */
+    added?: string
 }
 
 export interface SeriesItem {
@@ -42,6 +44,8 @@ export interface SeriesItem {
     cover?: string
     category_id?: string
     rating?: string | number
+    /** Epoch (s) da última atualização — alimenta "Recentes". */
+    last_modified?: string
 }
 
 export interface Episode {

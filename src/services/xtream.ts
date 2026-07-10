@@ -8,6 +8,28 @@ export interface XtreamAccount {
     url: string
     username: string
     password: string
+    /** 'xtream' (padrão, ausente nas contas antigas) ou lista M3U por URL. */
+    type?: 'xtream' | 'm3u'
+}
+
+/**
+ * O que as telas consomem — implementado pelo XtreamClient e pelo M3uClient
+ * (m3u.ts), então trocar o tipo da conta não muda nenhuma tela.
+ */
+export interface CatalogClient {
+    authenticate(): Promise<UserInfo>
+    getLiveChannels(): Promise<LiveChannel[]>
+    getLiveCategories(): Promise<Category[]>
+    getVodMovies(): Promise<VodMovie[]>
+    getVodCategories(): Promise<Category[]>
+    getSeries(): Promise<SeriesItem[]>
+    getSeriesCategories(): Promise<Category[]>
+    getSeriesInfo(seriesId: string | number): Promise<SeriesInfo>
+    getVodDetails(vodId: string | number): Promise<VodDetails>
+    getShortEpg(streamId: number | string): Promise<NowNext>
+    liveStreamUrl(streamId: number | string): string
+    vodStreamUrl(streamId: number | string, container?: string): string
+    seriesStreamUrl(episodeId: number | string, container?: string): string
 }
 
 export interface UserInfo {
@@ -238,7 +260,7 @@ export function sanitizeList<T extends { name?: unknown }>(
     })
 }
 
-export class XtreamClient {
+export class XtreamClient implements CatalogClient {
     private baseUrl: string
     private username: string
     private password: string

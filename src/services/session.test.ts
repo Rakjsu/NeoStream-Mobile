@@ -17,6 +17,14 @@ describe('accountId / accountLabel', () => {
     })
 })
 
+describe('contas M3U', () => {
+    it('id e label próprios (sem usuário)', () => {
+        const conta = { url: 'http://prov.tv/lista.m3u', username: '', password: '', type: 'm3u' as const }
+        expect(accountId(conta)).toBe('m3u@http://prov.tv/lista.m3u')
+        expect(accountLabel(conta)).toBe('M3U · prov.tv')
+    })
+})
+
 describe('upsertAccount (dedup por url+usuário)', () => {
     it('adiciona conta nova e atualiza a existente sem duplicar', () => {
         const first = upsertAccount([], conta('http://a.tv', 'u'), { status: 'Active' })

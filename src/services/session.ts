@@ -4,7 +4,8 @@
  * são PUROS (testáveis); só load/save tocam o AsyncStorage.
  */
 import AsyncStorage from '@react-native-async-storage/async-storage'
-import { XtreamClient, normalizeBaseUrl, type UserInfo, type XtreamAccount } from './xtream'
+import { M3uClient } from './m3u'
+import { XtreamClient, normalizeBaseUrl, type CatalogClient, type UserInfo, type XtreamAccount } from './xtream'
 
 export interface StoredAccount extends XtreamAccount {
     id: string
@@ -19,16 +20,23 @@ const LEGACY_USER_INFO_KEY = 'neostream_user_info'
 
 /** Id determinístico: mesma conta (url+usuário) nunca duplica. */
 export function accountId(account: XtreamAccount): string {
-    return `${account.username}@${normalizeBaseUrl(account.url)}`
+    const user = account.type === 'm3u' ? 'm3u' : account.username
+    return `${user}@${normalizeBaseUrl(account.url)}`
 }
 
-/** Nome de exibição: usuário@host (sem esquema/credencial). */
+/** Nome de exibição: usuário@host (M3U mostra o host da lista). */
 export function accountLabel(account: XtreamAccount): string {
     try {
-        return `${account.username}@${new URL(normalizeBaseUrl(account.url)).host}`
+        const host = new URL(normalizeBaseUrl(account.url)).host
+        return account.type === 'm3u' ? `M3U · ${host}` : `${account.username}@${host}`
     } catch {
         return accountId(account)
     }
+}
+
+/** Client certo pro tipo da conta (Xtream ou lista M3U). */
+export function buildClient(account: XtreamAccount): CatalogClient {
+    return account.type === 'm3u' ? new M3uClient(normalizeBaseUrl(account.url)) : new XtreamClient(account)
 }
 
 /** Insere/atualiza uma conta (PURO) — dedup pelo id determinístico. */
@@ -46,7 +54,7 @@ export function upsertAccount(
 
 let accountsCache: StoredAccount[] | null = null
 let activeIdCache: string | null = null
-let client: XtreamClient | null = null
+let client: CatalogClient | null = null
 
 async function loadState(): Promise<{ accounts: StoredAccount[]; activeId: string | null }> {
     if (accountsCache) return { accounts: accountsCache, activeId: activeIdCache }
@@ -118,7 +126,7 @@ export async function addAccount(account: XtreamAccount, userInfo: UserInfo): Pr
     accountsCache = result.accounts
     activeIdCache = result.entry.id
     await persist()
-    client = new XtreamClient(result.entry)
+    client = buildClient(result.entry)
     invalidateCatalog()
     return result.entry
 }
@@ -130,7 +138,7 @@ export async function switchAccount(id: string): Promise<StoredAccount | null> {
     if (!entry) return null
     activeIdCache = id
     await persist()
-    client = new XtreamClient(entry)
+    client = buildClient(entry)
     invalidateCatalog()
     return entry
 }
@@ -149,16 +157,16 @@ export async function removeAccount(id: string): Promise<StoredAccount | null> {
     }
     await persist()
     const active = accountsCache.find(a => a.id === activeIdCache) ?? null
-    if (active && !client) client = new XtreamClient(active)
+    if (active && !client) client = buildClient(active)
     return active
 }
 
 /** Client da conta ativa (null quando deslogado). */
-export async function getClient(): Promise<XtreamClient | null> {
+export async function getClient(): Promise<CatalogClient | null> {
     if (client) return client
     const account = await loadAccount()
     if (!account) return null
-    client = new XtreamClient(account)
+    client = buildClient(account)
     return client
 }
 

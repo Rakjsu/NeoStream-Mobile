@@ -5,7 +5,7 @@ import {
     ActivityIndicator, KeyboardAvoidingView, Platform, ScrollView,
     StyleSheet, Text, TextInput, TouchableOpacity, View,
 } from 'react-native'
-import { saveAccount } from '../services/session'
+import { addAccount } from '../services/session'
 import { XtreamClient, normalizeBaseUrl } from '../services/xtream'
 import { colors, spacing } from '../ui/theme'
 
@@ -27,7 +27,7 @@ export default function Login() {
             const account = { url: normalizeBaseUrl(url), username: username.trim(), password }
             const client = new XtreamClient(account)
             const userInfo = await client.authenticate()
-            await saveAccount(account, userInfo)
+            await addAccount(account, userInfo)
             router.replace('/(tabs)/live')
         } catch (err) {
             setError(err instanceof Error ? err.message : 'Falha ao conectar no servidor.')

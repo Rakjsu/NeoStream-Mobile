@@ -23,13 +23,18 @@ Escaneie o QR com o app **Expo Go** (Android) na mesma rede Wi-Fi.
 ## Gerar APK
 
 ```bash
-# via EAS (recomendado; precisa de conta Expo gratuita)
+# automático: crie uma tag e o GitHub Actions publica a release com o APK
+git tag v0.2.0 && git push origin v0.2.0
+
+# via EAS (precisa de conta Expo gratuita)
 npm install -g eas-cli
 eas build --platform android --profile preview
 
 # ou build local (precisa do Android SDK)
 npx expo run:android --variant release
 ```
+
+O APK das releases é assinado com a keystore de debug — instala direto no aparelho (sideload); assinatura de loja fica pra quando formos pra Play Store.
 
 O app já vem com `usesCleartextTraffic` habilitado (provedores IPTV costumam ser `http://`).
 

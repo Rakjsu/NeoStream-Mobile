@@ -1,0 +1,26 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+jobs:
+  check:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v5
+      - uses: actions/setup-node@v5
+        with:
+          node-version: 24
+          cache: npm
+      - name: Instalar dependências
+        run: npm ci
+      - name: Typecheck
+        run: npm run typecheck
+      - name: Testes de unidade
+        run: npm test
+      - name: Lint
+        run: npm run lint -- --max-warnings 0
+      - name: Smoke test do bundle Android
+        run: npx expo export --platform android --output-dir dist-smoke

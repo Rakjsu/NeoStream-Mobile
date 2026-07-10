@@ -1,56 +1,56 @@
-# Welcome to your Expo app 👋
+# NeoStream Mobile 📱
 
-This is an [Expo](https://expo.dev) project created with [`create-expo-app`](https://www.npmjs.com/package/create-expo-app).
+Player IPTV pra celular (Android primeiro) — o irmão mobile do [NeoStream desktop](https://github.com/Rakjsu/NeoStream). Adicione sua lista **Xtream Codes** e assista TV ao vivo, filmes e séries direto no aparelho.
 
-## Get started
+> **Status: v0** — login Xtream, TV ao vivo (HLS), filmes, séries com temporadas/episódios, busca em tudo e player nativo (ExoPlayer). M3U, EPG, favoritos e "continuar assistindo" vêm nas próximas rodadas.
 
-1. Install dependencies
+## Stack
 
-   ```bash
-   npm install
-   ```
+- **Expo SDK 57** + React Native 0.86 + TypeScript (expo-router, tabs)
+- **expo-video** (ExoPlayer no Android) — toca `.m3u8` ao vivo e VOD direto do provedor
+- Conta salva no aparelho (AsyncStorage); nenhum dado sai pra terceiros
+- Lógica de protocolo pura em `src/services/` testada com **vitest**
 
-2. Start the app
-
-   ```bash
-   npx expo start
-   ```
-
-In the output, you'll find options to open the app in a
-
-- [development build](https://docs.expo.dev/develop/development-builds/introduction/)
-- [Android emulator](https://docs.expo.dev/workflow/android-studio-emulator/)
-- [iOS simulator](https://docs.expo.dev/workflow/ios-simulator/)
-- [Expo Go](https://expo.dev/go), a limited sandbox for trying out app development with Expo
-
-You can start developing by editing the files inside the **app** directory. This project uses [file-based routing](https://docs.expo.dev/router/introduction).
-
-## Get a fresh project
-
-When you're ready, run:
+## Rodar em desenvolvimento
 
 ```bash
-npm run reset-project
+npm install
+npx expo start
 ```
 
-This command will move the starter code to the **app-example** directory and create a blank **app** directory where you can start developing.
+Escaneie o QR com o app **Expo Go** (Android) na mesma rede Wi-Fi.
 
-### Other setup steps
+## Gerar APK
 
-- To set up ESLint for linting, run `npx expo lint`, or follow our guide on ["Using ESLint and Prettier"](https://docs.expo.dev/guides/using-eslint/)
-- If you'd like to set up unit testing, follow our guide on ["Unit Testing with Jest"](https://docs.expo.dev/develop/unit-testing/)
-- Learn more about the TypeScript setup in this template in our guide on ["Using TypeScript"](https://docs.expo.dev/guides/typescript/)
+```bash
+# via EAS (recomendado; precisa de conta Expo gratuita)
+npm install -g eas-cli
+eas build --platform android --profile preview
 
-## Learn more
+# ou build local (precisa do Android SDK)
+npx expo run:android --variant release
+```
 
-To learn more about developing your project with Expo, look at the following resources:
+O app já vem com `usesCleartextTraffic` habilitado (provedores IPTV costumam ser `http://`).
 
-- [Expo documentation](https://docs.expo.dev/): Learn fundamentals, or go into advanced topics with our [guides](https://docs.expo.dev/guides).
-- [Learn Expo tutorial](https://docs.expo.dev/tutorial/introduction/): Follow a step-by-step tutorial where you'll create a project that runs on Android, iOS, and the web.
+## Validar
 
-## Join the community
+```bash
+npm run typecheck   # tsc --noEmit
+npm test            # vitest (services puros)
+npm run lint        # eslint (config do Expo)
+npx expo export --platform android   # smoke test do bundle
+```
 
-Join our community of developers creating universal apps.
+## Estrutura
 
-- [Expo on GitHub](https://github.com/expo/expo): View our open source platform and contribute.
-- [Discord community](https://chat.expo.dev): Chat with Expo users and ask questions.
+```
+src/
+  app/            # telas (expo-router)
+    login.tsx     # entrada da conta Xtream
+    (tabs)/       # TV ao vivo · Filmes · Séries · Ajustes
+    series/[id]   # temporadas + episódios
+    player.tsx    # expo-video em tela cheia
+  services/       # protocolo Xtream (puro, testado) + sessão/cache
+  ui/             # tema e componentes compartilhados
+```

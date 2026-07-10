@@ -5,6 +5,7 @@ import { FlatList, Image, RefreshControl, StyleSheet, Text, TouchableOpacity, Vi
 import { emptyFavorites, isFavorite, persistToggle, loadFavorites, type Favorites } from '../../services/favorites'
 import { cachedFetch, getClient } from '../../services/session'
 import type { Category, LiveChannel, NowNext } from '../../services/xtream'
+import { setZapContext } from '../../services/zap'
 import { CategoryChips, EmptyState, Loading, SearchBar } from '../../ui/components'
 import { colors, spacing } from '../../ui/theme'
 
@@ -55,6 +56,8 @@ export default function LiveTab() {
     const play = async (channel: LiveChannel) => {
         const client = await getClient()
         if (!client) return
+        // A lista FILTRADA vira o contexto de zapping (⏮/⏭ no player).
+        setZapContext(filtered.map(c => ({ id: String(c.stream_id), name: c.name })), String(channel.stream_id))
         router.push({
             pathname: '/player',
             params: { url: client.liveStreamUrl(channel.stream_id), title: channel.name, live: '1' },

@@ -1,0 +1,41 @@
+/**
+ * Contexto de zapping: a lista de canais da tela de onde o player ao vivo foi
+ * aberto, pra ⏮/⏭ trocar de canal sem voltar. Vive só em memória (por sessão);
+ * o cálculo do vizinho é PURO (testável).
+ */
+
+export interface ZapChannel {
+    id: string
+    name: string
+}
+
+/** Índice vizinho com volta (último → primeiro, como zapping de TV). */
+export function wrapIndex(length: number, index: number, delta: number): number {
+    if (length <= 0) return -1
+    return ((index + delta) % length + length) % length
+}
+
+let list: ZapChannel[] = []
+let index = -1
+
+/** Chamado por quem abre o player: a lista FILTRADA da tela + o canal tocado. */
+export function setZapContext(channels: ZapChannel[], currentId: string): void {
+    list = channels
+    index = channels.findIndex(c => c.id === currentId)
+}
+
+export function hasZapContext(): boolean {
+    return index >= 0 && list.length > 1
+}
+
+/** Anda `delta` canais (com volta) e devolve o novo canal. */
+export function zapBy(delta: number): ZapChannel | null {
+    if (!hasZapContext()) return null
+    index = wrapIndex(list.length, index, delta)
+    return list[index] ?? null
+}
+
+export function clearZapContext(): void {
+    list = []
+    index = -1
+}

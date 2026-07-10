@@ -2,7 +2,7 @@ import { router, useFocusEffect } from 'expo-router'
 import { useCallback, useEffect, useMemo, useState } from 'react'
 import { FlatList, RefreshControl, StyleSheet, Text, TouchableOpacity, View } from 'react-native'
 import { emptyFavorites, isFavorite, loadFavorites, persistToggle, type Favorites } from '../../services/favorites'
-import { buildProgressId, listContinue, loadProgress, type ProgressEntry } from '../../services/progress'
+import { listContinue, loadProgress, type ProgressEntry } from '../../services/progress'
 import { cachedFetch, getClient } from '../../services/session'
 import type { Category, VodMovie } from '../../services/xtream'
 import { CategoryChips, ContinueRail, EmptyState, Loading, PosterCard, SearchBar } from '../../ui/components'
@@ -55,20 +55,15 @@ export default function MoviesTab() {
         return q ? list.filter(m => m.name.toLowerCase().includes(q)) : list
     }, [movies, query, category, favorites])
 
-    const play = async (movie: VodMovie) => {
-        const client = await getClient()
-        if (!client) return
-        const container = movie.container_extension || 'mp4'
+    // Tocar abre a FICHA (sinopse + play); o rail continua indo direto pro player.
+    const openDetails = (movie: VodMovie) => {
         router.push({
-            pathname: '/player',
+            pathname: '/movie/[id]',
             params: {
-                url: client.vodStreamUrl(movie.stream_id, container),
-                title: movie.name,
-                pid: buildProgressId('movie', movie.stream_id),
-                kind: 'movie',
-                sid: String(movie.stream_id),
-                container,
+                id: String(movie.stream_id),
+                name: movie.name,
                 cover: movie.stream_icon || '',
+                container: movie.container_extension || 'mp4',
             },
         })
     }
@@ -124,7 +119,7 @@ export default function MoviesTab() {
                 renderItem={({ item }) => (
                     <TouchableOpacity
                         style={styles.cell}
-                        onPress={() => void play(item)}
+                        onPress={() => openDetails(item)}
                         onLongPress={() => void persistToggle('movie', String(item.stream_id)).then(setFavorites)}
                         delayLongPress={350}
                     >

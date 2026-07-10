@@ -5,6 +5,7 @@ import {
     parseAuthResponse,
     parseExpiry,
     parseShortEpg,
+    parseVodDetails,
     sanitizeCategories,
     sanitizeList,
     XtreamClient,
@@ -99,6 +100,29 @@ describe('sanitizeList', () => {
     it('resposta não-array (erro do provedor em JSON) vira lista vazia', () => {
         expect(sanitizeList({ error: 'x' }, 'stream_id')).toEqual([])
         expect(sanitizeList(undefined, 'series_id')).toEqual([])
+    })
+})
+
+describe('parseVodDetails (ficha do get_vod_info)', () => {
+    it('achata os campos e tolera variações de nome', () => {
+        const details = parseVodDetails({
+            info: {
+                plot: ' Um filme. ', genre: 'Ação', releasedate: '2024-03-01',
+                rating: 7.8, duration: '01:58:00', movie_image: 'http://img/x.jpg',
+            },
+        })
+        expect(details).toEqual({
+            plot: 'Um filme.', genre: 'Ação', releaseDate: '2024-03-01',
+            rating: '7.8', duration: '01:58:00', cover: 'http://img/x.jpg',
+        })
+        // Variante: description/release_date/cover_big.
+        const alt = parseVodDetails({ info: { description: 'Alt', release_date: '2020', cover_big: 'http://img/b.jpg' } })
+        expect(alt.plot).toBe('Alt')
+        expect(alt.releaseDate).toBe('2020')
+        expect(alt.cover).toBe('http://img/b.jpg')
+        // Lixo → tudo vazio, nada explode.
+        expect(parseVodDetails(null).plot).toBe('')
+        expect(parseVodDetails({ info: { rating: '' } }).rating).toBe('')
     })
 })
 

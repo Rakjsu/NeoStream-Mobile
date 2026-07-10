@@ -1,7 +1,7 @@
 import { describe, it, expect, vi } from 'vitest'
 import {
     applySample, buildProgressId, isFinished, listContinue,
-    progressPct, resumePosition, type ProgressEntry,
+    pickNextEpisode, progressPct, resumePosition, type ProgressEntry,
 } from './progress'
 
 // Hoisted pelo vitest — evita o import real (que puxa react-native).
@@ -56,6 +56,25 @@ describe('applySample (regra de gravação)', () => {
         let map: Record<string, ProgressEntry> = {}
         for (let i = 1; i <= 5; i++) map = applySample(map, entry(`movie:${i}`, 100, 3600, i), 3)
         expect(Object.keys(map).sort()).toEqual(['movie:3', 'movie:4', 'movie:5'])
+    })
+})
+
+describe('pickNextEpisode (o que assistir agora na série)', () => {
+    const eps = [{ id: 'e1' }, { id: 'e2' }, { id: 'e3' }]
+
+    it('episódio em andamento ganha (o mais recente se houver vários)', () => {
+        const progress = {
+            'episode:e1': entry('episode:e1', 100, 3600, 10),
+            'episode:e3': entry('episode:e3', 100, 3600, 99),
+        }
+        expect(pickNextEpisode(eps, new Set(), progress)?.id).toBe('e3')
+    })
+
+    it('sem andamento: primeiro não visto; tudo visto: null', () => {
+        expect(pickNextEpisode(eps, new Set(['episode:e1']), {})?.id).toBe('e2')
+        expect(pickNextEpisode(eps, new Set(), {})?.id).toBe('e1')
+        expect(pickNextEpisode(eps, new Set(['episode:e1', 'episode:e2', 'episode:e3']), {})).toBeNull()
+        expect(pickNextEpisode([], new Set(), {})).toBeNull()
     })
 })
 

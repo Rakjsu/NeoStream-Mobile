@@ -53,9 +53,26 @@ export interface Episode {
 }
 
 export interface SeriesInfo {
-    info?: { name?: string; plot?: string; cover?: string }
+    info?: {
+        name?: string
+        plot?: string
+        cover?: string
+        genre?: string
+        releaseDate?: string
+        rating?: string | number
+    }
     /** temporada ("1", "2", …) → episódios */
     episodes?: Record<string, Episode[]>
+}
+
+/** Ficha do filme (get_vod_info), já achatada pro que a tela usa. */
+export interface VodDetails {
+    plot: string
+    genre: string
+    releaseDate: string
+    rating: string
+    duration: string
+    cover: string
 }
 
 export interface Category {
@@ -165,6 +182,20 @@ export function parseExpiry(expDate: string | null | undefined): Date | null {
     return new Date(seconds * 1000)
 }
 
+/** info do get_vod_info → ficha achatada (provedores variam os campos). */
+export function parseVodDetails(data: unknown): VodDetails {
+    const info = ((data as { info?: unknown })?.info ?? {}) as Record<string, unknown>
+    const text = (value: unknown) => (typeof value === 'string' ? value.trim() : '')
+    return {
+        plot: text(info.plot) || text(info.description),
+        genre: text(info.genre),
+        releaseDate: text(info.releasedate) || text(info.release_date),
+        rating: info.rating != null && info.rating !== '' ? String(info.rating) : '',
+        duration: text(info.duration),
+        cover: text(info.movie_image) || text(info.cover_big),
+    }
+}
+
 /** Categorias válidas (id + nome), na ordem do provedor. */
 export function sanitizeCategories(data: unknown): Category[] {
     if (!Array.isArray(data)) return []
@@ -243,6 +274,10 @@ export class XtreamClient {
 
     async getSeriesInfo(seriesId: string | number): Promise<SeriesInfo> {
         return (await this.request('get_series_info', { series_id: String(seriesId) })) as SeriesInfo
+    }
+
+    async getVodDetails(vodId: string | number): Promise<VodDetails> {
+        return parseVodDetails(await this.request('get_vod_info', { vod_id: String(vodId) }))
     }
 
     async getLiveCategories(): Promise<Category[]> {

@@ -81,6 +81,28 @@ export function listContinue(map: Record<string, ProgressEntry>, kind?: Progress
         .sort((a, b) => b.updatedAt - a.updatedAt)
 }
 
+/**
+ * Próximo episódio a assistir numa lista ORDENADA: o que está no meio
+ * (mais recente) ganha; senão o primeiro ainda não visto; tudo visto → null.
+ */
+export function pickNextEpisode<T extends { id: string | number }>(
+    episodes: T[],
+    watched: Set<string>,
+    progress: Record<string, ProgressEntry>,
+): T | null {
+    let inProgress: T | null = null
+    let latest = -1
+    for (const ep of episodes) {
+        const entry = progress[buildProgressId('episode', ep.id)]
+        if (entry && entry.updatedAt > latest) {
+            inProgress = ep
+            latest = entry.updatedAt
+        }
+    }
+    if (inProgress) return inProgress
+    return episodes.find(ep => !watched.has(buildProgressId('episode', ep.id))) ?? null
+}
+
 // ------------------------------------------------------------- persistência --
 
 let cache: Record<string, ProgressEntry> | null = null
@@ -99,6 +121,8 @@ export async function loadProgress(): Promise<Record<string, ProgressEntry>> {
 
 export async function saveSample(entry: ProgressEntry): Promise<void> {
     const map = await loadProgress()
+    // Terminou (>=95%): sai do rail mas entra no histórico de vistos (✓).
+    if (isFinished(entry.position, entry.duration)) await markWatched(entry.id)
     cache = applySample(map, entry)
     try {
         await AsyncStorage.setItem(STORAGE_KEY, JSON.stringify(cache))
@@ -119,7 +143,34 @@ export async function removeEntry(id: string): Promise<void> {
     } catch { /* best-effort */ }
 }
 
+// -------------------------------------------------------- vistos (✓ na série) --
+
+const WATCHED_KEY = 'neostream_watched'
+let watchedCache: Set<string> | null = null
+
+export async function loadWatched(): Promise<Set<string>> {
+    if (watchedCache) return watchedCache
+    try {
+        const raw = await AsyncStorage.getItem(WATCHED_KEY)
+        const parsed = raw ? (JSON.parse(raw) as unknown) : []
+        watchedCache = new Set(Array.isArray(parsed) ? parsed.filter((x): x is string => typeof x === 'string') : [])
+    } catch {
+        watchedCache = new Set()
+    }
+    return watchedCache
+}
+
+export async function markWatched(id: string): Promise<void> {
+    const set = await loadWatched()
+    if (set.has(id)) return
+    set.add(id)
+    try {
+        await AsyncStorage.setItem(WATCHED_KEY, JSON.stringify([...set]))
+    } catch { /* best-effort */ }
+}
+
 /** Só pra testes/logout. */
 export function resetProgressCache(): void {
     cache = null
+    watchedCache = null
 }

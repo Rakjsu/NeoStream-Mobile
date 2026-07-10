@@ -1,7 +1,12 @@
 import { Ionicons } from '@expo/vector-icons'
-import { Stack, router, useLocalSearchParams } from 'expo-router'
-import { useEffect, useState } from 'react'
-import { SectionList, StyleSheet, Text, TouchableOpacity, View } from 'react-native'
+import { Stack, router, useFocusEffect, useLocalSearchParams } from 'expo-router'
+import { useCallback, useEffect, useState } from 'react'
+import { Image, SectionList, StyleSheet, Text, TouchableOpacity, View } from 'react-native'
+import { emptyFavorites, isFavorite, loadFavorites, persistToggle, type Favorites } from '../../services/favorites'
+import {
+    buildProgressId, loadProgress, loadWatched, pickNextEpisode,
+    progressPct, type ProgressEntry,
+} from '../../services/progress'
 import { getClient } from '../../services/session'
 import type { Episode } from '../../services/xtream'
 import { EmptyState, Loading } from '../../ui/components'
@@ -9,16 +14,23 @@ import { colors, spacing } from '../../ui/theme'
 
 interface Season {
     title: string
+    seasonNum: string
     data: Episode[]
 }
 
 export default function SeriesDetail() {
-    const { id, name } = useLocalSearchParams<{ id: string; name?: string }>()
+    const { id, name, cover } = useLocalSearchParams<{ id: string; name?: string; cover?: string }>()
     const [seasons, setSeasons] = useState<Season[] | null>(null)
+    const [plot, setPlot] = useState('')
+    const [infoCover, setInfoCover] = useState('')
+    const [favorites, setFavorites] = useState<Favorites>(emptyFavorites())
+    const [watched, setWatched] = useState<Set<string>>(new Set())
+    const [progress, setProgress] = useState<Record<string, ProgressEntry>>({})
     const [error, setError] = useState('')
 
     useEffect(() => {
         let alive = true
+        void loadFavorites().then(favs => { if (alive) setFavorites(favs) })
         void (async () => {
             try {
                 const client = await getClient()
@@ -27,8 +39,12 @@ export default function SeriesDetail() {
                 const episodes = info.episodes ?? {}
                 const list: Season[] = Object.keys(episodes)
                     .sort((a, b) => Number(a) - Number(b))
-                    .map(season => ({ title: `Temporada ${season}`, data: episodes[season] ?? [] }))
-                if (alive) setSeasons(list)
+                    .map(season => ({ title: `Temporada ${season}`, seasonNum: season, data: episodes[season] ?? [] }))
+                if (alive) {
+                    setSeasons(list)
+                    setPlot(info.info?.plot?.trim() ?? '')
+                    setInfoCover(info.info?.cover ?? '')
+                }
             } catch (err) {
                 if (alive) {
                     setError(err instanceof Error ? err.message : 'Falha ao carregar os episódios.')
@@ -39,17 +55,73 @@ export default function SeriesDetail() {
         return () => { alive = false }
     }, [id])
 
-    const play = async (episode: Episode) => {
+    // ✓ e barras de progresso atualizam quando a tela volta do player.
+    useFocusEffect(useCallback(() => {
+        queueMicrotask(() => {
+            void loadWatched().then(set => setWatched(new Set(set)))
+            void loadProgress().then(map => setProgress({ ...map }))
+        })
+    }, []))
+
+    const play = async (episode: Episode, seasonNum: string) => {
         const client = await getClient()
         if (!client) return
+        const container = episode.container_extension || 'mp4'
+        const epTitle = episode.title || `T${seasonNum}E${episode.episode_num}`
         router.push({
             pathname: '/player',
             params: {
-                url: client.seriesStreamUrl(episode.id, episode.container_extension || 'mp4'),
-                title: episode.title || `Episódio ${episode.episode_num}`,
+                url: client.seriesStreamUrl(episode.id, container),
+                // "Série · Título do ep" pro rail do Continuar fazer sentido.
+                title: name ? `${name} · ${epTitle}` : epTitle,
+                pid: buildProgressId('episode', episode.id),
+                kind: 'episode',
+                sid: String(episode.id),
+                container,
+                cover: infoCover || cover || '',
             },
         })
     }
+
+    // Próximo a assistir, na ordem das temporadas (em andamento ganha).
+    const flat = (seasons ?? []).flatMap(season => season.data.map(ep => ({ id: ep.id, ep, seasonNum: season.seasonNum })))
+    const next = pickNextEpisode(flat, watched, progress)
+
+    const fav = isFavorite(favorites, 'series', String(id))
+    const headerCover = infoCover || cover || ''
+
+    const header = (
+        <View style={styles.header}>
+            <View style={styles.hero}>
+                {headerCover ? (
+                    <Image source={{ uri: headerCover }} style={styles.cover} resizeMode="cover" />
+                ) : (
+                    <View style={[styles.cover, styles.coverFallback]}>
+                        <Ionicons name="albums-outline" size={32} color={colors.textDim} />
+                    </View>
+                )}
+                <View style={styles.heroInfo}>
+                    <Text style={styles.seriesName}>{name ?? ''}</Text>
+                    {plot ? <Text style={styles.plot} numberOfLines={5}>{plot}</Text> : null}
+                    <TouchableOpacity
+                        style={[styles.favBtn, fav && styles.favBtnOn]}
+                        onPress={() => void persistToggle('series', String(id)).then(setFavorites)}
+                    >
+                        <Ionicons name={fav ? 'heart' : 'heart-outline'} size={16} color={fav ? '#fff' : colors.danger} />
+                        <Text style={[styles.favText, fav && styles.favTextOn]}>{fav ? 'Favorita' : 'Favoritar'}</Text>
+                    </TouchableOpacity>
+                </View>
+            </View>
+            {next ? (
+                <TouchableOpacity style={styles.nextBtn} onPress={() => void play(next.ep, next.seasonNum)}>
+                    <Ionicons name="play" size={16} color="#fff" />
+                    <Text style={styles.nextText}>
+                        Continuar: T{next.seasonNum}E{next.ep.episode_num}
+                    </Text>
+                </TouchableOpacity>
+            ) : null}
+        </View>
+    )
 
     return (
         <View style={styles.root}>
@@ -60,22 +132,40 @@ export default function SeriesDetail() {
                 <SectionList
                     sections={seasons}
                     keyExtractor={item => String(item.id)}
+                    ListHeaderComponent={header}
                     ListEmptyComponent={<EmptyState icon="albums-outline" label={error || 'Nenhum episódio.'} />}
                     contentContainerStyle={seasons.length === 0 ? { flexGrow: 1 } : undefined}
                     renderSectionHeader={({ section }) => (
                         <Text style={styles.season}>{section.title}</Text>
                     )}
-                    renderItem={({ item }) => (
-                        <TouchableOpacity style={styles.row} onPress={() => void play(item)}>
-                            <View style={styles.epBadge}>
-                                <Text style={styles.epNum}>{item.episode_num}</Text>
-                            </View>
-                            <Text style={styles.epTitle} numberOfLines={1}>
-                                {item.title || `Episódio ${item.episode_num}`}
-                            </Text>
-                            <Ionicons name="play" size={18} color={colors.accent} />
-                        </TouchableOpacity>
-                    )}
+                    renderItem={({ item, section }) => {
+                        const pid = buildProgressId('episode', item.id)
+                        const seen = watched.has(pid)
+                        const entry = progress[pid]
+                        const pct = entry ? progressPct(entry.position, entry.duration) : 0
+                        return (
+                            <TouchableOpacity style={styles.row} onPress={() => void play(item, section.seasonNum)}>
+                                <View style={styles.epBadge}>
+                                    <Text style={styles.epNum}>{item.episode_num}</Text>
+                                </View>
+                                <View style={styles.epInfo}>
+                                    <Text style={[styles.epTitle, seen && styles.epTitleSeen]} numberOfLines={1}>
+                                        {item.title || `Episódio ${item.episode_num}`}
+                                    </Text>
+                                    {pct > 0 ? (
+                                        <View style={styles.epTrack}>
+                                            <View style={[styles.epFill, { width: `${pct}%` }]} />
+                                        </View>
+                                    ) : null}
+                                </View>
+                                {seen ? (
+                                    <Ionicons name="checkmark-circle" size={18} color={colors.live} />
+                                ) : (
+                                    <Ionicons name="play" size={18} color={colors.accent} />
+                                )}
+                            </TouchableOpacity>
+                        )
+                    }}
                 />
             )}
         </View>
@@ -84,6 +174,37 @@ export default function SeriesDetail() {
 
 const styles = StyleSheet.create({
     root: { flex: 1, backgroundColor: colors.bg },
+    header: { padding: spacing.lg, gap: spacing.md },
+    hero: { flexDirection: 'row', gap: spacing.lg },
+    cover: { width: 96, aspectRatio: 2 / 3, borderRadius: 10, backgroundColor: colors.card },
+    coverFallback: { alignItems: 'center', justifyContent: 'center' },
+    heroInfo: { flex: 1, gap: spacing.sm },
+    seriesName: { color: colors.text, fontSize: 18, fontWeight: '700' },
+    plot: { color: colors.textDim, fontSize: 13, lineHeight: 19 },
+    favBtn: {
+        flexDirection: 'row',
+        alignItems: 'center',
+        gap: 6,
+        alignSelf: 'flex-start',
+        borderColor: colors.danger,
+        borderWidth: 1,
+        borderRadius: 8,
+        paddingHorizontal: spacing.md,
+        paddingVertical: 6,
+    },
+    favBtnOn: { backgroundColor: colors.danger },
+    favText: { color: colors.danger, fontSize: 13, fontWeight: '600' },
+    favTextOn: { color: '#fff' },
+    nextBtn: {
+        flexDirection: 'row',
+        alignItems: 'center',
+        justifyContent: 'center',
+        gap: spacing.sm,
+        backgroundColor: colors.accent,
+        borderRadius: 10,
+        paddingVertical: 12,
+    },
+    nextText: { color: '#fff', fontSize: 15, fontWeight: '600' },
     season: {
         color: colors.textDim,
         fontSize: 13,
@@ -110,5 +231,9 @@ const styles = StyleSheet.create({
         paddingHorizontal: 6,
     },
     epNum: { color: colors.accent, fontSize: 13, fontWeight: '700' },
-    epTitle: { flex: 1, color: colors.text, fontSize: 15 },
+    epInfo: { flex: 1, gap: 4 },
+    epTitle: { color: colors.text, fontSize: 15 },
+    epTitleSeen: { color: colors.textDim },
+    epTrack: { height: 3, backgroundColor: colors.border, borderRadius: 2 },
+    epFill: { height: 3, backgroundColor: colors.accent, borderRadius: 2 },
 })

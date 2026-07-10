@@ -53,14 +53,107 @@ export interface Episode {
 }
 
 export interface SeriesInfo {
-    info?: { name?: string; plot?: string; cover?: string }
+    info?: {
+        name?: string
+        plot?: string
+        cover?: string
+        genre?: string
+        releaseDate?: string
+        rating?: string | number
+    }
     /** temporada ("1", "2", …) → episódios */
     episodes?: Record<string, Episode[]>
+}
+
+/** Ficha do filme (get_vod_info), já achatada pro que a tela usa. */
+export interface VodDetails {
+    plot: string
+    genre: string
+    releaseDate: string
+    rating: string
+    duration: string
+    cover: string
 }
 
 export interface Category {
     category_id: string
     category_name: string
+}
+
+export interface EpgProgram {
+    title: string
+    startMs: number
+    endMs: number
+}
+
+export interface NowNext {
+    now: EpgProgram | null
+    next: EpgProgram | null
+}
+
+const B64_ALPHABET = 'ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/'
+
+/**
+ * Base64 → string UTF-8 sem depender de atob/TextDecoder (Hermes não garante
+ * nenhum dos dois). Os títulos do get_short_epg vêm assim.
+ */
+export function decodeBase64Utf8(input: string): string {
+    const clean = input.replace(/[^A-Za-z0-9+/]/g, '')
+    // indexOf('') seria 0 — char ausente precisa virar -1 explicitamente.
+    const code = (ch: string | undefined) => (ch ? B64_ALPHABET.indexOf(ch) : -1)
+    const bytes: number[] = []
+    for (let i = 0; i < clean.length; i += 4) {
+        const c0 = code(clean[i])
+        const c1 = code(clean[i + 1])
+        if (c0 < 0 || c1 < 0) break
+        bytes.push((c0 << 2) | (c1 >> 4))
+        const c2 = code(clean[i + 2])
+        if (c2 < 0) break
+        bytes.push(((c1 & 15) << 4) | (c2 >> 2))
+        const c3 = code(clean[i + 3])
+        if (c3 < 0) break
+        bytes.push(((c2 & 3) << 6) | c3)
+    }
+    let out = ''
+    let i = 0
+    while (i < bytes.length) {
+        const b = bytes[i++]
+        if (b < 0x80) {
+            out += String.fromCharCode(b)
+        } else if (b < 0xe0) {
+            out += String.fromCharCode(((b & 31) << 6) | (bytes[i++] & 63))
+        } else if (b < 0xf0) {
+            out += String.fromCharCode(((b & 15) << 12) | ((bytes[i++] & 63) << 6) | (bytes[i++] & 63))
+        } else {
+            let cp = ((b & 7) << 18) | ((bytes[i++] & 63) << 12) | ((bytes[i++] & 63) << 6) | (bytes[i++] & 63)
+            cp -= 0x10000
+            out += String.fromCharCode(0xd800 + (cp >> 10), 0xdc00 + (cp & 1023))
+        }
+    }
+    return out
+}
+
+/**
+ * Resposta do get_short_epg → { agora, a seguir } pelo relógio (`nowMs`).
+ * Timestamps do Xtream são epoch em segundos; títulos em base64.
+ */
+export function parseShortEpg(data: unknown, nowMs: number): NowNext {
+    const listings = (data as { epg_listings?: unknown })?.epg_listings
+    if (!Array.isArray(listings)) return { now: null, next: null }
+    const programs: EpgProgram[] = listings
+        .map(raw => {
+            const it = (raw ?? {}) as Record<string, unknown>
+            return {
+                title: decodeBase64Utf8(String(it.title ?? '')).trim(),
+                startMs: Number(it.start_timestamp) * 1000,
+                endMs: Number(it.stop_timestamp) * 1000,
+            }
+        })
+        .filter(p => p.title !== '' && Number.isFinite(p.startMs) && Number.isFinite(p.endMs) && p.endMs > p.startMs)
+        .sort((a, b) => a.startMs - b.startMs)
+    const now = programs.find(p => p.startMs <= nowMs && nowMs < p.endMs) ?? null
+    const next = programs.find(p => p.startMs > nowMs) ?? null
+    return { now, next }
 }
 
 /** Normaliza a URL do provedor: garante esquema e remove a barra final. */
@@ -87,6 +180,30 @@ export function parseExpiry(expDate: string | null | undefined): Date | null {
     const seconds = Number(expDate)
     if (!Number.isFinite(seconds) || seconds <= 0) return null
     return new Date(seconds * 1000)
+}
+
+/** info do get_vod_info → ficha achatada (provedores variam os campos). */
+export function parseVodDetails(data: unknown): VodDetails {
+    const info = ((data as { info?: unknown })?.info ?? {}) as Record<string, unknown>
+    const text = (value: unknown) => (typeof value === 'string' ? value.trim() : '')
+    return {
+        plot: text(info.plot) || text(info.description),
+        genre: text(info.genre),
+        releaseDate: text(info.releasedate) || text(info.release_date),
+        rating: info.rating != null && info.rating !== '' ? String(info.rating) : '',
+        duration: text(info.duration),
+        cover: text(info.movie_image) || text(info.cover_big),
+    }
+}
+
+/** Categorias válidas (id + nome), na ordem do provedor. */
+export function sanitizeCategories(data: unknown): Category[] {
+    if (!Array.isArray(data)) return []
+    return data.filter((item): item is Category => {
+        const it = item as Record<string, unknown> | null
+        return !!it && typeof it.category_id === 'string' && it.category_id !== ''
+            && typeof it.category_name === 'string' && it.category_name !== ''
+    })
 }
 
 /** Filtro defensivo: só itens com id e nome viram linhas da UI. */
@@ -159,9 +276,28 @@ export class XtreamClient {
         return (await this.request('get_series_info', { series_id: String(seriesId) })) as SeriesInfo
     }
 
+    async getVodDetails(vodId: string | number): Promise<VodDetails> {
+        return parseVodDetails(await this.request('get_vod_info', { vod_id: String(vodId) }))
+    }
+
     async getLiveCategories(): Promise<Category[]> {
-        const data = await this.request('get_live_categories')
-        return Array.isArray(data) ? (data as Category[]) : []
+        return sanitizeCategories(await this.request('get_live_categories'))
+    }
+
+    async getVodCategories(): Promise<Category[]> {
+        return sanitizeCategories(await this.request('get_vod_categories'))
+    }
+
+    async getSeriesCategories(): Promise<Category[]> {
+        return sanitizeCategories(await this.request('get_series_categories'))
+    }
+
+    /** "Agora / a seguir" de um canal (busca sob demanda no guia). */
+    async getShortEpg(streamId: number | string): Promise<NowNext> {
+        return parseShortEpg(
+            await this.request('get_short_epg', { stream_id: String(streamId), limit: '4' }),
+            Date.now(),
+        )
     }
 
     /** TV ao vivo em HLS — o ExoPlayer toca .m3u8 nativamente. */

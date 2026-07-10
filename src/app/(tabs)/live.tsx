@@ -1,24 +1,44 @@
 import { Ionicons } from '@expo/vector-icons'
 import { router } from 'expo-router'
-import { useCallback, useEffect, useMemo, useState } from 'react'
-import { FlatList, Image, RefreshControl, StyleSheet, Text, TouchableOpacity, View } from 'react-native'
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
+import { FlatList, Image, RefreshControl, StyleSheet, Text, TouchableOpacity, View, type ViewToken } from 'react-native'
+import { emptyFavorites, isFavorite, persistToggle, loadFavorites, type Favorites } from '../../services/favorites'
+import { allowedCategoryIds, loadParental } from '../../services/parental'
 import { cachedFetch, getClient } from '../../services/session'
-import type { LiveChannel } from '../../services/xtream'
-import { EmptyState, Loading, SearchBar } from '../../ui/components'
+import type { Category, LiveChannel, NowNext } from '../../services/xtream'
+import { setZapContext } from '../../services/zap'
+import { CategoryChips, EmptyState, Loading, SearchBar } from '../../ui/components'
 import { colors, spacing } from '../../ui/theme'
+
+const VIEWABILITY = { itemVisiblePercentThreshold: 30 }
 
 export default function LiveTab() {
     const [channels, setChannels] = useState<LiveChannel[] | null>(null)
+    const [categories, setCategories] = useState<Category[]>([])
+    const [category, setCategory] = useState('all')
+    const [favorites, setFavorites] = useState<Favorites>(emptyFavorites())
     const [query, setQuery] = useState('')
     const [refreshing, setRefreshing] = useState(false)
     const [error, setError] = useState('')
+    const [allowed, setAllowed] = useState<Set<string> | null>(null)
+    // EPG por canal, buscado quando a linha entra na tela (nunca em massa).
+    const [epgMap, setEpgMap] = useState<Record<string, NowNext>>({})
+    const epgInFlight = useRef(new Set<string>())
 
     const load = useCallback(async (force = false) => {
         try {
             const client = await getClient()
             if (!client) { router.replace('/login'); return }
-            const list = await cachedFetch('live', () => client.getLiveChannels(), force)
+            const [list, cats, favs, parental] = await Promise.all([
+                cachedFetch('live', () => client.getLiveChannels(), force),
+                cachedFetch('live-cats', () => client.getLiveCategories(), force).catch(() => [] as Category[]),
+                loadFavorites(),
+                loadParental(),
+            ])
             setChannels(list)
+            setCategories(cats)
+            setFavorites(favs)
+            setAllowed(allowedCategoryIds(cats, parental.enabled))
             setError('')
         } catch (err) {
             setError(err instanceof Error ? err.message : 'Falha ao carregar os canais.')
@@ -29,29 +49,61 @@ export default function LiveTab() {
     useEffect(() => { queueMicrotask(() => { void load() }) }, [load])
 
     const filtered = useMemo(() => {
-        const q = query.trim().toLowerCase()
         if (!channels) return []
-        return q ? channels.filter(c => c.name.toLowerCase().includes(q)) : channels
-    }, [channels, query])
+        const q = query.trim().toLowerCase()
+        let list = channels
+        if (category === 'fav') list = list.filter(c => isFavorite(favorites, 'live', String(c.stream_id)))
+        else if (category !== 'all') list = list.filter(c => c.category_id === category)
+        if (allowed) list = list.filter(item => !item.category_id || allowed.has(item.category_id))
+        return q ? list.filter(c => c.name.toLowerCase().includes(q)) : list
+    }, [channels, query, category, favorites, allowed])
 
     const play = async (channel: LiveChannel) => {
         const client = await getClient()
         if (!client) return
+        // A lista FILTRADA vira o contexto de zapping (⏮/⏭ no player).
+        setZapContext(filtered.map(c => ({ id: String(c.stream_id), name: c.name })), String(channel.stream_id))
         router.push({
             pathname: '/player',
             params: { url: client.liveStreamUrl(channel.stream_id), title: channel.name, live: '1' },
         })
     }
 
+    const toggleFav = (channel: LiveChannel) => {
+        void persistToggle('live', String(channel.stream_id)).then(setFavorites)
+    }
+
+    // Linhas visíveis pedem o "agora/a seguir" (cache por sessão + dedupe).
+    // useCallback([]) mantém a referência estável, exigência do FlatList.
+    const onViewableItemsChanged = useCallback(({ viewableItems }: { viewableItems: ViewToken[] }) => {
+        for (const token of viewableItems) {
+            const channel = token.item as LiveChannel | null
+            if (!channel?.stream_id) continue
+            const id = String(channel.stream_id)
+            if (epgInFlight.current.has(id)) continue
+            epgInFlight.current.add(id)
+            void (async () => {
+                const client = await getClient()
+                if (!client) return
+                const nowNext = await cachedFetch(`epg:${id}`, () => client.getShortEpg(id))
+                    .catch(() => null)
+                if (nowNext) setEpgMap(prev => ({ ...prev, [id]: nowNext }))
+            })()
+        }
+    }, [])
+
     if (channels === null) return <Loading label="Carregando canais…" />
 
     return (
         <View style={styles.root}>
             <SearchBar value={query} onChange={setQuery} placeholder="Buscar canal…" />
+            <CategoryChips categories={allowed ? categories.filter(c => allowed.has(c.category_id)) : categories} selected={category} onSelect={setCategory} />
             {error ? <Text style={styles.error}>{error}</Text> : null}
             <FlatList
                 data={filtered}
                 keyExtractor={item => String(item.stream_id)}
+                onViewableItemsChanged={onViewableItemsChanged}
+                viewabilityConfig={VIEWABILITY}
                 refreshControl={
                     <RefreshControl
                         refreshing={refreshing}
@@ -62,21 +114,45 @@ export default function LiveTab() {
                         }}
                     />
                 }
-                ListEmptyComponent={<EmptyState icon="tv-outline" label={query ? 'Nenhum canal encontrado.' : 'Nenhum canal na lista.'} />}
+                ListEmptyComponent={
+                    <EmptyState
+                        icon="tv-outline"
+                        label={category === 'fav' ? 'Nenhum canal favorito ainda — toque no ❤ de um canal.' : query ? 'Nenhum canal encontrado.' : 'Nenhum canal na lista.'}
+                    />
+                }
                 contentContainerStyle={filtered.length === 0 ? { flexGrow: 1 } : undefined}
-                renderItem={({ item }) => (
-                    <TouchableOpacity style={styles.row} onPress={() => void play(item)}>
-                        {item.stream_icon ? (
-                            <Image source={{ uri: item.stream_icon }} style={styles.logo} resizeMode="contain" />
-                        ) : (
-                            <View style={[styles.logo, styles.logoFallback]}>
-                                <Ionicons name="tv-outline" size={18} color={colors.textDim} />
+                renderItem={({ item }) => {
+                    const fav = isFavorite(favorites, 'live', String(item.stream_id))
+                    const epg = epgMap[String(item.stream_id)]
+                    const epgLine = epg?.now
+                        ? `${epg.now.title}${epg.next ? `  ·  A seguir: ${epg.next.title}` : ''}`
+                        : epg?.next
+                            ? `A seguir: ${epg.next.title}`
+                            : ''
+                    return (
+                        <TouchableOpacity style={styles.row} onPress={() => void play(item)}>
+                            {item.stream_icon ? (
+                                <Image source={{ uri: item.stream_icon }} style={styles.logo} resizeMode="contain" />
+                            ) : (
+                                <View style={[styles.logo, styles.logoFallback]}>
+                                    <Ionicons name="tv-outline" size={18} color={colors.textDim} />
+                                </View>
+                            )}
+                            <View style={styles.nameBlock}>
+                                <Text style={styles.name} numberOfLines={1}>{item.name}</Text>
+                                {epgLine ? <Text style={styles.epg} numberOfLines={1}>{epgLine}</Text> : null}
                             </View>
-                        )}
-                        <Text style={styles.name} numberOfLines={1}>{item.name}</Text>
-                        <Ionicons name="play" size={18} color={colors.accent} />
-                    </TouchableOpacity>
-                )}
+                            <TouchableOpacity style={styles.favBtn} onPress={() => toggleFav(item)}>
+                                <Ionicons
+                                    name={fav ? 'heart' : 'heart-outline'}
+                                    size={20}
+                                    color={fav ? colors.danger : colors.textDim}
+                                />
+                            </TouchableOpacity>
+                            <Ionicons name="play" size={18} color={colors.accent} />
+                        </TouchableOpacity>
+                    )
+                }}
             />
         </View>
     )
@@ -96,5 +172,8 @@ const styles = StyleSheet.create({
     },
     logo: { width: 42, height: 42, borderRadius: 8, backgroundColor: colors.card },
     logoFallback: { alignItems: 'center', justifyContent: 'center' },
-    name: { flex: 1, color: colors.text, fontSize: 15 },
+    nameBlock: { flex: 1, gap: 1 },
+    name: { color: colors.text, fontSize: 15 },
+    epg: { color: colors.textDim, fontSize: 12 },
+    favBtn: { padding: spacing.xs },
 })

@@ -6,6 +6,7 @@ import {
     parseExpiry,
     parseShortEpg,
     parseVodDetails,
+    youtubeUrl,
     sanitizeCategories,
     sanitizeList,
     XtreamClient,
@@ -114,6 +115,7 @@ describe('parseVodDetails (ficha do get_vod_info)', () => {
         expect(details).toEqual({
             plot: 'Um filme.', genre: 'Ação', releaseDate: '2024-03-01',
             rating: '7.8', duration: '01:58:00', cover: 'http://img/x.jpg',
+            trailer: '', cast: '', director: '',
         })
         // Variante: description/release_date/cover_big.
         const alt = parseVodDetails({ info: { description: 'Alt', release_date: '2020', cover_big: 'http://img/b.jpg' } })
@@ -123,6 +125,23 @@ describe('parseVodDetails (ficha do get_vod_info)', () => {
         // Lixo → tudo vazio, nada explode.
         expect(parseVodDetails(null).plot).toBe('')
         expect(parseVodDetails({ info: { rating: '' } }).rating).toBe('')
+    })
+})
+
+describe('youtubeUrl (trailer da ficha)', () => {
+    it('id vira watch?v=; URL completa passa direto; vazio fica vazio', () => {
+        expect(youtubeUrl('dQw4w9WgXcQ')).toBe('https://www.youtube.com/watch?v=dQw4w9WgXcQ')
+        expect(youtubeUrl('https://youtu.be/abc')).toBe('https://youtu.be/abc')
+        expect(youtubeUrl('  ')).toBe('')
+    })
+
+    it('parseVodDetails preenche trailer/elenco/direção', () => {
+        const details = parseVodDetails({ info: { youtube_trailer: 'xyz', cast: 'Fulano, Beltrana', director: 'Cicrano' } })
+        expect(details.trailer).toBe('https://www.youtube.com/watch?v=xyz')
+        expect(details.cast).toBe('Fulano, Beltrana')
+        expect(details.director).toBe('Cicrano')
+        // Variante "actors".
+        expect(parseVodDetails({ info: { actors: 'Só Ele' } }).cast).toBe('Só Ele')
     })
 })
 

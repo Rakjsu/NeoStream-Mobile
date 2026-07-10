@@ -1,7 +1,7 @@
 import { Ionicons } from '@expo/vector-icons'
 import { Stack, router, useLocalSearchParams } from 'expo-router'
 import { useEffect, useState } from 'react'
-import { Image, ScrollView, StyleSheet, Text, TouchableOpacity, View } from 'react-native'
+import { Image, Linking, ScrollView, StyleSheet, Text, TouchableOpacity, View } from 'react-native'
 import { emptyFavorites, isFavorite, loadFavorites, persistToggle, type Favorites } from '../../services/favorites'
 import { buildProgressId, getEntry, progressPct, resumePosition } from '../../services/progress'
 import { getClient } from '../../services/session'
@@ -98,6 +98,13 @@ export default function MovieDetail() {
                 </TouchableOpacity>
             </View>
 
+            {details?.trailer ? (
+                <TouchableOpacity style={styles.trailerBtn} onPress={() => void Linking.openURL(details.trailer)}>
+                    <Ionicons name="logo-youtube" size={18} color={colors.text} />
+                    <Text style={styles.trailerText}>Assistir trailer</Text>
+                </TouchableOpacity>
+            ) : null}
+
             {details === null ? (
                 <Text style={styles.plotDim}>Carregando detalhes…</Text>
             ) : details.plot ? (
@@ -105,6 +112,9 @@ export default function MovieDetail() {
             ) : (
                 <Text style={styles.plotDim}>Sem sinopse disponível.</Text>
             )}
+
+            {details?.cast ? <Text style={styles.credits}><Text style={styles.creditsLabel}>Elenco: </Text>{details.cast}</Text> : null}
+            {details?.director ? <Text style={styles.credits}><Text style={styles.creditsLabel}>Direção: </Text>{details.director}</Text> : null}
         </ScrollView>
     )
 }
@@ -143,4 +153,17 @@ const styles = StyleSheet.create({
     favBtnOn: { backgroundColor: colors.danger },
     plot: { color: colors.text, fontSize: 14, lineHeight: 21 },
     plotDim: { color: colors.textDim, fontSize: 14 },
+    trailerBtn: {
+        flexDirection: 'row',
+        alignItems: 'center',
+        justifyContent: 'center',
+        gap: spacing.sm,
+        borderColor: colors.border,
+        borderWidth: 1,
+        borderRadius: 10,
+        paddingVertical: 11,
+    },
+    trailerText: { color: colors.text, fontSize: 14, fontWeight: '600' },
+    credits: { color: colors.textDim, fontSize: 13, lineHeight: 19 },
+    creditsLabel: { color: colors.text, fontWeight: '600' },
 })

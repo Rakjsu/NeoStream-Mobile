@@ -77,6 +77,10 @@ export interface VodDetails {
     rating: string
     duration: string
     cover: string
+    /** URL completa do trailer no YouTube ('' quando não tem). */
+    trailer: string
+    cast: string
+    director: string
 }
 
 export interface Category {
@@ -197,7 +201,18 @@ export function parseVodDetails(data: unknown): VodDetails {
         rating: info.rating != null && info.rating !== '' ? String(info.rating) : '',
         duration: text(info.duration),
         cover: text(info.movie_image) || text(info.cover_big),
+        trailer: youtubeUrl(text(info.youtube_trailer) || text(info.trailer)),
+        cast: text(info.cast) || text(info.actors),
+        director: text(info.director),
     }
+}
+
+/** youtube_trailer vem ora como id ora como URL completa. */
+export function youtubeUrl(trailer: string): string {
+    const t = trailer.trim()
+    if (!t) return ''
+    if (/^https?:\/\//i.test(t)) return t
+    return `https://www.youtube.com/watch?v=${t}`
 }
 
 /** Categorias válidas (id + nome), na ordem do provedor. */

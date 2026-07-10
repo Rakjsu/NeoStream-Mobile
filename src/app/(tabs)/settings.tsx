@@ -2,7 +2,8 @@ import { Ionicons } from '@expo/vector-icons'
 import Constants from 'expo-constants'
 import { router, useFocusEffect } from 'expo-router'
 import { useCallback, useState } from 'react'
-import { Alert, ScrollView, StyleSheet, Text, TouchableOpacity, View } from 'react-native'
+import { Alert, ScrollView, StyleSheet, Text, TextInput, TouchableOpacity, View } from 'react-native'
+import { disableParental, enableParental, isValidPin, loadParental } from '../../services/parental'
 import {
     accountLabel, listAccounts, loadAccount, removeAccount, switchAccount,
     type StoredAccount,
@@ -22,10 +23,14 @@ function InfoRow({ label, value }: { label: string; value: string }) {
 export default function SettingsTab() {
     const [accounts, setAccounts] = useState<StoredAccount[]>([])
     const [active, setActive] = useState<StoredAccount | null>(null)
+    const [parentalOn, setParentalOn] = useState(false)
+    const [pin, setPin] = useState('')
+    const [pinError, setPinError] = useState('')
 
     const refresh = useCallback(() => {
         void listAccounts().then(setAccounts)
         void loadAccount().then(setActive)
+        void loadParental().then(state => setParentalOn(state.enabled))
     }, [])
 
     useFocusEffect(useCallback(() => { queueMicrotask(refresh) }, [refresh]))
@@ -102,6 +107,43 @@ export default function SettingsTab() {
                 />
             </View>
 
+            <Text style={styles.section}>Controle parental</Text>
+            <View style={[styles.card, { paddingVertical: spacing.md, gap: spacing.md }]}>
+                <Text style={styles.parentalHint}>
+                    {parentalOn
+                        ? 'Conteúdo adulto oculto. Digite o PIN pra desativar.'
+                        : 'Oculta categorias adultas das abas e da busca, protegido por PIN de 4 dígitos.'}
+                </Text>
+                <View style={styles.pinRow}>
+                    <TextInput
+                        style={styles.pinInput}
+                        value={pin}
+                        onChangeText={text => { setPin(text.replace(/[^0-9]/g, '')); setPinError('') }}
+                        placeholder="PIN (4 dígitos)"
+                        placeholderTextColor={colors.textDim}
+                        keyboardType="number-pad"
+                        secureTextEntry
+                        maxLength={4}
+                    />
+                    <TouchableOpacity
+                        style={[styles.parentalBtn, parentalOn && styles.parentalBtnOff]}
+                        onPress={() => {
+                            void (async () => {
+                                if (!isValidPin(pin)) { setPinError('O PIN tem 4 dígitos.'); return }
+                                const ok = parentalOn ? await disableParental(pin) : await enableParental(pin)
+                                if (!ok) { setPinError('PIN incorreto.'); return }
+                                setPin('')
+                                // Recarrega as abas já com (ou sem) o filtro.
+                                router.replace('/')
+                            })()
+                        }}
+                    >
+                        <Text style={styles.parentalBtnText}>{parentalOn ? 'Desativar' : 'Ativar'}</Text>
+                    </TouchableOpacity>
+                </View>
+                {pinError ? <Text style={styles.pinError}>{pinError}</Text> : null}
+            </View>
+
             <Text style={styles.version}>
                 NeoStream Mobile v{Constants.expoConfig?.version ?? '?'}
             </Text>
@@ -142,4 +184,27 @@ const styles = StyleSheet.create({
     infoLabel: { color: colors.textDim, fontSize: 14 },
     infoValue: { color: colors.text, fontSize: 14, flexShrink: 1 },
     version: { color: colors.textDim, fontSize: 12, textAlign: 'center', marginTop: spacing.xl },
+    parentalHint: { color: colors.textDim, fontSize: 13, lineHeight: 18 },
+    pinRow: { flexDirection: 'row', gap: spacing.md },
+    pinInput: {
+        flex: 1,
+        backgroundColor: colors.bg,
+        borderColor: colors.border,
+        borderWidth: 1,
+        borderRadius: 8,
+        color: colors.text,
+        paddingHorizontal: spacing.md,
+        paddingVertical: 8,
+        fontSize: 15,
+        letterSpacing: 4,
+    },
+    parentalBtn: {
+        backgroundColor: colors.accent,
+        borderRadius: 8,
+        paddingHorizontal: spacing.lg,
+        justifyContent: 'center',
+    },
+    parentalBtnOff: { backgroundColor: colors.danger },
+    parentalBtnText: { color: '#fff', fontSize: 14, fontWeight: '600' },
+    pinError: { color: colors.danger, fontSize: 13 },
 })

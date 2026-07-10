@@ -3,6 +3,7 @@ import { router } from 'expo-router'
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { FlatList, Image, RefreshControl, StyleSheet, Text, TouchableOpacity, View, type ViewToken } from 'react-native'
 import { emptyFavorites, isFavorite, persistToggle, loadFavorites, type Favorites } from '../../services/favorites'
+import { allowedCategoryIds, loadParental } from '../../services/parental'
 import { cachedFetch, getClient } from '../../services/session'
 import type { Category, LiveChannel, NowNext } from '../../services/xtream'
 import { setZapContext } from '../../services/zap'
@@ -19,6 +20,7 @@ export default function LiveTab() {
     const [query, setQuery] = useState('')
     const [refreshing, setRefreshing] = useState(false)
     const [error, setError] = useState('')
+    const [allowed, setAllowed] = useState<Set<string> | null>(null)
     // EPG por canal, buscado quando a linha entra na tela (nunca em massa).
     const [epgMap, setEpgMap] = useState<Record<string, NowNext>>({})
     const epgInFlight = useRef(new Set<string>())
@@ -27,14 +29,16 @@ export default function LiveTab() {
         try {
             const client = await getClient()
             if (!client) { router.replace('/login'); return }
-            const [list, cats, favs] = await Promise.all([
+            const [list, cats, favs, parental] = await Promise.all([
                 cachedFetch('live', () => client.getLiveChannels(), force),
                 cachedFetch('live-cats', () => client.getLiveCategories(), force).catch(() => [] as Category[]),
                 loadFavorites(),
+                loadParental(),
             ])
             setChannels(list)
             setCategories(cats)
             setFavorites(favs)
+            setAllowed(allowedCategoryIds(cats, parental.enabled))
             setError('')
         } catch (err) {
             setError(err instanceof Error ? err.message : 'Falha ao carregar os canais.')
@@ -50,8 +54,9 @@ export default function LiveTab() {
         let list = channels
         if (category === 'fav') list = list.filter(c => isFavorite(favorites, 'live', String(c.stream_id)))
         else if (category !== 'all') list = list.filter(c => c.category_id === category)
+        if (allowed) list = list.filter(item => !item.category_id || allowed.has(item.category_id))
         return q ? list.filter(c => c.name.toLowerCase().includes(q)) : list
-    }, [channels, query, category, favorites])
+    }, [channels, query, category, favorites, allowed])
 
     const play = async (channel: LiveChannel) => {
         const client = await getClient()
@@ -92,7 +97,7 @@ export default function LiveTab() {
     return (
         <View style={styles.root}>
             <SearchBar value={query} onChange={setQuery} placeholder="Buscar canal…" />
-            <CategoryChips categories={categories} selected={category} onSelect={setCategory} />
+            <CategoryChips categories={allowed ? categories.filter(c => allowed.has(c.category_id)) : categories} selected={category} onSelect={setCategory} />
             {error ? <Text style={styles.error}>{error}</Text> : null}
             <FlatList
                 data={filtered}

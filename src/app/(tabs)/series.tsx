@@ -3,6 +3,7 @@ import { useCallback, useEffect, useMemo, useState } from 'react'
 import { FlatList, RefreshControl, StyleSheet, Text, TouchableOpacity, View } from 'react-native'
 import { emptyFavorites, isFavorite, loadFavorites, persistToggle, type Favorites } from '../../services/favorites'
 import { listContinue, loadProgress, type ProgressEntry } from '../../services/progress'
+import { allowedCategoryIds, loadParental } from '../../services/parental'
 import { cachedFetch, getClient } from '../../services/session'
 import type { Category, SeriesItem } from '../../services/xtream'
 import { CategoryChips, ContinueRail, EmptyState, Loading, PosterCard, SearchBar } from '../../ui/components'
@@ -17,19 +18,22 @@ export default function SeriesTab() {
     const [query, setQuery] = useState('')
     const [refreshing, setRefreshing] = useState(false)
     const [error, setError] = useState('')
+    const [allowed, setAllowed] = useState<Set<string> | null>(null)
 
     const load = useCallback(async (force = false) => {
         try {
             const client = await getClient()
             if (!client) { router.replace('/login'); return }
-            const [list, cats, favs] = await Promise.all([
+            const [list, cats, favs, parental] = await Promise.all([
                 cachedFetch('series', () => client.getSeries(), force),
                 cachedFetch('series-cats', () => client.getSeriesCategories(), force).catch(() => [] as Category[]),
                 loadFavorites(),
+                loadParental(),
             ])
             setSeries(list)
             setCategories(cats)
             setFavorites(favs)
+            setAllowed(allowedCategoryIds(cats, parental.enabled))
             setError('')
         } catch (err) {
             setError(err instanceof Error ? err.message : 'Falha ao carregar as séries.')
@@ -52,8 +56,9 @@ export default function SeriesTab() {
         let list = series
         if (category === 'fav') list = list.filter(s => isFavorite(favorites, 'series', String(s.series_id)))
         else if (category !== 'all') list = list.filter(s => s.category_id === category)
+        if (allowed) list = list.filter(item => !item.category_id || allowed.has(item.category_id))
         return q ? list.filter(s => s.name.toLowerCase().includes(q)) : list
-    }, [series, query, category, favorites])
+    }, [series, query, category, favorites, allowed])
 
     const resume = async (entry: ProgressEntry) => {
         const client = await getClient()
@@ -77,7 +82,7 @@ export default function SeriesTab() {
     return (
         <View style={styles.root}>
             <SearchBar value={query} onChange={setQuery} placeholder="Buscar série…" />
-            <CategoryChips categories={categories} selected={category} onSelect={setCategory} />
+            <CategoryChips categories={allowed ? categories.filter(c => allowed.has(c.category_id)) : categories} selected={category} onSelect={setCategory} />
             {error ? <Text style={styles.error}>{error}</Text> : null}
             <FlatList
                 data={filtered}

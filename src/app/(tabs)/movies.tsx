@@ -3,6 +3,7 @@ import { useCallback, useEffect, useMemo, useState } from 'react'
 import { FlatList, RefreshControl, StyleSheet, Text, TouchableOpacity, View } from 'react-native'
 import { emptyFavorites, isFavorite, loadFavorites, persistToggle, type Favorites } from '../../services/favorites'
 import { listContinue, loadProgress, type ProgressEntry } from '../../services/progress'
+import { allowedCategoryIds, loadParental } from '../../services/parental'
 import { cachedFetch, getClient } from '../../services/session'
 import type { Category, VodMovie } from '../../services/xtream'
 import { CategoryChips, ContinueRail, EmptyState, Loading, PosterCard, SearchBar } from '../../ui/components'
@@ -17,19 +18,22 @@ export default function MoviesTab() {
     const [query, setQuery] = useState('')
     const [refreshing, setRefreshing] = useState(false)
     const [error, setError] = useState('')
+    const [allowed, setAllowed] = useState<Set<string> | null>(null)
 
     const load = useCallback(async (force = false) => {
         try {
             const client = await getClient()
             if (!client) { router.replace('/login'); return }
-            const [list, cats, favs] = await Promise.all([
+            const [list, cats, favs, parental] = await Promise.all([
                 cachedFetch('vod', () => client.getVodMovies(), force),
                 cachedFetch('vod-cats', () => client.getVodCategories(), force).catch(() => [] as Category[]),
                 loadFavorites(),
+                loadParental(),
             ])
             setMovies(list)
             setCategories(cats)
             setFavorites(favs)
+            setAllowed(allowedCategoryIds(cats, parental.enabled))
             setError('')
         } catch (err) {
             setError(err instanceof Error ? err.message : 'Falha ao carregar os filmes.')
@@ -52,8 +56,9 @@ export default function MoviesTab() {
         let list = movies
         if (category === 'fav') list = list.filter(m => isFavorite(favorites, 'movie', String(m.stream_id)))
         else if (category !== 'all') list = list.filter(m => m.category_id === category)
+        if (allowed) list = list.filter(item => !item.category_id || allowed.has(item.category_id))
         return q ? list.filter(m => m.name.toLowerCase().includes(q)) : list
-    }, [movies, query, category, favorites])
+    }, [movies, query, category, favorites, allowed])
 
     // Tocar abre a FICHA (sinopse + play); o rail continua indo direto pro player.
     const openDetails = (movie: VodMovie) => {
@@ -90,7 +95,7 @@ export default function MoviesTab() {
     return (
         <View style={styles.root}>
             <SearchBar value={query} onChange={setQuery} placeholder="Buscar filme…" />
-            <CategoryChips categories={categories} selected={category} onSelect={setCategory} />
+            <CategoryChips categories={allowed ? categories.filter(c => allowed.has(c.category_id)) : categories} selected={category} onSelect={setCategory} />
             {error ? <Text style={styles.error}>{error}</Text> : null}
             <FlatList
                 data={filtered}

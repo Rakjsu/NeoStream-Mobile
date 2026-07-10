@@ -63,6 +63,82 @@ export interface Category {
     category_name: string
 }
 
+export interface EpgProgram {
+    title: string
+    startMs: number
+    endMs: number
+}
+
+export interface NowNext {
+    now: EpgProgram | null
+    next: EpgProgram | null
+}
+
+const B64_ALPHABET = 'ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/'
+
+/**
+ * Base64 → string UTF-8 sem depender de atob/TextDecoder (Hermes não garante
+ * nenhum dos dois). Os títulos do get_short_epg vêm assim.
+ */
+export function decodeBase64Utf8(input: string): string {
+    const clean = input.replace(/[^A-Za-z0-9+/]/g, '')
+    // indexOf('') seria 0 — char ausente precisa virar -1 explicitamente.
+    const code = (ch: string | undefined) => (ch ? B64_ALPHABET.indexOf(ch) : -1)
+    const bytes: number[] = []
+    for (let i = 0; i < clean.length; i += 4) {
+        const c0 = code(clean[i])
+        const c1 = code(clean[i + 1])
+        if (c0 < 0 || c1 < 0) break
+        bytes.push((c0 << 2) | (c1 >> 4))
+        const c2 = code(clean[i + 2])
+        if (c2 < 0) break
+        bytes.push(((c1 & 15) << 4) | (c2 >> 2))
+        const c3 = code(clean[i + 3])
+        if (c3 < 0) break
+        bytes.push(((c2 & 3) << 6) | c3)
+    }
+    let out = ''
+    let i = 0
+    while (i < bytes.length) {
+        const b = bytes[i++]
+        if (b < 0x80) {
+            out += String.fromCharCode(b)
+        } else if (b < 0xe0) {
+            out += String.fromCharCode(((b & 31) << 6) | (bytes[i++] & 63))
+        } else if (b < 0xf0) {
+            out += String.fromCharCode(((b & 15) << 12) | ((bytes[i++] & 63) << 6) | (bytes[i++] & 63))
+        } else {
+            let cp = ((b & 7) << 18) | ((bytes[i++] & 63) << 12) | ((bytes[i++] & 63) << 6) | (bytes[i++] & 63)
+            cp -= 0x10000
+            out += String.fromCharCode(0xd800 + (cp >> 10), 0xdc00 + (cp & 1023))
+        }
+    }
+    return out
+}
+
+/**
+ * Resposta do get_short_epg → { agora, a seguir } pelo relógio (`nowMs`).
+ * Timestamps do Xtream são epoch em segundos; títulos em base64.
+ */
+export function parseShortEpg(data: unknown, nowMs: number): NowNext {
+    const listings = (data as { epg_listings?: unknown })?.epg_listings
+    if (!Array.isArray(listings)) return { now: null, next: null }
+    const programs: EpgProgram[] = listings
+        .map(raw => {
+            const it = (raw ?? {}) as Record<string, unknown>
+            return {
+                title: decodeBase64Utf8(String(it.title ?? '')).trim(),
+                startMs: Number(it.start_timestamp) * 1000,
+                endMs: Number(it.stop_timestamp) * 1000,
+            }
+        })
+        .filter(p => p.title !== '' && Number.isFinite(p.startMs) && Number.isFinite(p.endMs) && p.endMs > p.startMs)
+        .sort((a, b) => a.startMs - b.startMs)
+    const now = programs.find(p => p.startMs <= nowMs && nowMs < p.endMs) ?? null
+    const next = programs.find(p => p.startMs > nowMs) ?? null
+    return { now, next }
+}
+
 /** Normaliza a URL do provedor: garante esquema e remove a barra final. */
 export function normalizeBaseUrl(raw: string): string {
     let url = raw.trim()
@@ -179,6 +255,14 @@ export class XtreamClient {
 
     async getSeriesCategories(): Promise<Category[]> {
         return sanitizeCategories(await this.request('get_series_categories'))
+    }
+
+    /** "Agora / a seguir" de um canal (busca sob demanda no guia). */
+    async getShortEpg(streamId: number | string): Promise<NowNext> {
+        return parseShortEpg(
+            await this.request('get_short_epg', { stream_id: String(streamId), limit: '4' }),
+            Date.now(),
+        )
     }
 
     /** TV ao vivo em HLS — o ExoPlayer toca .m3u8 nativamente. */

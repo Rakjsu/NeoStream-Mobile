@@ -1,10 +1,10 @@
 import { Ionicons } from '@expo/vector-icons'
 import { router } from 'expo-router'
-import { useCallback, useEffect, useMemo, useState } from 'react'
-import { FlatList, Image, RefreshControl, StyleSheet, Text, TouchableOpacity, View } from 'react-native'
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
+import { FlatList, Image, RefreshControl, StyleSheet, Text, TouchableOpacity, View, type ViewToken } from 'react-native'
 import { emptyFavorites, isFavorite, persistToggle, loadFavorites, type Favorites } from '../../services/favorites'
 import { cachedFetch, getClient } from '../../services/session'
-import type { Category, LiveChannel } from '../../services/xtream'
+import type { Category, LiveChannel, NowNext } from '../../services/xtream'
 import { CategoryChips, EmptyState, Loading, SearchBar } from '../../ui/components'
 import { colors, spacing } from '../../ui/theme'
 
@@ -16,6 +16,9 @@ export default function LiveTab() {
     const [query, setQuery] = useState('')
     const [refreshing, setRefreshing] = useState(false)
     const [error, setError] = useState('')
+    // EPG por canal, buscado quando a linha entra na tela (nunca em massa).
+    const [epgMap, setEpgMap] = useState<Record<string, NowNext>>({})
+    const epgInFlight = useRef(new Set<string>())
 
     const load = useCallback(async (force = false) => {
         try {
@@ -60,6 +63,25 @@ export default function LiveTab() {
         void persistToggle('live', String(channel.stream_id)).then(setFavorites)
     }
 
+    // Linhas visíveis pedem o "agora/a seguir" (cache por sessão + dedupe).
+    const onViewableItemsChanged = useRef(({ viewableItems }: { viewableItems: ViewToken[] }) => {
+        for (const token of viewableItems) {
+            const channel = token.item as LiveChannel | null
+            if (!channel?.stream_id) continue
+            const id = String(channel.stream_id)
+            if (epgInFlight.current.has(id)) continue
+            epgInFlight.current.add(id)
+            void (async () => {
+                const client = await getClient()
+                if (!client) return
+                const nowNext = await cachedFetch(`epg:${id}`, () => client.getShortEpg(id))
+                    .catch(() => null)
+                if (nowNext) setEpgMap(prev => ({ ...prev, [id]: nowNext }))
+            })()
+        }
+    })
+    const viewabilityConfig = useRef({ itemVisiblePercentThreshold: 30 })
+
     if (channels === null) return <Loading label="Carregando canais…" />
 
     return (
@@ -70,6 +92,8 @@ export default function LiveTab() {
             <FlatList
                 data={filtered}
                 keyExtractor={item => String(item.stream_id)}
+                onViewableItemsChanged={onViewableItemsChanged.current}
+                viewabilityConfig={viewabilityConfig.current}
                 refreshControl={
                     <RefreshControl
                         refreshing={refreshing}
@@ -89,6 +113,12 @@ export default function LiveTab() {
                 contentContainerStyle={filtered.length === 0 ? { flexGrow: 1 } : undefined}
                 renderItem={({ item }) => {
                     const fav = isFavorite(favorites, 'live', String(item.stream_id))
+                    const epg = epgMap[String(item.stream_id)]
+                    const epgLine = epg?.now
+                        ? `${epg.now.title}${epg.next ? `  ·  A seguir: ${epg.next.title}` : ''}`
+                        : epg?.next
+                            ? `A seguir: ${epg.next.title}`
+                            : ''
                     return (
                         <TouchableOpacity style={styles.row} onPress={() => void play(item)}>
                             {item.stream_icon ? (
@@ -98,7 +128,10 @@ export default function LiveTab() {
                                     <Ionicons name="tv-outline" size={18} color={colors.textDim} />
                                 </View>
                             )}
-                            <Text style={styles.name} numberOfLines={1}>{item.name}</Text>
+                            <View style={styles.nameBlock}>
+                                <Text style={styles.name} numberOfLines={1}>{item.name}</Text>
+                                {epgLine ? <Text style={styles.epg} numberOfLines={1}>{epgLine}</Text> : null}
+                            </View>
                             <TouchableOpacity style={styles.favBtn} onPress={() => toggleFav(item)}>
                                 <Ionicons
                                     name={fav ? 'heart' : 'heart-outline'}
@@ -129,6 +162,8 @@ const styles = StyleSheet.create({
     },
     logo: { width: 42, height: 42, borderRadius: 8, backgroundColor: colors.card },
     logoFallback: { alignItems: 'center', justifyContent: 'center' },
-    name: { flex: 1, color: colors.text, fontSize: 15 },
+    nameBlock: { flex: 1, gap: 1 },
+    name: { color: colors.text, fontSize: 15 },
+    epg: { color: colors.textDim, fontSize: 12 },
     favBtn: { padding: spacing.xs },
 })

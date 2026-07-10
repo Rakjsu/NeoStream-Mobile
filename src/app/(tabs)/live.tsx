@@ -8,6 +8,8 @@ import type { Category, LiveChannel, NowNext } from '../../services/xtream'
 import { CategoryChips, EmptyState, Loading, SearchBar } from '../../ui/components'
 import { colors, spacing } from '../../ui/theme'
 
+const VIEWABILITY = { itemVisiblePercentThreshold: 30 }
+
 export default function LiveTab() {
     const [channels, setChannels] = useState<LiveChannel[] | null>(null)
     const [categories, setCategories] = useState<Category[]>([])
@@ -64,7 +66,8 @@ export default function LiveTab() {
     }
 
     // Linhas visíveis pedem o "agora/a seguir" (cache por sessão + dedupe).
-    const onViewableItemsChanged = useRef(({ viewableItems }: { viewableItems: ViewToken[] }) => {
+    // useCallback([]) mantém a referência estável, exigência do FlatList.
+    const onViewableItemsChanged = useCallback(({ viewableItems }: { viewableItems: ViewToken[] }) => {
         for (const token of viewableItems) {
             const channel = token.item as LiveChannel | null
             if (!channel?.stream_id) continue
@@ -79,8 +82,7 @@ export default function LiveTab() {
                 if (nowNext) setEpgMap(prev => ({ ...prev, [id]: nowNext }))
             })()
         }
-    })
-    const viewabilityConfig = useRef({ itemVisiblePercentThreshold: 30 })
+    }, [])
 
     if (channels === null) return <Loading label="Carregando canais…" />
 
@@ -92,8 +94,8 @@ export default function LiveTab() {
             <FlatList
                 data={filtered}
                 keyExtractor={item => String(item.stream_id)}
-                onViewableItemsChanged={onViewableItemsChanged.current}
-                viewabilityConfig={viewabilityConfig.current}
+                onViewableItemsChanged={onViewableItemsChanged}
+                viewabilityConfig={VIEWABILITY}
                 refreshControl={
                     <RefreshControl
                         refreshing={refreshing}

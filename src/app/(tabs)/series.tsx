@@ -1,13 +1,19 @@
-import { router } from 'expo-router'
+import { router, useFocusEffect } from 'expo-router'
 import { useCallback, useEffect, useMemo, useState } from 'react'
 import { FlatList, RefreshControl, StyleSheet, Text, TouchableOpacity, View } from 'react-native'
+import { emptyFavorites, isFavorite, loadFavorites, persistToggle, type Favorites } from '../../services/favorites'
+import { listContinue, loadProgress, type ProgressEntry } from '../../services/progress'
 import { cachedFetch, getClient } from '../../services/session'
-import type { SeriesItem } from '../../services/xtream'
-import { EmptyState, Loading, PosterCard, SearchBar } from '../../ui/components'
+import type { Category, SeriesItem } from '../../services/xtream'
+import { CategoryChips, ContinueRail, EmptyState, Loading, PosterCard, SearchBar } from '../../ui/components'
 import { colors, spacing } from '../../ui/theme'
 
 export default function SeriesTab() {
     const [series, setSeries] = useState<SeriesItem[] | null>(null)
+    const [categories, setCategories] = useState<Category[]>([])
+    const [category, setCategory] = useState('all')
+    const [favorites, setFavorites] = useState<Favorites>(emptyFavorites())
+    const [continueList, setContinueList] = useState<ProgressEntry[]>([])
     const [query, setQuery] = useState('')
     const [refreshing, setRefreshing] = useState(false)
     const [error, setError] = useState('')
@@ -16,7 +22,14 @@ export default function SeriesTab() {
         try {
             const client = await getClient()
             if (!client) { router.replace('/login'); return }
-            setSeries(await cachedFetch('series', () => client.getSeries(), force))
+            const [list, cats, favs] = await Promise.all([
+                cachedFetch('series', () => client.getSeries(), force),
+                cachedFetch('series-cats', () => client.getSeriesCategories(), force).catch(() => [] as Category[]),
+                loadFavorites(),
+            ])
+            setSeries(list)
+            setCategories(cats)
+            setFavorites(favs)
             setError('')
         } catch (err) {
             setError(err instanceof Error ? err.message : 'Falha ao carregar as séries.')
@@ -26,17 +39,45 @@ export default function SeriesTab() {
 
     useEffect(() => { queueMicrotask(() => { void load() }) }, [load])
 
+    // Episódios em andamento reaparecem quando a aba volta ao foco.
+    useFocusEffect(useCallback(() => {
+        queueMicrotask(() => {
+            void loadProgress().then(map => setContinueList(listContinue(map, 'episode')))
+        })
+    }, []))
+
     const filtered = useMemo(() => {
-        const q = query.trim().toLowerCase()
         if (!series) return []
-        return q ? series.filter(s => s.name.toLowerCase().includes(q)) : series
-    }, [series, query])
+        const q = query.trim().toLowerCase()
+        let list = series
+        if (category === 'fav') list = list.filter(s => isFavorite(favorites, 'series', String(s.series_id)))
+        else if (category !== 'all') list = list.filter(s => s.category_id === category)
+        return q ? list.filter(s => s.name.toLowerCase().includes(q)) : list
+    }, [series, query, category, favorites])
+
+    const resume = async (entry: ProgressEntry) => {
+        const client = await getClient()
+        if (!client) return
+        router.push({
+            pathname: '/player',
+            params: {
+                url: client.seriesStreamUrl(entry.streamId, entry.container),
+                title: entry.title,
+                pid: entry.id,
+                kind: entry.kind,
+                sid: entry.streamId,
+                container: entry.container,
+                cover: entry.cover,
+            },
+        })
+    }
 
     if (series === null) return <Loading label="Carregando séries…" />
 
     return (
         <View style={styles.root}>
             <SearchBar value={query} onChange={setQuery} placeholder="Buscar série…" />
+            <CategoryChips categories={categories} selected={category} onSelect={setCategory} />
             {error ? <Text style={styles.error}>{error}</Text> : null}
             <FlatList
                 data={filtered}
@@ -44,6 +85,7 @@ export default function SeriesTab() {
                 numColumns={3}
                 initialNumToRender={12}
                 windowSize={7}
+                ListHeaderComponent={<ContinueRail entries={continueList} onPlay={entry => void resume(entry)} />}
                 refreshControl={
                     <RefreshControl
                         refreshing={refreshing}
@@ -54,17 +96,28 @@ export default function SeriesTab() {
                         }}
                     />
                 }
-                ListEmptyComponent={<EmptyState icon="albums-outline" label={query ? 'Nenhuma série encontrada.' : 'Nenhuma série na lista.'} />}
+                ListEmptyComponent={
+                    <EmptyState
+                        icon="albums-outline"
+                        label={category === 'fav' ? 'Nenhuma série favorita ainda — segure um pôster pra favoritar.' : query ? 'Nenhuma série encontrada.' : 'Nenhuma série na lista.'}
+                    />
+                }
                 contentContainerStyle={filtered.length === 0 ? { flexGrow: 1 } : styles.grid}
                 renderItem={({ item }) => (
                     <TouchableOpacity
                         style={styles.cell}
                         onPress={() => router.push({
                             pathname: '/series/[id]',
-                            params: { id: String(item.series_id), name: item.name },
+                            params: { id: String(item.series_id), name: item.name, cover: item.cover || '' },
                         })}
+                        onLongPress={() => void persistToggle('series', String(item.series_id)).then(setFavorites)}
+                        delayLongPress={350}
                     >
-                        <PosterCard name={item.name} cover={item.cover} />
+                        <PosterCard
+                            name={item.name}
+                            cover={item.cover}
+                            fav={isFavorite(favorites, 'series', String(item.series_id))}
+                        />
                     </TouchableOpacity>
                 )}
             />

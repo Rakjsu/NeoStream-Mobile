@@ -3,6 +3,7 @@ import {
     normalizeBaseUrl,
     parseAuthResponse,
     parseExpiry,
+    sanitizeCategories,
     sanitizeList,
     XtreamClient,
     type LiveChannel,
@@ -56,6 +57,20 @@ describe('sanitizeList', () => {
     it('resposta não-array (erro do provedor em JSON) vira lista vazia', () => {
         expect(sanitizeList({ error: 'x' }, 'stream_id')).toEqual([])
         expect(sanitizeList(undefined, 'series_id')).toEqual([])
+    })
+})
+
+describe('sanitizeCategories', () => {
+    it('mantém só categorias com id e nome, na ordem do provedor', () => {
+        const raw = [
+            { category_id: '10', category_name: 'Filmes' },
+            { category_id: '', category_name: 'vazia' },
+            { category_name: 'sem id' },
+            null,
+            { category_id: '11', category_name: 'Séries' },
+        ]
+        expect(sanitizeCategories(raw).map(c => c.category_name)).toEqual(['Filmes', 'Séries'])
+        expect(sanitizeCategories({ error: 'x' })).toEqual([])
     })
 })
 

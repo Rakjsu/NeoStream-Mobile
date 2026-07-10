@@ -89,6 +89,16 @@ export function parseExpiry(expDate: string | null | undefined): Date | null {
     return new Date(seconds * 1000)
 }
 
+/** Categorias válidas (id + nome), na ordem do provedor. */
+export function sanitizeCategories(data: unknown): Category[] {
+    if (!Array.isArray(data)) return []
+    return data.filter((item): item is Category => {
+        const it = item as Record<string, unknown> | null
+        return !!it && typeof it.category_id === 'string' && it.category_id !== ''
+            && typeof it.category_name === 'string' && it.category_name !== ''
+    })
+}
+
 /** Filtro defensivo: só itens com id e nome viram linhas da UI. */
 export function sanitizeList<T extends { name?: unknown }>(
     data: unknown,
@@ -160,8 +170,15 @@ export class XtreamClient {
     }
 
     async getLiveCategories(): Promise<Category[]> {
-        const data = await this.request('get_live_categories')
-        return Array.isArray(data) ? (data as Category[]) : []
+        return sanitizeCategories(await this.request('get_live_categories'))
+    }
+
+    async getVodCategories(): Promise<Category[]> {
+        return sanitizeCategories(await this.request('get_vod_categories'))
+    }
+
+    async getSeriesCategories(): Promise<Category[]> {
+        return sanitizeCategories(await this.request('get_series_categories'))
     }
 
     /** TV ao vivo em HLS — o ExoPlayer toca .m3u8 nativamente. */

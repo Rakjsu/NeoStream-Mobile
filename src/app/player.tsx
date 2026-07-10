@@ -3,12 +3,24 @@ import { useEvent } from 'expo'
 import { useKeepAwake } from 'expo-keep-awake'
 import { router, useLocalSearchParams } from 'expo-router'
 import { useVideoPlayer, VideoView } from 'expo-video'
+import { useEffect, useRef } from 'react'
 import { StyleSheet, Text, TouchableOpacity, View } from 'react-native'
 import { useSafeAreaInsets } from 'react-native-safe-area-context'
+import { getEntry, resumePosition, saveSample, type ProgressKind } from '../services/progress'
 import { colors, spacing } from '../ui/theme'
 
 export default function Player() {
-    const { url, title, live } = useLocalSearchParams<{ url: string; title?: string; live?: string }>()
+    const { url, title, live, pid, kind, sid, container, cover } = useLocalSearchParams<{
+        url: string
+        title?: string
+        live?: string
+        /** Presentes só em VOD/episódio: habilitam o "continuar assistindo". */
+        pid?: string
+        kind?: string
+        sid?: string
+        container?: string
+        cover?: string
+    }>()
     const insets = useSafeAreaInsets()
     useKeepAwake()
 
@@ -19,6 +31,58 @@ export default function Player() {
         status: player.status,
         error: undefined,
     })
+
+    const trackable = live !== '1' && !!pid && !!sid
+    // O expo-video pode disparar release do player no unmount antes do cleanup;
+    // amostras ficam aqui pra última gravação não precisar tocar o player.
+    const lastSample = useRef({ position: 0, duration: 0 })
+
+    // Retomar do ponto salvo: seek único logo que a mídia carrega.
+    useEffect(() => {
+        if (!trackable) return
+        let cancelled = false
+        void getEntry(String(pid)).then(entry => {
+            const at = resumePosition(entry)
+            if (!cancelled && at > 0) player.currentTime = at
+        })
+        return () => { cancelled = true }
+        // player é estável entre renders (useVideoPlayer) — só o pid importa.
+        // eslint-disable-next-line react-hooks/exhaustive-deps
+    }, [pid, trackable])
+
+    // Amostra a posição a cada 5s + gravação final ao sair da tela.
+    useEffect(() => {
+        if (!trackable) return
+        const persist = () => {
+            const { position, duration } = lastSample.current
+            if (position <= 0) return
+            void saveSample({
+                id: String(pid),
+                kind: (kind === 'episode' ? 'episode' : 'movie') as ProgressKind,
+                streamId: String(sid),
+                container: String(container || 'mp4'),
+                title: String(title ?? ''),
+                cover: String(cover ?? ''),
+                position,
+                duration,
+                updatedAt: Date.now(),
+            })
+        }
+        const timer = setInterval(() => {
+            try {
+                lastSample.current = { position: player.currentTime || 0, duration: player.duration || 0 }
+            } catch { return } // player já liberado
+            persist()
+        }, 5000)
+        return () => {
+            clearInterval(timer)
+            try {
+                lastSample.current = { position: player.currentTime || 0, duration: player.duration || 0 }
+            } catch { /* usa a última amostra do intervalo */ }
+            persist()
+        }
+        // eslint-disable-next-line react-hooks/exhaustive-deps
+    }, [pid, trackable])
 
     return (
         <View style={styles.root}>

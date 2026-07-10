@@ -2,6 +2,7 @@ import { Ionicons } from '@expo/vector-icons'
 import { Stack, router, useLocalSearchParams } from 'expo-router'
 import { useEffect, useState } from 'react'
 import { SectionList, StyleSheet, Text, TouchableOpacity, View } from 'react-native'
+import { buildProgressId } from '../../services/progress'
 import { getClient } from '../../services/session'
 import type { Episode } from '../../services/xtream'
 import { EmptyState, Loading } from '../../ui/components'
@@ -13,7 +14,7 @@ interface Season {
 }
 
 export default function SeriesDetail() {
-    const { id, name } = useLocalSearchParams<{ id: string; name?: string }>()
+    const { id, name, cover } = useLocalSearchParams<{ id: string; name?: string; cover?: string }>()
     const [seasons, setSeasons] = useState<Season[] | null>(null)
     const [error, setError] = useState('')
 
@@ -42,11 +43,19 @@ export default function SeriesDetail() {
     const play = async (episode: Episode) => {
         const client = await getClient()
         if (!client) return
+        const container = episode.container_extension || 'mp4'
+        const epTitle = episode.title || `Episódio ${episode.episode_num}`
         router.push({
             pathname: '/player',
             params: {
-                url: client.seriesStreamUrl(episode.id, episode.container_extension || 'mp4'),
-                title: episode.title || `Episódio ${episode.episode_num}`,
+                url: client.seriesStreamUrl(episode.id, container),
+                // "Série · Título do ep" pro rail do Continuar fazer sentido.
+                title: name ? `${name} · ${epTitle}` : epTitle,
+                pid: buildProgressId('episode', episode.id),
+                kind: 'episode',
+                sid: String(episode.id),
+                container,
+                cover: cover || '',
             },
         })
     }

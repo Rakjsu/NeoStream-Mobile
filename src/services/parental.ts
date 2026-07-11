@@ -73,6 +73,15 @@ export async function disableParental(pin: string): Promise<boolean> {
     return true
 }
 
+/** Restauração de backup. */
+export async function restoreParental(state: ParentalState): Promise<void> {
+    cache = { enabled: state?.enabled === true && isValidPin(state.pin), pin: state?.pin ?? '' }
+    if (!cache.enabled) cache = { enabled: false, pin: '' }
+    try {
+        await AsyncStorage.setItem(STORAGE_KEY, JSON.stringify(cache))
+    } catch { /* best-effort */ }
+}
+
 /** Só pra testes. */
 export function resetParentalCache(): void {
     cache = null

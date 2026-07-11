@@ -2,7 +2,8 @@ import { Ionicons } from '@expo/vector-icons'
 import Constants from 'expo-constants'
 import { router, useFocusEffect } from 'expo-router'
 import { useCallback, useState } from 'react'
-import { Alert, ScrollView, StyleSheet, Text, TextInput, TouchableOpacity, View } from 'react-native'
+import { Alert, ScrollView, Share, StyleSheet, Text, TextInput, TouchableOpacity, View } from 'react-native'
+import { applyBackup, collectBackup, parseBackup, serializeBackup } from '../../services/backup'
 import { disableParental, enableParental, isValidPin, loadParental } from '../../services/parental'
 import {
     accountLabel, listAccounts, loadAccount, removeAccount, switchAccount,
@@ -26,6 +27,8 @@ export default function SettingsTab() {
     const [parentalOn, setParentalOn] = useState(false)
     const [pin, setPin] = useState('')
     const [pinError, setPinError] = useState('')
+    const [importText, setImportText] = useState('')
+    const [backupMsg, setBackupMsg] = useState('')
 
     const refresh = useCallback(() => {
         void listAccounts().then(setAccounts)
@@ -144,6 +147,68 @@ export default function SettingsTab() {
                 {pinError ? <Text style={styles.pinError}>{pinError}</Text> : null}
             </View>
 
+            <Text style={styles.section}>Backup</Text>
+            <View style={[styles.card, { paddingVertical: spacing.md, gap: spacing.md }]}>
+                <Text style={styles.parentalHint}>
+                    Exporta contas, favoritos, progresso e ajustes num texto — guarde no Drive ou mande pra você mesmo.
+                </Text>
+                <TouchableOpacity
+                    style={styles.backupBtn}
+                    onPress={() => {
+                        void (async () => {
+                            const json = serializeBackup(await collectBackup())
+                            await Share.share({ message: json }).catch(() => undefined)
+                        })()
+                    }}
+                >
+                    <Ionicons name="share-outline" size={16} color="#fff" />
+                    <Text style={styles.backupBtnText}>Exportar (compartilhar)</Text>
+                </TouchableOpacity>
+                <TextInput
+                    style={styles.importInput}
+                    value={importText}
+                    onChangeText={text => { setImportText(text); setBackupMsg('') }}
+                    placeholder="Cole aqui o conteúdo de um backup pra restaurar…"
+                    placeholderTextColor={colors.textDim}
+                    multiline
+                    numberOfLines={3}
+                    autoCorrect={false}
+                    autoCapitalize="none"
+                />
+                <TouchableOpacity
+                    style={[styles.backupBtn, styles.restoreBtn, !importText.trim() && { opacity: 0.5 }]}
+                    disabled={!importText.trim()}
+                    onPress={() => {
+                        try {
+                            const backup = parseBackup(importText)
+                            Alert.alert(
+                                'Restaurar backup',
+                                `Substituir TUDO neste aparelho por ${backup.accounts.length} conta(s) do backup?`,
+                                [
+                                    { text: 'Cancelar', style: 'cancel' },
+                                    {
+                                        text: 'Restaurar',
+                                        style: 'destructive',
+                                        onPress: () => {
+                                            void applyBackup(backup).then(() => {
+                                                setImportText('')
+                                                router.replace('/')
+                                            })
+                                        },
+                                    },
+                                ],
+                            )
+                        } catch (err) {
+                            setBackupMsg(err instanceof Error ? err.message : 'Backup inválido.')
+                        }
+                    }}
+                >
+                    <Ionicons name="download-outline" size={16} color="#fff" />
+                    <Text style={styles.backupBtnText}>Restaurar</Text>
+                </TouchableOpacity>
+                {backupMsg ? <Text style={styles.pinError}>{backupMsg}</Text> : null}
+            </View>
+
             <Text style={styles.version}>
                 NeoStream Mobile v{Constants.expoConfig?.version ?? '?'}
             </Text>
@@ -207,4 +272,27 @@ const styles = StyleSheet.create({
     parentalBtnOff: { backgroundColor: colors.danger },
     parentalBtnText: { color: '#fff', fontSize: 14, fontWeight: '600' },
     pinError: { color: colors.danger, fontSize: 13 },
+    backupBtn: {
+        flexDirection: 'row',
+        alignItems: 'center',
+        justifyContent: 'center',
+        gap: spacing.sm,
+        backgroundColor: colors.accent,
+        borderRadius: 8,
+        paddingVertical: 10,
+    },
+    restoreBtn: { backgroundColor: colors.danger },
+    backupBtnText: { color: '#fff', fontSize: 14, fontWeight: '600' },
+    importInput: {
+        backgroundColor: colors.bg,
+        borderColor: colors.border,
+        borderWidth: 1,
+        borderRadius: 8,
+        color: colors.text,
+        paddingHorizontal: spacing.md,
+        paddingVertical: 8,
+        fontSize: 12,
+        minHeight: 64,
+        textAlignVertical: 'top',
+    },
 })

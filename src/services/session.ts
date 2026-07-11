@@ -170,6 +170,16 @@ export async function getClient(): Promise<CatalogClient | null> {
     return client
 }
 
+/** Restauração de backup: substitui as contas e reativa o client. */
+export async function restoreAccounts(accounts: StoredAccount[], activeId: string | null): Promise<void> {
+    accountsCache = accounts.filter(a => !!a?.id && !!a.url)
+    activeIdCache = activeId && accountsCache.some(a => a.id === activeId) ? activeId : accountsCache[0]?.id ?? null
+    await persist()
+    const active = accountsCache.find(a => a.id === activeIdCache)
+    client = active ? buildClient(active) : null
+    invalidateCatalog()
+}
+
 /** Só pra testes. */
 export function resetSessionCache(): void {
     accountsCache = null

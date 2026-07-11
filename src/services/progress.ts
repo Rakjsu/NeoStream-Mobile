@@ -169,6 +169,16 @@ export async function markWatched(id: string): Promise<void> {
     } catch { /* best-effort */ }
 }
 
+/** Restauração de backup: substitui progresso e vistos. */
+export async function restoreProgress(map: Record<string, ProgressEntry>, watched: string[]): Promise<void> {
+    cache = map && typeof map === 'object' ? map : {}
+    watchedCache = new Set(Array.isArray(watched) ? watched.filter((x): x is string => typeof x === 'string') : [])
+    try {
+        await AsyncStorage.setItem(STORAGE_KEY, JSON.stringify(cache))
+        await AsyncStorage.setItem(WATCHED_KEY, JSON.stringify([...watchedCache]))
+    } catch { /* best-effort */ }
+}
+
 /** Só pra testes/logout. */
 export function resetProgressCache(): void {
     cache = null

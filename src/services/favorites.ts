@@ -50,6 +50,19 @@ export async function persistToggle(kind: FavoriteKind, id: string): Promise<Fav
     return cache
 }
 
+/** Restauração de backup: substitui tudo (valida o formato antes). */
+export async function restoreFavorites(favorites: Favorites): Promise<void> {
+    const clean = { ...emptyFavorites() }
+    for (const kind of ['live', 'movie', 'series'] as const) {
+        const list = favorites?.[kind]
+        clean[kind] = Array.isArray(list) ? list.filter((x): x is string => typeof x === 'string') : []
+    }
+    cache = clean
+    try {
+        await AsyncStorage.setItem(STORAGE_KEY, JSON.stringify(clean))
+    } catch { /* best-effort */ }
+}
+
 /** Só pra testes/logout. */
 export function resetFavoritesCache(): void {
     cache = null

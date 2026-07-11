@@ -239,7 +239,7 @@ const styles = StyleSheet.create({
     searchInput: { flex: 1, color: colors.text, paddingVertical: 10, fontSize: 15 },
     center: { flex: 1, alignItems: 'center', justifyContent: 'center', gap: spacing.md, padding: spacing.xl },
     dim: { color: colors.textDim, fontSize: 14, textAlign: 'center' },
-    poster: { flex: 1 / 3, padding: spacing.xs },
+    poster: { flex: 1, padding: spacing.xs },
     posterImg: { width: '100%', aspectRatio: 2 / 3, borderRadius: 8, backgroundColor: colors.card },
     posterFallback: { alignItems: 'center', justifyContent: 'center' },
     posterName: { color: colors.text, fontSize: 12, marginTop: 4 },

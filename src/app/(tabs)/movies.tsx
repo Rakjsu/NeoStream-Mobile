@@ -1,7 +1,7 @@
 import { Ionicons } from '@expo/vector-icons'
 import { router, useFocusEffect } from 'expo-router'
 import { useCallback, useEffect, useMemo, useState } from 'react'
-import { FlatList, RefreshControl, StyleSheet, Text, TouchableOpacity, View } from 'react-native'
+import { FlatList, RefreshControl, StyleSheet, Text, TouchableOpacity, useWindowDimensions, View } from 'react-native'
 import { emptyFavorites, isFavorite, loadFavorites, persistToggle, type Favorites } from '../../services/favorites'
 import { listContinue, loadProgress, type ProgressEntry } from '../../services/progress'
 import { allowedCategoryIds, loadParental } from '../../services/parental'
@@ -22,6 +22,9 @@ export default function MoviesTab() {
     const [error, setError] = useState('')
     const [allowed, setAllowed] = useState<Set<string> | null>(null)
     const [sort, setSort] = useState<SortMode>('default')
+    // Colunas pela largura: 3 no celular em pé, 5-6 deitado/tablet.
+    const { width } = useWindowDimensions()
+    const columns = Math.max(3, Math.min(8, Math.floor(width / 128)))
 
     const load = useCallback(async (force = false) => {
         try {
@@ -112,7 +115,8 @@ export default function MoviesTab() {
             <FlatList
                 data={filtered}
                 keyExtractor={item => String(item.stream_id)}
-                numColumns={3}
+                key={`grid-${columns}`}
+                numColumns={columns}
                 initialNumToRender={12}
                 windowSize={7}
                 ListHeaderComponent={<ContinueRail entries={continueList} onPlay={entry => void resume(entry)} />}
@@ -135,7 +139,7 @@ export default function MoviesTab() {
                 contentContainerStyle={filtered.length === 0 ? { flexGrow: 1 } : styles.grid}
                 renderItem={({ item }) => (
                     <TouchableOpacity
-                        style={styles.cell}
+                        style={{ flex: 1 / columns }}
                         onPress={() => openDetails(item)}
                         onLongPress={() => void persistToggle('movie', String(item.stream_id)).then(setFavorites)}
                         delayLongPress={350}
@@ -170,5 +174,4 @@ const styles = StyleSheet.create({
     sortText: { color: colors.textDim, fontSize: 12 },
     error: { color: colors.danger, marginHorizontal: spacing.lg, marginBottom: spacing.sm },
     grid: { paddingHorizontal: spacing.md, paddingBottom: spacing.lg },
-    cell: { flex: 1 / 3 },
 })

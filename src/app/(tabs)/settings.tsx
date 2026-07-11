@@ -3,6 +3,7 @@ import Constants from 'expo-constants'
 import { router, useFocusEffect } from 'expo-router'
 import { useCallback, useState } from 'react'
 import { Alert, ScrollView, Share, StyleSheet, Text, TextInput, TouchableOpacity, View } from 'react-native'
+import { disableAppLock, enableAppLock, loadAppLock } from '../../services/appLock'
 import { applyBackup, collectBackup, parseBackup, serializeBackup } from '../../services/backup'
 import { disableParental, enableParental, isValidPin, loadParental } from '../../services/parental'
 import { clearHistory } from '../../services/progress'
@@ -29,6 +30,9 @@ export default function SettingsTab() {
     const [parentalOn, setParentalOn] = useState(false)
     const [pin, setPin] = useState('')
     const [pinError, setPinError] = useState('')
+    const [lockOn, setLockOn] = useState(false)
+    const [lockPin, setLockPin] = useState('')
+    const [lockError, setLockError] = useState('')
     const [importText, setImportText] = useState('')
     const [backupMsg, setBackupMsg] = useState('')
 
@@ -36,6 +40,7 @@ export default function SettingsTab() {
         void listAccounts().then(setAccounts)
         void loadAccount().then(setActive)
         void loadParental().then(state => setParentalOn(state.enabled))
+        void loadAppLock().then(state => setLockOn(state.enabled))
     }, [])
 
     useFocusEffect(useCallback(() => { queueMicrotask(refresh) }, [refresh]))
@@ -145,6 +150,38 @@ export default function SettingsTab() {
                     </TouchableOpacity>
                 </View>
                 {pinError ? <Text style={styles.pinError}>{pinError}</Text> : null}
+            </View>
+
+            <Text style={styles.section}>{t('secAppLock')}</Text>
+            <View style={[styles.card, { paddingVertical: spacing.md, gap: spacing.md }]}>
+                <Text style={styles.parentalHint}>{lockOn ? t('appLockOnHint') : t('appLockOffHint')}</Text>
+                <View style={styles.pinRow}>
+                    <TextInput
+                        style={styles.pinInput}
+                        value={lockPin}
+                        onChangeText={text => { setLockPin(text.replace(/[^0-9]/g, '')); setLockError('') }}
+                        placeholder={t('pinPh')}
+                        placeholderTextColor={colors.textDim}
+                        keyboardType="number-pad"
+                        secureTextEntry
+                        maxLength={4}
+                    />
+                    <TouchableOpacity
+                        style={[styles.parentalBtn, lockOn && styles.parentalBtnOff]}
+                        onPress={() => {
+                            void (async () => {
+                                if (!isValidPin(lockPin)) { setLockError(t('pinLen')); return }
+                                const ok = lockOn ? await disableAppLock(lockPin) : await enableAppLock(lockPin)
+                                if (!ok) { setLockError(t('pinWrong')); return }
+                                setLockPin('')
+                                setLockOn(!lockOn)
+                            })()
+                        }}
+                    >
+                        <Text style={styles.parentalBtnText}>{lockOn ? t('disable') : t('enable')}</Text>
+                    </TouchableOpacity>
+                </View>
+                {lockError ? <Text style={styles.pinError}>{lockError}</Text> : null}
             </View>
 
             <Text style={styles.section}>{t('secHistory')}</Text>

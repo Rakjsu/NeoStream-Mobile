@@ -8,8 +8,9 @@ import { allowedCategoryIds, loadParental } from '../../services/parental'
 import { cachedFetch, getClient } from '../../services/session'
 import type { Category, SeriesItem } from '../../services/xtream'
 import { CategoryChips, ContinueRail, EmptyState, Loading, PosterCard, SearchBar } from '../../ui/components'
-import { nextSortMode, SORT_LABELS, sortCatalog, type SortMode } from '../../services/sorting'
+import { nextSortMode, sortCatalog, type SortMode } from '../../services/sorting'
 import { colors, spacing } from '../../ui/theme'
+import { SORT_KEY, t, tf } from '../../i18n/strings'
 
 export default function SeriesTab() {
     const [series, setSeries] = useState<SeriesItem[] | null>(null)
@@ -42,7 +43,7 @@ export default function SeriesTab() {
             setAllowed(allowedCategoryIds(cats, parental.enabled))
             setError('')
         } catch (err) {
-            setError(err instanceof Error ? err.message : 'Falha ao carregar as séries.')
+            setError(err instanceof Error ? err.message : t('failSeries'))
             setSeries([])
         }
     }, [])
@@ -85,10 +86,10 @@ export default function SeriesTab() {
     }
 
     const confirmRemoveContinue = (entry: ProgressEntry) => {
-        Alert.alert('Continuar assistindo', `Remover "${entry.title}" do rail?`, [
-            { text: 'Cancelar', style: 'cancel' },
+        Alert.alert(t('removeContinueTitle'), tf('removeContinueMsg', { title: entry.title }), [
+            { text: t('cancel'), style: 'cancel' },
             {
-                text: 'Remover',
+                text: t('remove'),
                 style: 'destructive',
                 onPress: () => {
                     void removeEntry(entry.id).then(() =>
@@ -99,18 +100,18 @@ export default function SeriesTab() {
         ])
     }
 
-    if (series === null) return <Loading label="Carregando séries…" />
+    if (series === null) return <Loading label={t('loadingSeries')} />
 
     return (
         <View style={styles.root}>
-            <SearchBar value={query} onChange={setQuery} placeholder="Buscar série…" />
+            <SearchBar value={query} onChange={setQuery} placeholder={t('searchSeries')} />
             <View style={styles.filterRow}>
                 <View style={{ flex: 1 }}>
                     <CategoryChips categories={allowed ? categories.filter(c => allowed.has(c.category_id)) : categories} selected={category} onSelect={setCategory} />
                 </View>
                 <TouchableOpacity style={styles.sortBtn} onPress={() => setSort(nextSortMode(sort))}>
                     <Ionicons name="swap-vertical" size={14} color={sort === 'default' ? colors.textDim : colors.accent} />
-                    <Text style={[styles.sortText, sort !== 'default' && { color: colors.accent }]}>{SORT_LABELS[sort]}</Text>
+                    <Text style={[styles.sortText, sort !== 'default' && { color: colors.accent }]}>{t(SORT_KEY[sort])}</Text>
                 </TouchableOpacity>
             </View>
             {error ? <Text style={styles.error}>{error}</Text> : null}
@@ -135,7 +136,7 @@ export default function SeriesTab() {
                 ListEmptyComponent={
                     <EmptyState
                         icon="albums-outline"
-                        label={category === 'fav' ? 'Nenhuma série favorita ainda — segure um pôster pra favoritar.' : query ? 'Nenhuma série encontrada.' : 'Nenhuma série na lista.'}
+                        label={category === 'fav' ? t('noFavSeries') : query ? t('noSeriesFound') : t('noSeries')}
                     />
                 }
                 contentContainerStyle={filtered.length === 0 ? { flexGrow: 1 } : styles.grid}

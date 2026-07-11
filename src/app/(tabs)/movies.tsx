@@ -8,8 +8,9 @@ import { allowedCategoryIds, loadParental } from '../../services/parental'
 import { cachedFetch, getClient } from '../../services/session'
 import type { Category, VodMovie } from '../../services/xtream'
 import { CategoryChips, ContinueRail, EmptyState, Loading, PosterCard, SearchBar } from '../../ui/components'
-import { nextSortMode, SORT_LABELS, sortCatalog, type SortMode } from '../../services/sorting'
+import { nextSortMode, sortCatalog, type SortMode } from '../../services/sorting'
 import { colors, spacing } from '../../ui/theme'
+import { SORT_KEY, t, tf } from '../../i18n/strings'
 
 export default function MoviesTab() {
     const [movies, setMovies] = useState<VodMovie[] | null>(null)
@@ -42,7 +43,7 @@ export default function MoviesTab() {
             setAllowed(allowedCategoryIds(cats, parental.enabled))
             setError('')
         } catch (err) {
-            setError(err instanceof Error ? err.message : 'Falha ao carregar os filmes.')
+            setError(err instanceof Error ? err.message : t('failMovies'))
             setMovies([])
         }
     }, [])
@@ -98,10 +99,10 @@ export default function MoviesTab() {
     }
 
     const confirmRemoveContinue = (entry: ProgressEntry) => {
-        Alert.alert('Continuar assistindo', `Remover "${entry.title}" do rail?`, [
-            { text: 'Cancelar', style: 'cancel' },
+        Alert.alert(t('removeContinueTitle'), tf('removeContinueMsg', { title: entry.title }), [
+            { text: t('cancel'), style: 'cancel' },
             {
-                text: 'Remover',
+                text: t('remove'),
                 style: 'destructive',
                 onPress: () => {
                     void removeEntry(entry.id).then(() =>
@@ -112,18 +113,18 @@ export default function MoviesTab() {
         ])
     }
 
-    if (movies === null) return <Loading label="Carregando filmes…" />
+    if (movies === null) return <Loading label={t('loadingMovies')} />
 
     return (
         <View style={styles.root}>
-            <SearchBar value={query} onChange={setQuery} placeholder="Buscar filme…" />
+            <SearchBar value={query} onChange={setQuery} placeholder={t('searchMovie')} />
             <View style={styles.filterRow}>
                 <View style={{ flex: 1 }}>
                     <CategoryChips categories={allowed ? categories.filter(c => allowed.has(c.category_id)) : categories} selected={category} onSelect={setCategory} />
                 </View>
                 <TouchableOpacity style={styles.sortBtn} onPress={() => setSort(nextSortMode(sort))}>
                     <Ionicons name="swap-vertical" size={14} color={sort === 'default' ? colors.textDim : colors.accent} />
-                    <Text style={[styles.sortText, sort !== 'default' && { color: colors.accent }]}>{SORT_LABELS[sort]}</Text>
+                    <Text style={[styles.sortText, sort !== 'default' && { color: colors.accent }]}>{t(SORT_KEY[sort])}</Text>
                 </TouchableOpacity>
             </View>
             {error ? <Text style={styles.error}>{error}</Text> : null}
@@ -148,7 +149,7 @@ export default function MoviesTab() {
                 ListEmptyComponent={
                     <EmptyState
                         icon="film-outline"
-                        label={category === 'fav' ? 'Nenhum filme favorito ainda — segure um pôster pra favoritar.' : query ? 'Nenhum filme encontrado.' : 'Nenhum filme na lista.'}
+                        label={category === 'fav' ? t('noFavMovies') : query ? t('noMovieFound') : t('noMovies')}
                     />
                 }
                 contentContainerStyle={filtered.length === 0 ? { flexGrow: 1 } : styles.grid}

@@ -11,6 +11,7 @@ import { getEntry, resumePosition, saveSample, type ProgressKind } from '../serv
 import { cachedFetch, getClient } from '../services/session'
 import { hasZapContext, zapBy } from '../services/zap'
 import { colors, spacing } from '../ui/theme'
+import { t, tf } from '../i18n/strings'
 
 // Atribuições de faixa ficam fora do componente: o expo-video expõe as
 // faixas como propriedades atribuíveis, o que a regra react-hooks/immutability
@@ -80,7 +81,7 @@ export default function Player() {
         const index = audioTracks.findIndex(track => track.id === player.audioTrack?.id)
         const next = audioTracks[(index + 1) % audioTracks.length]
         applyAudioTrack(player, next)
-        showTrackToast(`🎧 ${next.label || next.language || `Áudio ${(index + 1) % audioTracks.length + 1}`}`)
+        showTrackToast(`🎧 ${next.label || next.language || tf('audioN', { n: (index + 1) % audioTracks.length + 1 })}`)
     }
 
     const cycleSubtitle = () => {
@@ -89,11 +90,11 @@ export default function Player() {
         const nextIndex = player.subtitleTrack ? index + 1 : 0
         if (nextIndex >= subtitleTracks.length) {
             applySubtitleTrack(player, null)
-            showTrackToast('💬 Legenda desligada')
+            showTrackToast(t('subtitleOff'))
         } else {
             const next = subtitleTracks[nextIndex]
             applySubtitleTrack(player, next)
-            showTrackToast(`💬 ${next.label || next.language || `Legenda ${nextIndex + 1}`}`)
+            showTrackToast(`💬 ${next.label || next.language || tf('subtitleN', { n: nextIndex + 1 })}`)
         }
     }
     // O expo-video pode disparar release do player no unmount antes do cleanup;
@@ -244,8 +245,8 @@ export default function Player() {
                 <View style={styles.errorBox}>
                     <Ionicons name="warning" size={28} color={colors.danger} />
                     <Text style={styles.errorText}>
-                        Não deu pra reproduzir este conteúdo.{'\n'}
-                        {error?.message ?? 'O formato pode não ser suportado ou o servidor está fora do ar.'}
+                        {t('playError')}{'\n'}
+                        {error?.message ?? t('playErrorHint')}
                     </Text>
                 </View>
             ) : null}

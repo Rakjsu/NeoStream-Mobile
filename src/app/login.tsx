@@ -9,6 +9,7 @@ import { M3uClient } from '../services/m3u'
 import { addAccount } from '../services/session'
 import { XtreamClient, normalizeBaseUrl } from '../services/xtream'
 import { colors, spacing } from '../ui/theme'
+import { t } from '../i18n/strings'
 
 export default function Login() {
     const [mode, setMode] = useState<'xtream' | 'm3u'>('xtream')
@@ -37,7 +38,7 @@ export default function Login() {
             }
             router.replace('/(tabs)/home')
         } catch (err) {
-            setError(err instanceof Error ? err.message : 'Falha ao conectar no servidor.')
+            setError(err instanceof Error ? err.message : t('loginFail'))
         } finally {
             setBusy(false)
         }
@@ -50,7 +51,7 @@ export default function Login() {
                     <Ionicons name="play-circle" size={64} color={colors.accent} />
                     <Text style={styles.title}>NeoStream</Text>
                     <Text style={styles.subtitle}>
-                        {mode === 'm3u' ? 'Cole a URL da sua lista M3U' : 'Entre com os dados da sua lista IPTV (Xtream)'}
+                        {mode === 'm3u' ? t('loginSubtitleM3u') : t('loginSubtitleXtream')}
                     </Text>
                 </View>
 
@@ -59,17 +60,17 @@ export default function Login() {
                         style={[styles.modeBtn, mode === 'xtream' && styles.modeBtnOn]}
                         onPress={() => { setMode('xtream'); setError('') }}
                     >
-                        <Text style={[styles.modeText, mode === 'xtream' && styles.modeTextOn]}>Xtream</Text>
+                        <Text style={[styles.modeText, mode === 'xtream' && styles.modeTextOn]}>{t('modeXtream')}</Text>
                     </TouchableOpacity>
                     <TouchableOpacity
                         style={[styles.modeBtn, mode === 'm3u' && styles.modeBtnOn]}
                         onPress={() => { setMode('m3u'); setError('') }}
                     >
-                        <Text style={[styles.modeText, mode === 'm3u' && styles.modeTextOn]}>Lista M3U</Text>
+                        <Text style={[styles.modeText, mode === 'm3u' && styles.modeTextOn]}>{t('modeM3u')}</Text>
                     </TouchableOpacity>
                 </View>
 
-                <Text style={styles.label}>{mode === 'm3u' ? 'URL da lista M3U' : 'Servidor'}</Text>
+                <Text style={styles.label}>{mode === 'm3u' ? t('m3uLabel') : t('serverLabel')}</Text>
                 <TextInput
                     style={styles.input}
                     value={url}
@@ -82,24 +83,24 @@ export default function Login() {
                 />
 
                 {mode === 'xtream' ? <>
-                <Text style={styles.label}>Usuário</Text>
+                <Text style={styles.label}>{t('userLabel')}</Text>
                 <TextInput
                     style={styles.input}
                     value={username}
                     onChangeText={setUsername}
-                    placeholder="usuário"
+                    placeholder={t('userPh')}
                     placeholderTextColor={colors.textDim}
                     autoCapitalize="none"
                     autoCorrect={false}
                 />
 
-                <Text style={styles.label}>Senha</Text>
+                <Text style={styles.label}>{t('passLabel')}</Text>
                 <View style={styles.passwordRow}>
                     <TextInput
                         style={[styles.input, { flex: 1, marginBottom: 0 }]}
                         value={password}
                         onChangeText={setPassword}
-                        placeholder="senha"
+                        placeholder={t('passPh')}
                         placeholderTextColor={colors.textDim}
                         autoCapitalize="none"
                         autoCorrect={false}
@@ -121,11 +122,11 @@ export default function Login() {
                 >
                     {busy
                         ? <ActivityIndicator color="#fff" />
-                        : <Text style={styles.buttonText}>Entrar</Text>}
+                        : <Text style={styles.buttonText}>{t('signIn')}</Text>}
                 </TouchableOpacity>
 
                 <Text style={styles.hint}>
-                    Seus dados ficam só neste aparelho e são usados apenas pra falar com o seu provedor.
+                    {t('loginHint')}
                 </Text>
             </ScrollView>
         </KeyboardAvoidingView>

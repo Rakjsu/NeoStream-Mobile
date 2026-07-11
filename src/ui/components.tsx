@@ -6,6 +6,7 @@ import {
 import type { ProgressEntry } from '../services/progress'
 import { progressPct } from '../services/progress'
 import type { Category } from '../services/xtream'
+import { t } from '../i18n/strings'
 import { colors, spacing } from './theme'
 
 export function SearchBar({ value, onChange, placeholder }: {
@@ -82,8 +83,8 @@ export function CategoryChips({ categories, selected, onSelect }: {
     onSelect: (id: string) => void
 }) {
     const chips = [
-        { id: 'all', label: 'Todos' },
-        { id: 'fav', label: '❤ Favoritos' },
+        { id: 'all', label: t('all') },
+        { id: 'fav', label: t('favoritesChip') },
         ...categories.map(c => ({ id: c.category_id, label: c.category_name })),
     ]
     return (
@@ -121,7 +122,7 @@ export function ContinueRail({ entries, onPlay, onRemove }: {
     if (entries.length === 0) return null
     return (
         <View style={styles.railWrap}>
-            <Text style={styles.railTitle}>⏯ Continuar assistindo</Text>
+            <Text style={styles.railTitle}>{t('continueRail')}</Text>
             <FlatList
                 data={entries}
                 horizontal

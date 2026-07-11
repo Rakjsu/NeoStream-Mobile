@@ -12,6 +12,7 @@ import { setZapContext } from '../../services/zap'
 import { checkForUpdate, type UpdateInfo } from '../../services/updates'
 import { ChannelRail, ContinueRail, EmptyState, Loading, PosterRail, type RailItem } from '../../ui/components'
 import { colors, spacing } from '../../ui/theme'
+import { t, tf } from '../../i18n/strings'
 
 const RAIL_MAX = 15
 
@@ -82,7 +83,7 @@ export default function HomeTab() {
             setNewSeries([...visibleShows].sort((a, b) => epoch(b.last_modified) - epoch(a.last_modified)).slice(0, RAIL_MAX).map(seriesRail))
             setError('')
         } catch (err) {
-            setError(err instanceof Error ? err.message : 'Falha ao carregar a Home.')
+            setError(err instanceof Error ? err.message : t('failHome'))
         } finally {
             setReady(true)
         }
@@ -138,10 +139,10 @@ export default function HomeTab() {
     }
 
     const confirmRemoveContinue = (entry: ProgressEntry) => {
-        Alert.alert('Continuar assistindo', `Remover "${entry.title}" do rail?`, [
-            { text: 'Cancelar', style: 'cancel' },
+        Alert.alert(t('removeContinueTitle'), tf('removeContinueMsg', { title: entry.title }), [
+            { text: t('cancel'), style: 'cancel' },
             {
-                text: 'Remover',
+                text: t('remove'),
                 style: 'destructive',
                 onPress: () => {
                     void removeEntry(entry.id).then(() =>
@@ -152,7 +153,7 @@ export default function HomeTab() {
         ])
     }
 
-    if (!ready) return <Loading label="Preparando a Home…" />
+    if (!ready) return <Loading label={t('loadingHome')} />
 
     const empty = continueList.length === 0 && favPosters.length === 0 && favChannels.length === 0
         && newMovies.length === 0 && newSeries.length === 0
@@ -175,19 +176,19 @@ export default function HomeTab() {
             {update ? (
                 <TouchableOpacity style={styles.updateBanner} onPress={() => void Linking.openURL(update.url)}>
                     <Ionicons name="arrow-up-circle" size={18} color={colors.accent} />
-                    <Text style={styles.updateText}>Versão {update.version} disponível — toque pra baixar</Text>
+                    <Text style={styles.updateText}>{tf('updateBanner', { version: update.version })}</Text>
                 </TouchableOpacity>
             ) : null}
             {error ? <Text style={styles.error}>{error}</Text> : null}
             {empty ? (
-                <EmptyState icon="home-outline" label="Assista e favorite pra Home ganhar vida." />
+                <EmptyState icon="home-outline" label={t('homeEmpty')} />
             ) : (
                 <View style={{ gap: spacing.md }}>
                     <ContinueRail entries={continueList} onPlay={entry => void resume(entry)} onRemove={confirmRemoveContinue} />
-                    <PosterRail title="❤ Favoritos" items={favPosters} onPress={openRailItem} />
-                    <ChannelRail title="📺 Canais favoritos" items={favChannels} onPress={item => void playChannel(item)} />
-                    <PosterRail title="🆕 Filmes adicionados" items={newMovies} onPress={openRailItem} />
-                    <PosterRail title="🆕 Séries atualizadas" items={newSeries} onPress={openRailItem} />
+                    <PosterRail title={t('favRail')} items={favPosters} onPress={openRailItem} />
+                    <ChannelRail title={t('favChannelsRail')} items={favChannels} onPress={item => void playChannel(item)} />
+                    <PosterRail title={t('newMoviesRail')} items={newMovies} onPress={openRailItem} />
+                    <PosterRail title={t('newSeriesRail')} items={newSeries} onPress={openRailItem} />
                 </View>
             )}
         </ScrollView>

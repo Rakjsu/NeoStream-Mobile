@@ -5,6 +5,7 @@ import { useCallback, useState } from 'react'
 import { Alert, ScrollView, Share, StyleSheet, Text, TextInput, TouchableOpacity, View } from 'react-native'
 import { applyBackup, collectBackup, parseBackup, serializeBackup } from '../../services/backup'
 import { disableParental, enableParental, isValidPin, loadParental } from '../../services/parental'
+import { clearHistory } from '../../services/progress'
 import {
     accountLabel, listAccounts, loadAccount, removeAccount, switchAccount,
     type StoredAccount,
@@ -145,6 +146,25 @@ export default function SettingsTab() {
                     </TouchableOpacity>
                 </View>
                 {pinError ? <Text style={styles.pinError}>{pinError}</Text> : null}
+            </View>
+
+            <Text style={styles.section}>Histórico</Text>
+            <View style={[styles.card, { paddingVertical: spacing.md, gap: spacing.md }]}>
+                <Text style={styles.parentalHint}>
+                    Zera o “continuar assistindo” e os episódios marcados como vistos.
+                </Text>
+                <TouchableOpacity
+                    style={[styles.backupBtn, styles.restoreBtn]}
+                    onPress={() => {
+                        Alert.alert('Limpar histórico', 'Apagar todo o progresso e os vistos deste aparelho?', [
+                            { text: 'Cancelar', style: 'cancel' },
+                            { text: 'Limpar', style: 'destructive', onPress: () => void clearHistory() },
+                        ])
+                    }}
+                >
+                    <Ionicons name="trash-outline" size={16} color="#fff" />
+                    <Text style={styles.backupBtnText}>Limpar progresso e vistos</Text>
+                </TouchableOpacity>
             </View>
 
             <Text style={styles.section}>Backup</Text>

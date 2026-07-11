@@ -169,6 +169,24 @@ export async function markWatched(id: string): Promise<void> {
     } catch { /* best-effort */ }
 }
 
+export async function unmarkWatched(id: string): Promise<void> {
+    const set = await loadWatched()
+    if (!set.delete(id)) return
+    try {
+        await AsyncStorage.setItem(WATCHED_KEY, JSON.stringify([...set]))
+    } catch { /* best-effort */ }
+}
+
+/** "Limpar histórico" dos Ajustes: zera progresso e vistos. */
+export async function clearHistory(): Promise<void> {
+    cache = {}
+    watchedCache = new Set()
+    try {
+        await AsyncStorage.setItem(STORAGE_KEY, '{}')
+        await AsyncStorage.setItem(WATCHED_KEY, '[]')
+    } catch { /* best-effort */ }
+}
+
 /** Restauração de backup: substitui progresso e vistos. */
 export async function restoreProgress(map: Record<string, ProgressEntry>, watched: string[]): Promise<void> {
     cache = map && typeof map === 'object' ? map : {}

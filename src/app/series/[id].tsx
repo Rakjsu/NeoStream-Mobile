@@ -5,8 +5,8 @@ import { Alert, Image, SectionList, StyleSheet, Text, TouchableOpacity, View } f
 import { activeProgress, listActiveDownloads, listDownloads, removeDownload, startDownload, subscribeDownloads } from '../../services/downloads'
 import { emptyFavorites, isFavorite, loadFavorites, persistToggle, type Favorites } from '../../services/favorites'
 import {
-    buildProgressId, loadProgress, loadWatched, pickNextEpisode,
-    progressPct, type ProgressEntry,
+    buildProgressId, loadProgress, loadWatched, markWatched, pickNextEpisode,
+    progressPct, removeEntry, unmarkWatched, type ProgressEntry,
 } from '../../services/progress'
 import { getClient } from '../../services/session'
 import type { Episode } from '../../services/xtream'
@@ -77,6 +77,20 @@ export default function SeriesDetail() {
             void loadProgress().then(map => setProgress({ ...map }))
         })
     }, []))
+
+    // Segurar o episódio alterna visto/não visto (marcar limpa o progresso).
+    const toggleWatched = (episodePid: string) => {
+        void (async () => {
+            const set = await loadWatched()
+            if (set.has(episodePid)) await unmarkWatched(episodePid)
+            else {
+                await markWatched(episodePid)
+                await removeEntry(episodePid)
+            }
+            setWatched(new Set(await loadWatched()))
+            setProgress({ ...(await loadProgress()) })
+        })()
+    }
 
     const play = async (episode: Episode, seasonNum: string) => {
         const client = await getClient()
@@ -159,7 +173,12 @@ export default function SeriesDetail() {
                         const entry = progress[pid]
                         const pct = entry ? progressPct(entry.position, entry.duration) : 0
                         return (
-                            <TouchableOpacity style={styles.row} onPress={() => void play(item, section.seasonNum)}>
+                            <TouchableOpacity
+                                style={styles.row}
+                                onPress={() => void play(item, section.seasonNum)}
+                                onLongPress={() => toggleWatched(pid)}
+                                delayLongPress={350}
+                            >
                                 <View style={styles.epBadge}>
                                     <Text style={styles.epNum}>{item.episode_num}</Text>
                                 </View>

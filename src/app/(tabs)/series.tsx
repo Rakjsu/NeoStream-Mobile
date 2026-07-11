@@ -1,9 +1,9 @@
 import { Ionicons } from '@expo/vector-icons'
 import { router, useFocusEffect } from 'expo-router'
 import { useCallback, useEffect, useMemo, useState } from 'react'
-import { FlatList, RefreshControl, StyleSheet, Text, TouchableOpacity, useWindowDimensions, View } from 'react-native'
+import { Alert, FlatList, RefreshControl, StyleSheet, Text, TouchableOpacity, useWindowDimensions, View } from 'react-native'
 import { emptyFavorites, isFavorite, loadFavorites, persistToggle, type Favorites } from '../../services/favorites'
-import { listContinue, loadProgress, type ProgressEntry } from '../../services/progress'
+import { listContinue, loadProgress, removeEntry, type ProgressEntry } from '../../services/progress'
 import { allowedCategoryIds, loadParental } from '../../services/parental'
 import { cachedFetch, getClient } from '../../services/session'
 import type { Category, SeriesItem } from '../../services/xtream'
@@ -84,6 +84,21 @@ export default function SeriesTab() {
         })
     }
 
+    const confirmRemoveContinue = (entry: ProgressEntry) => {
+        Alert.alert('Continuar assistindo', `Remover "${entry.title}" do rail?`, [
+            { text: 'Cancelar', style: 'cancel' },
+            {
+                text: 'Remover',
+                style: 'destructive',
+                onPress: () => {
+                    void removeEntry(entry.id).then(() =>
+                        loadProgress().then(map => { setContinueList(listContinue(map, 'episode')) }),
+                    )
+                },
+            },
+        ])
+    }
+
     if (series === null) return <Loading label="Carregando séries…" />
 
     return (
@@ -106,7 +121,7 @@ export default function SeriesTab() {
                 numColumns={columns}
                 initialNumToRender={12}
                 windowSize={7}
-                ListHeaderComponent={<ContinueRail entries={continueList} onPlay={entry => void resume(entry)} />}
+                ListHeaderComponent={<ContinueRail entries={continueList} onPlay={entry => void resume(entry)} onRemove={confirmRemoveContinue} />}
                 refreshControl={
                     <RefreshControl
                         refreshing={refreshing}

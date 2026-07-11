@@ -2,10 +2,10 @@ import Constants from 'expo-constants'
 import { Ionicons } from '@expo/vector-icons'
 import { router, useFocusEffect } from 'expo-router'
 import { useCallback, useEffect, useState } from 'react'
-import { Linking, RefreshControl, ScrollView, StyleSheet, Text, TouchableOpacity, View } from 'react-native'
+import { Alert, Linking, RefreshControl, ScrollView, StyleSheet, Text, TouchableOpacity, View } from 'react-native'
 import { loadFavorites } from '../../services/favorites'
 import { allowedCategoryIds, loadParental } from '../../services/parental'
-import { listContinue, loadProgress, type ProgressEntry } from '../../services/progress'
+import { listContinue, loadProgress, removeEntry, type ProgressEntry } from '../../services/progress'
 import { cachedFetch, getClient } from '../../services/session'
 import type { Category, SeriesItem, VodMovie } from '../../services/xtream'
 import { setZapContext } from '../../services/zap'
@@ -137,6 +137,21 @@ export default function HomeTab() {
         })
     }
 
+    const confirmRemoveContinue = (entry: ProgressEntry) => {
+        Alert.alert('Continuar assistindo', `Remover "${entry.title}" do rail?`, [
+            { text: 'Cancelar', style: 'cancel' },
+            {
+                text: 'Remover',
+                style: 'destructive',
+                onPress: () => {
+                    void removeEntry(entry.id).then(() =>
+                        loadProgress().then(map => { setContinueList(listContinue(map).slice(0, RAIL_MAX)) }),
+                    )
+                },
+            },
+        ])
+    }
+
     if (!ready) return <Loading label="Preparando a Home…" />
 
     const empty = continueList.length === 0 && favPosters.length === 0 && favChannels.length === 0
@@ -168,7 +183,7 @@ export default function HomeTab() {
                 <EmptyState icon="home-outline" label="Assista e favorite pra Home ganhar vida." />
             ) : (
                 <View style={{ gap: spacing.md }}>
-                    <ContinueRail entries={continueList} onPlay={entry => void resume(entry)} />
+                    <ContinueRail entries={continueList} onPlay={entry => void resume(entry)} onRemove={confirmRemoveContinue} />
                     <PosterRail title="❤ Favoritos" items={favPosters} onPress={openRailItem} />
                     <ChannelRail title="📺 Canais favoritos" items={favChannels} onPress={item => void playChannel(item)} />
                     <PosterRail title="🆕 Filmes adicionados" items={newMovies} onPress={openRailItem} />

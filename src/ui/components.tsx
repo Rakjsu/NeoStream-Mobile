@@ -112,9 +112,11 @@ export function CategoryChips({ categories, selected, onSelect }: {
 }
 
 /** Rail horizontal "Continuar assistindo" com barra de progresso. */
-export function ContinueRail({ entries, onPlay }: {
+export function ContinueRail({ entries, onPlay, onRemove }: {
     entries: ProgressEntry[]
     onPlay: (entry: ProgressEntry) => void
+    /** Segurar um card remove do rail (com confirmação de quem chama). */
+    onRemove?: (entry: ProgressEntry) => void
 }) {
     if (entries.length === 0) return null
     return (
@@ -127,7 +129,12 @@ export function ContinueRail({ entries, onPlay }: {
                 keyExtractor={item => item.id}
                 contentContainerStyle={{ paddingHorizontal: spacing.md }}
                 renderItem={({ item }) => (
-                    <TouchableOpacity style={styles.railCard} onPress={() => onPlay(item)}>
+                    <TouchableOpacity
+                        style={styles.railCard}
+                        onPress={() => onPlay(item)}
+                        onLongPress={onRemove ? () => onRemove(item) : undefined}
+                        delayLongPress={350}
+                    >
                         {item.cover ? (
                             <Image source={{ uri: item.cover }} style={styles.railImg} resizeMode="cover" />
                         ) : (

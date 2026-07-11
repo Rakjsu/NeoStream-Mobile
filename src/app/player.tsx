@@ -2,7 +2,7 @@ import { Ionicons } from '@expo/vector-icons'
 import { useEvent } from 'expo'
 import { useKeepAwake } from 'expo-keep-awake'
 import { router, useLocalSearchParams } from 'expo-router'
-import { useVideoPlayer, VideoView, type AudioTrack, type SubtitleTrack, type VideoPlayer } from 'expo-video'
+import { useVideoPlayer, VideoView, type AudioTrack, type SubtitleTrack } from 'expo-video'
 import { useEffect, useRef, useState } from 'react'
 import { StyleSheet, Text, TouchableOpacity, View } from 'react-native'
 import { useSafeAreaInsets } from 'react-native-safe-area-context'
@@ -23,12 +23,6 @@ function applySubtitleTrack(target: TrackPlayer, track: SubtitleTrack | null) {
     target.subtitleTrack = track
 }
 
-/** Troca a fonte pro arquivo baixado (helper de módulo pela regra de imutabilidade). */
-async function swapToLocal(target: VideoPlayer, uri: string) {
-    await target.replaceAsync(uri)
-    target.play()
-}
-
 export default function Player() {
     const { url, title, live, pid, kind, sid, container, cover } = useLocalSearchParams<{
         url: string
@@ -44,7 +38,10 @@ export default function Player() {
     const insets = useSafeAreaInsets()
     useKeepAwake()
 
-    const player = useVideoPlayer(String(url ?? ''), p => {
+    // Item baixado troca a fonte pro arquivo local — mudar o `source` faz o
+    // useVideoPlayer recriar o player (jeito permitido pela regra de hooks).
+    const [source, setSource] = useState(String(url ?? ''))
+    const player = useVideoPlayer(source, p => {
         p.play()
     })
     const { status, error } = useEvent(player, 'statusChange', {
@@ -133,23 +130,30 @@ export default function Player() {
         })()
     }
 
-    // Item baixado → troca pro arquivo local; depois retoma do ponto salvo.
+    // Item baixado → aponta a fonte pro arquivo local.
     useEffect(() => {
         if (!trackable) return
         let cancelled = false
-        void (async () => {
-            const download = await getDownload(String(pid)).catch(() => undefined)
-            if (download && !cancelled && download.fileUri !== String(url)) {
-                await swapToLocal(player, download.fileUri).catch(() => undefined) // segue no remoto
-            }
-            const entry = await getEntry(String(pid))
+        void getDownload(String(pid))
+            .then(download => {
+                if (download && !cancelled) setSource(download.fileUri)
+            })
+            .catch(() => undefined)
+        return () => { cancelled = true }
+    }, [pid, trackable])
+
+    // Retomar do ponto salvo (re-executa se a fonte virar o arquivo local).
+    useEffect(() => {
+        if (!trackable) return
+        let cancelled = false
+        void getEntry(String(pid)).then(entry => {
             const at = resumePosition(entry)
             if (!cancelled && at > 0) player.currentTime = at
-        })()
+        })
         return () => { cancelled = true }
-        // player é estável entre renders (useVideoPlayer) — só o pid importa.
+        // player é estável pra um mesmo source — pid/source são o que importa.
         // eslint-disable-next-line react-hooks/exhaustive-deps
-    }, [pid, trackable])
+    }, [pid, trackable, source])
 
     // Amostra a posição a cada 5s + gravação final ao sair da tela.
     useEffect(() => {

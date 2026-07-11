@@ -1,5 +1,5 @@
 import { Ionicons } from '@expo/vector-icons'
-import { useEvent } from 'expo'
+import { useEvent, useEventListener } from 'expo'
 import { useKeepAwake } from 'expo-keep-awake'
 import { router, useLocalSearchParams } from 'expo-router'
 import { useVideoPlayer, VideoView, type AudioTrack, type SubtitleTrack } from 'expo-video'
@@ -7,6 +7,7 @@ import { useEffect, useRef, useState } from 'react'
 import { StyleSheet, Text, TouchableOpacity, View } from 'react-native'
 import { useSafeAreaInsets } from 'react-native-safe-area-context'
 import { getDownload } from '../services/downloads'
+import { nextEpisodeAfter, type QueuedEpisode } from '../services/episodeQueue'
 import { getEntry, resumePosition, saveSample, type ProgressKind } from '../services/progress'
 import { cachedFetch, getClient } from '../services/session'
 import { hasZapContext, zapBy } from '../services/zap'
@@ -131,6 +132,49 @@ export default function Player() {
         })()
     }
 
+
+    // Autoplay: fim do episódio → overlay "A seguir" com contagem regressiva.
+    // A fila vem da tela da série (episodeQueue); trocar de episódio é um
+    // router.replace com os params novos — o effect do `url` recria o player.
+    const [upNext, setUpNext] = useState<QueuedEpisode | null>(null)
+    const [countdown, setCountdown] = useState(5)
+
+    const playNext = (episode: QueuedEpisode) => {
+        void (async () => {
+            const client = await getClient()
+            if (!client) return
+            setUpNext(null)
+            router.replace({
+                pathname: '/player',
+                params: {
+                    url: client.seriesStreamUrl(episode.sid, episode.container),
+                    title: episode.title, pid: episode.pid, kind: 'episode',
+                    sid: episode.sid, container: episode.container, cover: episode.cover,
+                },
+            })
+        })()
+    }
+
+    useEventListener(player, 'playToEnd', () => {
+        if (kind !== 'episode' || !trackable) return
+        const next = nextEpisodeAfter(String(pid))
+        if (next) { setCountdown(5); setUpNext(next) }
+    })
+
+    useEffect(() => {
+        if (!upNext) return
+        if (countdown <= 0) { playNext(upNext); return }
+        const timer = setTimeout(() => setCountdown(current => current - 1), 1000)
+        return () => clearTimeout(timer)
+         
+    }, [upNext, countdown])
+
+    // O autoplay troca os params deste mesmo screen (replace) — segue a URL nova.
+    useEffect(() => {
+        queueMicrotask(() => setSource(String(url ?? '')))
+         
+    }, [url])
+
     // Item baixado → aponta a fonte pro arquivo local.
     useEffect(() => {
         if (!trackable) return
@@ -241,6 +285,22 @@ export default function Player() {
                 </View>
             ) : null}
 
+            {upNext ? (
+                <View style={styles.upNext}>
+                    <Text style={styles.upNextLabel}>{t('upNextTitle')} {tf('autoplayIn', { s: countdown })}</Text>
+                    <Text style={styles.upNextName} numberOfLines={1}>{upNext.title}</Text>
+                    <View style={styles.upNextRow}>
+                        <TouchableOpacity style={styles.upNextPlay} onPress={() => playNext(upNext)}>
+                            <Ionicons name="play" size={16} color="#fff" />
+                            <Text style={styles.upNextPlayText}>{t('watchNow')}</Text>
+                        </TouchableOpacity>
+                        <TouchableOpacity style={styles.upNextCancel} onPress={() => setUpNext(null)}>
+                            <Text style={styles.upNextCancelText}>{t('cancel')}</Text>
+                        </TouchableOpacity>
+                    </View>
+                </View>
+            ) : null}
+
             {status === 'error' ? (
                 <View style={styles.errorBox}>
                     <Ionicons name="warning" size={28} color={colors.danger} />
@@ -298,6 +358,33 @@ const styles = StyleSheet.create({
         alignItems: 'center',
         justifyContent: 'center',
     },
+    upNext: {
+        position: 'absolute',
+        right: spacing.lg,
+        bottom: 96,
+        maxWidth: 320,
+        gap: spacing.sm,
+        backgroundColor: 'rgba(22,22,31,0.95)',
+        borderColor: colors.border,
+        borderWidth: 1,
+        borderRadius: 12,
+        padding: spacing.lg,
+    },
+    upNextLabel: { color: colors.textDim, fontSize: 12, textTransform: 'uppercase' },
+    upNextName: { color: colors.text, fontSize: 15, fontWeight: '600' },
+    upNextRow: { flexDirection: 'row', gap: spacing.md },
+    upNextPlay: {
+        flexDirection: 'row',
+        alignItems: 'center',
+        gap: 6,
+        backgroundColor: colors.accent,
+        borderRadius: 8,
+        paddingHorizontal: spacing.md,
+        paddingVertical: 8,
+    },
+    upNextPlayText: { color: '#fff', fontSize: 14, fontWeight: '600' },
+    upNextCancel: { justifyContent: 'center', paddingHorizontal: spacing.md },
+    upNextCancelText: { color: colors.textDim, fontSize: 14, fontWeight: '600' },
     errorBox: {
         position: 'absolute',
         left: spacing.xl,

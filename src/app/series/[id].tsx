@@ -3,6 +3,7 @@ import { Stack, router, useFocusEffect, useLocalSearchParams } from 'expo-router
 import { useCallback, useEffect, useState } from 'react'
 import { Alert, Image, SectionList, StyleSheet, Text, TouchableOpacity, View } from 'react-native'
 import { activeProgress, listActiveDownloads, listDownloads, removeDownload, startDownload, subscribeDownloads } from '../../services/downloads'
+import { setEpisodeQueue } from '../../services/episodeQueue'
 import { emptyFavorites, isFavorite, loadFavorites, persistToggle, type Favorites } from '../../services/favorites'
 import {
     buildProgressId, loadProgress, loadWatched, markWatched, pickNextEpisode,
@@ -98,6 +99,17 @@ export default function SeriesDetail() {
         if (!client) return
         const container = episode.container_extension || 'mp4'
         const epTitle = episode.title || `T${seasonNum}E${episode.episode_num}`
+        // Fila achatada da série inteira — o player emenda o próximo ao terminar.
+        setEpisodeQueue((seasons ?? []).flatMap(season => season.data.map(item => {
+            const itemTitle = item.title || `T${season.seasonNum}E${item.episode_num}`
+            return {
+                pid: buildProgressId('episode', item.id),
+                sid: String(item.id),
+                container: item.container_extension || 'mp4',
+                title: name ? `${name} · ${itemTitle}` : itemTitle,
+                cover: infoCover || cover || '',
+            }
+        })))
         router.push({
             pathname: '/player',
             params: {

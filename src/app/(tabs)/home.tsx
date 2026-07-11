@@ -1,12 +1,15 @@
+import Constants from 'expo-constants'
+import { Ionicons } from '@expo/vector-icons'
 import { router, useFocusEffect } from 'expo-router'
-import { useCallback, useState } from 'react'
-import { RefreshControl, ScrollView, StyleSheet, Text, View } from 'react-native'
+import { useCallback, useEffect, useState } from 'react'
+import { Linking, RefreshControl, ScrollView, StyleSheet, Text, TouchableOpacity, View } from 'react-native'
 import { loadFavorites } from '../../services/favorites'
 import { allowedCategoryIds, loadParental } from '../../services/parental'
 import { listContinue, loadProgress, type ProgressEntry } from '../../services/progress'
 import { cachedFetch, getClient } from '../../services/session'
 import type { Category, SeriesItem, VodMovie } from '../../services/xtream'
 import { setZapContext } from '../../services/zap'
+import { checkForUpdate, type UpdateInfo } from '../../services/updates'
 import { ChannelRail, ContinueRail, EmptyState, Loading, PosterRail, type RailItem } from '../../ui/components'
 import { colors, spacing } from '../../ui/theme'
 
@@ -27,6 +30,7 @@ export default function HomeTab() {
     const [favChannels, setFavChannels] = useState<{ id: string; name: string; logo: string }[]>([])
     const [newMovies, setNewMovies] = useState<RailItem[]>([])
     const [newSeries, setNewSeries] = useState<RailItem[]>([])
+    const [update, setUpdate] = useState<UpdateInfo | null>(null)
 
     const load = useCallback(async (force = false) => {
         try {
@@ -82,6 +86,16 @@ export default function HomeTab() {
         } finally {
             setReady(true)
         }
+    }, [])
+
+    // Checagem de versão nova (1x/dia, cache no aparelho) — sem loja, é o
+    // único jeito de quem instalou o APK ficar sabendo de update.
+    useEffect(() => {
+        queueMicrotask(() => {
+            void checkForUpdate(Constants.expoConfig?.version ?? '0.0.0')
+                .then(setUpdate)
+                .catch(() => undefined)
+        })
     }, [])
 
     // A Home reflete favoritos/progresso feitos em outras telas → recarrega no foco.
@@ -143,6 +157,12 @@ export default function HomeTab() {
                 />
             }
         >
+            {update ? (
+                <TouchableOpacity style={styles.updateBanner} onPress={() => void Linking.openURL(update.url)}>
+                    <Ionicons name="arrow-up-circle" size={18} color={colors.accent} />
+                    <Text style={styles.updateText}>Versão {update.version} disponível — toque pra baixar</Text>
+                </TouchableOpacity>
+            ) : null}
             {error ? <Text style={styles.error}>{error}</Text> : null}
             {empty ? (
                 <EmptyState icon="home-outline" label="Assista e favorite pra Home ganhar vida." />
@@ -162,4 +182,18 @@ export default function HomeTab() {
 const styles = StyleSheet.create({
     root: { flex: 1, backgroundColor: colors.bg },
     error: { color: colors.danger, marginHorizontal: spacing.lg, marginVertical: spacing.sm },
+    updateBanner: {
+        flexDirection: 'row',
+        alignItems: 'center',
+        gap: spacing.sm,
+        backgroundColor: colors.accentSoft,
+        borderColor: colors.accent,
+        borderWidth: 1,
+        borderRadius: 10,
+        marginHorizontal: spacing.lg,
+        marginBottom: spacing.sm,
+        paddingHorizontal: spacing.md,
+        paddingVertical: 10,
+    },
+    updateText: { flex: 1, color: colors.text, fontSize: 13, fontWeight: '600' },
 })

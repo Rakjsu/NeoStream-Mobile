@@ -77,6 +77,35 @@ export default function Player() {
         toastTimer.current = setTimeout(() => setTrackToast(''), 2000)
     }
 
+    // Sleep timer: 🌙 cicla 30 → 60 → 90 min → desligado; ao zerar, pausa.
+    const SLEEP_STEPS = [0, 30, 60, 90]
+    const [sleepMin, setSleepMin] = useState(0)
+
+    const cycleSleep = () => {
+        const next = SLEEP_STEPS[(SLEEP_STEPS.indexOf(sleepMin) + 1) % SLEEP_STEPS.length]
+        setSleepMin(next)
+        showTrackToast(next === 0 ? t('sleepOff') : tf('sleepIn', { m: next }))
+    }
+
+    useEffect(() => {
+        if (sleepMin <= 0) return
+        const timer = setTimeout(() => {
+            try { player.pause() } catch { /* player já liberado */ }
+            setSleepMin(0)
+            showTrackToast(t('sleepDone'))
+        }, sleepMin * 60_000)
+        return () => clearTimeout(timer)
+        // eslint-disable-next-line react-hooks/exhaustive-deps
+    }, [sleepMin])
+
+    // A barra do topo (e o zap) some após 5s sem toque; um toque no topo traz de volta.
+    const [chrome, setChrome] = useState(true)
+    useEffect(() => {
+        if (!chrome) return
+        const timer = setTimeout(() => setChrome(false), 5000)
+        return () => clearTimeout(timer)
+    }, [chrome])
+
     const cycleAudio = () => {
         if (audioTracks.length < 2) return
         const index = audioTracks.findIndex(track => track.id === player.audioTrack?.id)
@@ -242,8 +271,15 @@ export default function Player() {
                 contentFit="contain"
                 nativeControls
                 allowsPictureInPicture
+                startsPictureInPictureAutomatically
             />
 
+            {!chrome ? (
+                <TouchableOpacity
+                    style={[styles.chromeStrip, { height: insets.top + 56 }]}
+                    onPress={() => setChrome(true)}
+                />
+            ) : (
             <View style={[styles.topBar, { paddingTop: insets.top + spacing.sm }]}>
                 <TouchableOpacity style={styles.back} onPress={() => router.back()}>
                     <Ionicons name="chevron-back" size={24} color={colors.text} />
@@ -256,6 +292,13 @@ export default function Player() {
                         <Text style={styles.epg} numberOfLines={1}>{liveEpg}</Text>
                     ) : null}
                 </View>
+                <TouchableOpacity style={styles.trackBtn} onPress={cycleSleep}>
+                    <Ionicons
+                        name={sleepMin > 0 ? 'moon' : 'moon-outline'}
+                        size={20}
+                        color={sleepMin > 0 ? colors.accent : colors.text}
+                    />
+                </TouchableOpacity>
                 {audioTracks.length > 1 ? (
                     <TouchableOpacity style={styles.trackBtn} onPress={cycleAudio}>
                         <Ionicons name="headset" size={20} color={colors.text} />
@@ -267,6 +310,7 @@ export default function Player() {
                     </TouchableOpacity>
                 ) : null}
             </View>
+            )}
 
             {trackToast ? (
                 <View style={styles.trackToast}>
@@ -274,7 +318,7 @@ export default function Player() {
                 </View>
             ) : null}
 
-            {zappable ? (
+            {chrome && zappable ? (
                 <View style={styles.zapCol}>
                     <TouchableOpacity style={styles.zapBtn} onPress={() => zap(1)}>
                         <Ionicons name="chevron-up" size={26} color={colors.text} />
@@ -344,6 +388,12 @@ const styles = StyleSheet.create({
         paddingVertical: 8,
     },
     trackToastText: { color: colors.text, fontSize: 14, fontWeight: '600' },
+    chromeStrip: {
+        position: 'absolute',
+        top: 0,
+        left: 0,
+        right: 0,
+    },
     zapCol: {
         position: 'absolute',
         right: spacing.sm,

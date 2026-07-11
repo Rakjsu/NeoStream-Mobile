@@ -58,6 +58,8 @@ export const STRINGS = {
         dlDeleteMsg: 'Apagar “{title}” do aparelho?', itemsSize: '{n} item(ns) · {mb} MB', offline: 'offline',
         upNextTitle: 'A seguir', autoplayIn: 'em {s}s…', watchNow: 'Assistir agora',
         unlockTitle: 'App bloqueado', unlockHint: 'Digite o PIN pra entrar.', unlock: 'Desbloquear',
+        dlNotifTitle: 'Download concluído', dlNotifBody: '{title} — já toca offline.',
+        sleepOff: '🌙 Timer desligado', sleepIn: '🌙 Pausa em {m} min', sleepDone: '🌙 Boa noite — pausado pelo timer',
     },
     en: {
         tabHome: 'Home', tabLive: 'Live TV', tabMovies: 'Movies', tabSeries: 'Series', tabSearch: 'Search', tabSettings: 'Settings',
@@ -109,6 +111,8 @@ export const STRINGS = {
         dlDeleteMsg: 'Delete “{title}” from this device?', itemsSize: '{n} item(s) · {mb} MB', offline: 'offline',
         upNextTitle: 'Up next', autoplayIn: 'in {s}s…', watchNow: 'Watch now',
         unlockTitle: 'App locked', unlockHint: 'Enter the PIN to continue.', unlock: 'Unlock',
+        dlNotifTitle: 'Download finished', dlNotifBody: '{title} — now plays offline.',
+        sleepOff: '🌙 Sleep timer off', sleepIn: '🌙 Pausing in {m} min', sleepDone: '🌙 Good night — paused by the timer',
     },
     es: {
         tabHome: 'Inicio', tabLive: 'TV en vivo', tabMovies: 'Películas', tabSeries: 'Series', tabSearch: 'Buscar', tabSettings: 'Ajustes',
@@ -160,6 +164,8 @@ export const STRINGS = {
         dlDeleteMsg: '¿Borrar “{title}” del dispositivo?', itemsSize: '{n} elemento(s) · {mb} MB', offline: 'sin conexión',
         upNextTitle: 'A continuación', autoplayIn: 'en {s}s…', watchNow: 'Ver ahora',
         unlockTitle: 'App bloqueada', unlockHint: 'Ingresa el PIN para continuar.', unlock: 'Desbloquear',
+        dlNotifTitle: 'Descarga completada', dlNotifBody: '{title} — ya se ve sin conexión.',
+        sleepOff: '🌙 Temporizador apagado', sleepIn: '🌙 Pausa en {m} min', sleepDone: '🌙 Buenas noches — pausado por el temporizador',
     },
 } satisfies Record<Lang, Record<string, string>>
 

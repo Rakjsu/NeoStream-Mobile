@@ -6,6 +6,7 @@
  */
 import AsyncStorage from '@react-native-async-storage/async-storage'
 import * as FileSystem from 'expo-file-system/legacy'
+import { notifyDownloadDone } from './notify'
 
 export interface DownloadItem {
     /** Mesmo id do progresso: "movie:<id>" | "episode:<id>". */
@@ -121,6 +122,7 @@ export async function startDownload(request: DownloadRequest): Promise<void> {
         }
         registry = map
         await persistRegistry()
+        void notifyDownloadDone(request.title)
     } catch (error) {
         await FileSystem.deleteAsync(fileUri, { idempotent: true }).catch(() => undefined)
         throw error

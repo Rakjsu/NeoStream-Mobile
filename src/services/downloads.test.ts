@@ -5,6 +5,8 @@ import { safeFileName } from './downloads'
 vi.mock('@react-native-async-storage/async-storage', () => ({
     default: { getItem: vi.fn(), setItem: vi.fn(), removeItem: vi.fn() },
 }))
+vi.mock('./notify', () => ({ notifyDownloadDone: vi.fn(async () => undefined) }))
+
 vi.mock('expo-file-system/legacy', () => ({
     documentDirectory: 'file:///doc/',
     makeDirectoryAsync: vi.fn(),

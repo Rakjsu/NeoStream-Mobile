@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest'
-import { buildM3uCatalog, classifyM3uEntry, containerOf, parseM3u, parseSeriesTag, type M3uChannel } from './m3u'
+import { buildM3uCatalog, classifyM3uEntry, containerOf, parseM3u, parseSeriesTag, parseTvgUrl, type M3uChannel } from './m3u'
 
 describe('parseM3u (fase 1: canais)', () => {
     it('extrai nome, logo, grupo e URL; ignora diretivas e linhas soltas', () => {
@@ -20,7 +20,7 @@ describe('parseM3u (fase 1: canais)', () => {
         expect(channels).toHaveLength(3)
         expect(channels[0]).toEqual({
             id: 'm3u_0', name: 'Globo HD', logo: 'http://logo/globo.png',
-            group: 'Abertos', url: 'http://prov.tv/globo.m3u8',
+            group: 'Abertos', url: 'http://prov.tv/globo.m3u8', tvgId: 'globo',
         })
         expect(channels[1].name).toBe('Canal, o melhor')
         expect(channels[1].group).toBe('Filmes, Ação')
@@ -81,5 +81,17 @@ describe('buildM3uCatalog', () => {
         expect(bb.seasons['1'].map(e => e.episode)).toEqual([1, 2]) // ordenado
         expect(bb.seasons['2']).toHaveLength(1)
         expect(bb.seasons['2'][0].container).toBe('mp4')
+    })
+})
+
+describe('parseTvgUrl', () => {
+    it('extrai o url-tvg do cabeçalho (primeira URL quando há várias)', () => {
+        expect(parseTvgUrl('#EXTM3U url-tvg="http://epg/a.xml,http://epg/b.xml"\n#EXTINF…')).toBe('http://epg/a.xml')
+        expect(parseTvgUrl('#EXTM3U x-tvg-url="http://epg/guia.xml"\n')).toBe('http://epg/guia.xml')
+    })
+
+    it('sem cabeçalho ou sem atributo devolve vazio', () => {
+        expect(parseTvgUrl('#EXTINF:-1,TV\nhttp://u.ts')).toBe('')
+        expect(parseTvgUrl('#EXTM3U\n')).toBe('')
     })
 })

@@ -10,6 +10,7 @@ import type {
     CatalogClient, Category, Episode, LiveChannel, NowNext, SeriesInfo,
     SeriesItem, UserInfo, VodDetails, VodMovie,
 } from './xtream'
+import { lookupNowNext, parseXmltv, type XmltvGuide } from './xmltv'
 
 export interface M3uChannel {
     id: string
@@ -17,6 +18,8 @@ export interface M3uChannel {
     logo: string
     group: string
     url: string
+    /** id do canal no XMLTV (atributo tvg-id) — opcional, usado pelo EPG. */
+    tvgId?: string
 }
 
 /** Valor de um atributo `chave="valor"` do #EXTINF ('' quando ausente). */
@@ -36,6 +39,15 @@ function extinfName(line: string): string {
     return comma >= 0 ? line.slice(comma + 1).trim() : ''
 }
 
+/** URL do XMLTV no cabeçalho da playlist (`#EXTM3U url-tvg="…"`); '' se não há. */
+export function parseTvgUrl(text: string): string {
+    const header = text.split(/\r?\n/, 1)[0] ?? ''
+    if (!header.startsWith('#EXTM3U')) return ''
+    const value = attribute(header, 'url-tvg') || attribute(header, 'x-tvg-url')
+    // Alguns provedores listam várias URLs separadas por vírgula — a primeira basta.
+    return value.split(',')[0]?.trim() ?? ''
+}
+
 /** #EXTINF + URL na linha seguinte; diretivas (#EXTVLCOPT…) são ignoradas. */
 export function parseM3u(text: string): M3uChannel[] {
     const channels: M3uChannel[] = []
@@ -47,6 +59,7 @@ export function parseM3u(text: string): M3uChannel[] {
                 name: extinfName(line),
                 logo: attribute(line, 'tvg-logo'),
                 group: attribute(line, 'group-title'),
+                tvgId: attribute(line, 'tvg-id'),
             }
         } else if (line && !line.startsWith('#')) {
             if (pending && pending.name) {
@@ -167,6 +180,9 @@ export class M3uClient implements CatalogClient {
     private playlistUrl: string
     private catalog: M3uCatalog | null = null
     private urlById = new Map<string, string>()
+    private liveById = new Map<string, M3uChannel>()
+    private tvgUrl = ''
+    private guidePromise: Promise<XmltvGuide | null> | null = null
 
     constructor(playlistUrl: string) {
         this.playlistUrl = playlistUrl
@@ -179,9 +195,12 @@ export class M3uClient implements CatalogClient {
         try {
             const response = await fetch(this.playlistUrl, { signal: controller.signal })
             if (!response.ok) throw new Error(`HTTP ${response.status}`)
-            const channels = parseM3u(await response.text())
+            const text = await response.text()
+            this.tvgUrl = parseTvgUrl(text)
+            const channels = parseM3u(text)
             for (const channel of channels) this.urlById.set(channel.id, channel.url)
             this.catalog = buildM3uCatalog(channels)
+            for (const channel of this.catalog.live) this.liveById.set(channel.id, channel)
             return this.catalog
         } catch (error) {
             if (error instanceof Error && error.name === 'AbortError') {
@@ -260,8 +279,41 @@ export class M3uClient implements CatalogClient {
         return { plot: '', genre: '', releaseDate: '', rating: '', duration: '', cover: '', trailer: '', cast: '', director: '' }
     }
 
-    /** M3U cru não tem EPG (url-tvg fica pra outra fase). */
-    async getShortEpg(): Promise<NowNext> { return { now: null, next: null } }
+    /**
+     * XMLTV do `url-tvg` baixado UMA vez por sessão (lazy, na primeira consulta)
+     * e reduzido a agora/a seguir por canal. Qualquer falha vira EPG vazio —
+     * a lista continua funcionando sem guia.
+     */
+    private loadGuide(): Promise<XmltvGuide | null> {
+        if (this.guidePromise) return this.guidePromise
+        this.guidePromise = (async () => {
+            if (!this.tvgUrl) return null
+            const controller = new AbortController()
+            const timer = setTimeout(() => controller.abort(), 30000)
+            try {
+                const response = await fetch(this.tvgUrl, { signal: controller.signal })
+                if (!response.ok) return null
+                const xml = await response.text()
+                // Guarda de tamanho: XMLTV maior que isso não cabe num celular.
+                if (xml.length > 40_000_000) return null
+                return parseXmltv(xml, Date.now())
+            } catch {
+                return null
+            } finally {
+                clearTimeout(timer)
+            }
+        })()
+        return this.guidePromise
+    }
+
+    async getShortEpg(streamId: number | string): Promise<NowNext> {
+        await this.load()
+        const channel = this.liveById.get(String(streamId))
+        if (!channel) return { now: null, next: null }
+        const guide = await this.loadGuide()
+        if (!guide) return { now: null, next: null }
+        return lookupNowNext(guide, channel.tvgId ?? '', channel.name)
+    }
 
     liveStreamUrl(streamId: number | string): string {
         return this.urlById.get(String(streamId)) ?? ''

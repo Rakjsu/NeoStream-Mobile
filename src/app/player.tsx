@@ -2,10 +2,11 @@ import { Ionicons } from '@expo/vector-icons'
 import { useEvent } from 'expo'
 import { useKeepAwake } from 'expo-keep-awake'
 import { router, useLocalSearchParams } from 'expo-router'
-import { useVideoPlayer, VideoView, type AudioTrack, type SubtitleTrack } from 'expo-video'
+import { useVideoPlayer, VideoView, type AudioTrack, type SubtitleTrack, type VideoPlayer } from 'expo-video'
 import { useEffect, useRef, useState } from 'react'
 import { StyleSheet, Text, TouchableOpacity, View } from 'react-native'
 import { useSafeAreaInsets } from 'react-native-safe-area-context'
+import { getDownload } from '../services/downloads'
 import { getEntry, resumePosition, saveSample, type ProgressKind } from '../services/progress'
 import { cachedFetch, getClient } from '../services/session'
 import { hasZapContext, zapBy } from '../services/zap'
@@ -20,6 +21,12 @@ function applyAudioTrack(target: TrackPlayer, track: AudioTrack) {
 }
 function applySubtitleTrack(target: TrackPlayer, track: SubtitleTrack | null) {
     target.subtitleTrack = track
+}
+
+/** Troca a fonte pro arquivo baixado (helper de módulo pela regra de imutabilidade). */
+async function swapToLocal(target: VideoPlayer, uri: string) {
+    await target.replaceAsync(uri)
+    target.play()
 }
 
 export default function Player() {
@@ -126,14 +133,19 @@ export default function Player() {
         })()
     }
 
-    // Retomar do ponto salvo: seek único logo que a mídia carrega.
+    // Item baixado → troca pro arquivo local; depois retoma do ponto salvo.
     useEffect(() => {
         if (!trackable) return
         let cancelled = false
-        void getEntry(String(pid)).then(entry => {
+        void (async () => {
+            const download = await getDownload(String(pid)).catch(() => undefined)
+            if (download && !cancelled && download.fileUri !== String(url)) {
+                await swapToLocal(player, download.fileUri).catch(() => undefined) // segue no remoto
+            }
+            const entry = await getEntry(String(pid))
             const at = resumePosition(entry)
             if (!cancelled && at > 0) player.currentTime = at
-        })
+        })()
         return () => { cancelled = true }
         // player é estável entre renders (useVideoPlayer) — só o pid importa.
         // eslint-disable-next-line react-hooks/exhaustive-deps

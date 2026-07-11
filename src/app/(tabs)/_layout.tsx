@@ -1,5 +1,6 @@
 import { Ionicons } from '@expo/vector-icons'
-import { Tabs } from 'expo-router'
+import { router, Tabs } from 'expo-router'
+import { TouchableOpacity } from 'react-native'
 import { colors } from '../../ui/theme'
 
 export default function TabsLayout() {
@@ -20,6 +21,11 @@ export default function TabsLayout() {
                 options={{
                     title: 'Início',
                     tabBarIcon: ({ color, size }) => <Ionicons name="home" size={size} color={color} />,
+                    headerRight: () => (
+                        <TouchableOpacity onPress={() => router.push('/downloads')} style={{ paddingHorizontal: 16 }}>
+                            <Ionicons name="cloud-download-outline" size={22} color={colors.text} />
+                        </TouchableOpacity>
+                    ),
                 }}
             />
             <Tabs.Screen

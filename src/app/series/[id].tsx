@@ -1,7 +1,8 @@
 import { Ionicons } from '@expo/vector-icons'
 import { Stack, router, useFocusEffect, useLocalSearchParams } from 'expo-router'
 import { useCallback, useEffect, useState } from 'react'
-import { Image, SectionList, StyleSheet, Text, TouchableOpacity, View } from 'react-native'
+import { Alert, Image, SectionList, StyleSheet, Text, TouchableOpacity, View } from 'react-native'
+import { activeProgress, listActiveDownloads, listDownloads, removeDownload, startDownload, subscribeDownloads } from '../../services/downloads'
 import { emptyFavorites, isFavorite, loadFavorites, persistToggle, type Favorites } from '../../services/favorites'
 import {
     buildProgressId, loadProgress, loadWatched, pickNextEpisode,
@@ -27,6 +28,9 @@ export default function SeriesDetail() {
     const [watched, setWatched] = useState<Set<string>>(new Set())
     const [progress, setProgress] = useState<Record<string, ProgressEntry>>({})
     const [error, setError] = useState('')
+    // pids baixados/baixando (re-renderiza a cada tick de progresso).
+    const [downloaded, setDownloaded] = useState<Set<string>>(new Set())
+    const [activeDl, setActiveDl] = useState<Record<string, number>>({})
 
     useEffect(() => {
         let alive = true
@@ -54,6 +58,17 @@ export default function SeriesDetail() {
         })()
         return () => { alive = false }
     }, [id])
+
+    useEffect(() => {
+        const refreshDl = () => {
+            const activeMap: Record<string, number> = {}
+            for (const item of listActiveDownloads()) activeMap[item.id] = Math.round(item.progress * 100)
+            setActiveDl(activeMap)
+            void listDownloads().then(done => setDownloaded(new Set(done.map(d => d.id))))
+        }
+        queueMicrotask(refreshDl)
+        return subscribeDownloads(refreshDl)
+    }, [])
 
     // ✓ e barras de progresso atualizam quando a tela volta do player.
     useFocusEffect(useCallback(() => {
@@ -158,6 +173,39 @@ export default function SeriesDetail() {
                                         </View>
                                     ) : null}
                                 </View>
+                                <TouchableOpacity
+                                    style={styles.dlBtn}
+                                    onPress={() => {
+                                        if (downloaded.has(pid)) {
+                                            Alert.alert('Download', 'Episódio baixado (toca offline).', [
+                                                { text: 'OK', style: 'cancel' },
+                                                { text: 'Excluir', style: 'destructive', onPress: () => void removeDownload(pid) },
+                                            ])
+                                            return
+                                        }
+                                        if (activeProgress(pid) !== null) return
+                                        void (async () => {
+                                            const client = await getClient()
+                                            if (!client) return
+                                            const container = item.container_extension || 'mp4'
+                                            await startDownload({
+                                                id: pid,
+                                                url: client.seriesStreamUrl(item.id, container),
+                                                title: `${name ?? ''} · ${item.title || `T${section.seasonNum}E${item.episode_num}`}`,
+                                                cover: infoCover || cover || '',
+                                                container,
+                                            }).catch(() => Alert.alert('Download', 'Não deu pra baixar este episódio.'))
+                                        })()
+                                    }}
+                                >
+                                    {downloaded.has(pid) ? (
+                                        <Ionicons name="cloud-done" size={16} color={colors.live} />
+                                    ) : activeDl[pid] !== undefined ? (
+                                        <Text style={styles.dlPct}>{activeDl[pid]}%</Text>
+                                    ) : (
+                                        <Ionicons name="cloud-download-outline" size={16} color={colors.textDim} />
+                                    )}
+                                </TouchableOpacity>
                                 {seen ? (
                                     <Ionicons name="checkmark-circle" size={18} color={colors.live} />
                                 ) : (
@@ -235,5 +283,7 @@ const styles = StyleSheet.create({
     epTitle: { color: colors.text, fontSize: 15 },
     epTitleSeen: { color: colors.textDim },
     epTrack: { height: 3, backgroundColor: colors.border, borderRadius: 2 },
+    dlBtn: { padding: spacing.xs, minWidth: 34, alignItems: 'center' },
+    dlPct: { color: colors.accent, fontSize: 11, fontWeight: '700' },
     epFill: { height: 3, backgroundColor: colors.accent, borderRadius: 2 },
 })

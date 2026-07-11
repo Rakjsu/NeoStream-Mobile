@@ -1,7 +1,8 @@
 import { Ionicons } from '@expo/vector-icons'
 import { Stack, router, useLocalSearchParams } from 'expo-router'
 import { useEffect, useState } from 'react'
-import { Image, Linking, ScrollView, StyleSheet, Text, TouchableOpacity, View } from 'react-native'
+import { Alert, Image, Linking, ScrollView, StyleSheet, Text, TouchableOpacity, View } from 'react-native'
+import { activeProgress, getDownload, removeDownload, startDownload, subscribeDownloads } from '../../services/downloads'
 import { emptyFavorites, isFavorite, loadFavorites, persistToggle, type Favorites } from '../../services/favorites'
 import { buildProgressId, getEntry, progressPct, resumePosition } from '../../services/progress'
 import { getClient } from '../../services/session'
@@ -19,8 +20,20 @@ export default function MovieDetail() {
     const [details, setDetails] = useState<VodDetails | null>(null)
     const [favorites, setFavorites] = useState<Favorites>(emptyFavorites())
     const [resumePct, setResumePct] = useState(0)
+    const [dlState, setDlState] = useState<'none' | 'active' | 'done'>('none')
+    const [dlPct, setDlPct] = useState(0)
 
     const pid = buildProgressId('movie', String(id))
+
+    useEffect(() => {
+        const refreshDl = () => {
+            const progress = activeProgress(pid)
+            if (progress !== null) { setDlState('active'); setDlPct(Math.round(progress * 100)); return }
+            void getDownload(pid).then(item => setDlState(item ? 'done' : 'none'))
+        }
+        queueMicrotask(refreshDl)
+        return subscribeDownloads(refreshDl)
+    }, [pid])
 
     useEffect(() => {
         let alive = true
@@ -97,6 +110,39 @@ export default function MovieDetail() {
                     <Ionicons name={fav ? 'heart' : 'heart-outline'} size={20} color={fav ? '#fff' : colors.danger} />
                 </TouchableOpacity>
             </View>
+
+            <TouchableOpacity
+                style={styles.trailerBtn}
+                onPress={() => {
+                    if (dlState === 'none') {
+                        void (async () => {
+                            const client = await getClient()
+                            if (!client) return
+                            await startDownload({
+                                id: pid,
+                                url: client.vodStreamUrl(String(id), String(container || 'mp4')),
+                                title: name ?? '',
+                                cover: details?.cover || cover || '',
+                                container: String(container || 'mp4'),
+                            }).catch(() => Alert.alert('Download', 'Não deu pra baixar este filme.'))
+                        })()
+                    } else if (dlState === 'done') {
+                        Alert.alert('Download', 'Este filme já está baixado (toca offline).', [
+                            { text: 'OK', style: 'cancel' },
+                            { text: 'Excluir download', style: 'destructive', onPress: () => void removeDownload(pid) },
+                        ])
+                    }
+                }}
+            >
+                <Ionicons
+                    name={dlState === 'done' ? 'checkmark-circle' : 'cloud-download-outline'}
+                    size={18}
+                    color={dlState === 'done' ? colors.live : colors.text}
+                />
+                <Text style={styles.trailerText}>
+                    {dlState === 'done' ? 'Baixado — assiste offline' : dlState === 'active' ? `Baixando… ${dlPct}%` : 'Baixar'}
+                </Text>
+            </TouchableOpacity>
 
             {details?.trailer ? (
                 <TouchableOpacity style={styles.trailerBtn} onPress={() => void Linking.openURL(details.trailer)}>

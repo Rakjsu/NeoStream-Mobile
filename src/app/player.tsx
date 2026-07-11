@@ -11,6 +11,17 @@ import { cachedFetch, getClient } from '../services/session'
 import { hasZapContext, zapBy } from '../services/zap'
 import { colors, spacing } from '../ui/theme'
 
+// Atribuições de faixa ficam fora do componente: o expo-video expõe as
+// faixas como propriedades atribuíveis, o que a regra react-hooks/immutability
+// não deixa fazer direto num handler.
+type TrackPlayer = { audioTrack: AudioTrack | null; subtitleTrack: SubtitleTrack | null }
+function applyAudioTrack(target: TrackPlayer, track: AudioTrack) {
+    target.audioTrack = track
+}
+function applySubtitleTrack(target: TrackPlayer, track: SubtitleTrack | null) {
+    target.subtitleTrack = track
+}
+
 export default function Player() {
     const { url, title, live, pid, kind, sid, container, cover } = useLocalSearchParams<{
         url: string
@@ -45,10 +56,12 @@ export default function Player() {
 
     useEffect(() => {
         if (status !== 'readyToPlay') return
-        try {
-            setAudioTracks(player.availableAudioTracks ?? [])
-            setSubtitleTracks(player.availableSubtitleTracks ?? [])
-        } catch { /* player já liberado */ }
+        queueMicrotask(() => {
+            try {
+                setAudioTracks(player.availableAudioTracks ?? [])
+                setSubtitleTracks(player.availableSubtitleTracks ?? [])
+            } catch { /* player já liberado */ }
+        })
         // eslint-disable-next-line react-hooks/exhaustive-deps
     }, [status])
 
@@ -62,7 +75,7 @@ export default function Player() {
         if (audioTracks.length < 2) return
         const index = audioTracks.findIndex(track => track.id === player.audioTrack?.id)
         const next = audioTracks[(index + 1) % audioTracks.length]
-        player.audioTrack = next
+        applyAudioTrack(player, next)
         showTrackToast(`🎧 ${next.label || next.language || `Áudio ${(index + 1) % audioTracks.length + 1}`}`)
     }
 
@@ -71,11 +84,11 @@ export default function Player() {
         const index = subtitleTracks.findIndex(track => track.id === player.subtitleTrack?.id)
         const nextIndex = player.subtitleTrack ? index + 1 : 0
         if (nextIndex >= subtitleTracks.length) {
-            player.subtitleTrack = null
+            applySubtitleTrack(player, null)
             showTrackToast('💬 Legenda desligada')
         } else {
             const next = subtitleTracks[nextIndex]
-            player.subtitleTrack = next
+            applySubtitleTrack(player, next)
             showTrackToast(`💬 ${next.label || next.language || `Legenda ${nextIndex + 1}`}`)
         }
     }

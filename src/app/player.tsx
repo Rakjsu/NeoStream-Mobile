@@ -2,7 +2,7 @@ import { Ionicons } from '@expo/vector-icons'
 import { useEvent } from 'expo'
 import { useKeepAwake } from 'expo-keep-awake'
 import { router, useLocalSearchParams } from 'expo-router'
-import { useVideoPlayer, VideoView } from 'expo-video'
+import { useVideoPlayer, VideoView, type AudioTrack, type SubtitleTrack } from 'expo-video'
 import { useEffect, useRef, useState } from 'react'
 import { StyleSheet, Text, TouchableOpacity, View } from 'react-native'
 import { useSafeAreaInsets } from 'react-native-safe-area-context'
@@ -35,6 +35,50 @@ export default function Player() {
     })
 
     const trackable = live !== '1' && !!pid && !!sid
+
+    // Faixas de áudio/legenda embutidas (ExoPlayer). 🎧 cicla dublado/legendado;
+    // 💬 cicla desligada → cada legenda → desligada. Toast confirma a escolha.
+    const [audioTracks, setAudioTracks] = useState<AudioTrack[]>([])
+    const [subtitleTracks, setSubtitleTracks] = useState<SubtitleTrack[]>([])
+    const [trackToast, setTrackToast] = useState('')
+    const toastTimer = useRef<ReturnType<typeof setTimeout> | null>(null)
+
+    useEffect(() => {
+        if (status !== 'readyToPlay') return
+        try {
+            setAudioTracks(player.availableAudioTracks ?? [])
+            setSubtitleTracks(player.availableSubtitleTracks ?? [])
+        } catch { /* player já liberado */ }
+        // eslint-disable-next-line react-hooks/exhaustive-deps
+    }, [status])
+
+    const showTrackToast = (text: string) => {
+        setTrackToast(text)
+        if (toastTimer.current) clearTimeout(toastTimer.current)
+        toastTimer.current = setTimeout(() => setTrackToast(''), 2000)
+    }
+
+    const cycleAudio = () => {
+        if (audioTracks.length < 2) return
+        const index = audioTracks.findIndex(track => track.id === player.audioTrack?.id)
+        const next = audioTracks[(index + 1) % audioTracks.length]
+        player.audioTrack = next
+        showTrackToast(`🎧 ${next.label || next.language || `Áudio ${(index + 1) % audioTracks.length + 1}`}`)
+    }
+
+    const cycleSubtitle = () => {
+        if (subtitleTracks.length === 0) return
+        const index = subtitleTracks.findIndex(track => track.id === player.subtitleTrack?.id)
+        const nextIndex = player.subtitleTrack ? index + 1 : 0
+        if (nextIndex >= subtitleTracks.length) {
+            player.subtitleTrack = null
+            showTrackToast('💬 Legenda desligada')
+        } else {
+            const next = subtitleTracks[nextIndex]
+            player.subtitleTrack = next
+            showTrackToast(`💬 ${next.label || next.language || `Legenda ${nextIndex + 1}`}`)
+        }
+    }
     // O expo-video pode disparar release do player no unmount antes do cleanup;
     // amostras ficam aqui pra última gravação não precisar tocar o player.
     const lastSample = useRef({ position: 0, duration: 0 })
@@ -138,7 +182,23 @@ export default function Player() {
                         <Text style={styles.epg} numberOfLines={1}>{liveEpg}</Text>
                     ) : null}
                 </View>
+                {audioTracks.length > 1 ? (
+                    <TouchableOpacity style={styles.trackBtn} onPress={cycleAudio}>
+                        <Ionicons name="headset" size={20} color={colors.text} />
+                    </TouchableOpacity>
+                ) : null}
+                {subtitleTracks.length > 0 ? (
+                    <TouchableOpacity style={styles.trackBtn} onPress={cycleSubtitle}>
+                        <Ionicons name="chatbox-ellipses" size={20} color={colors.text} />
+                    </TouchableOpacity>
+                ) : null}
             </View>
+
+            {trackToast ? (
+                <View style={styles.trackToast}>
+                    <Text style={styles.trackToastText}>{trackToast}</Text>
+                </View>
+            ) : null}
 
             {zappable ? (
                 <View style={styles.zapCol}>
@@ -183,6 +243,17 @@ const styles = StyleSheet.create({
     titleBlock: { flex: 1 },
     title: { color: colors.text, fontSize: 16, fontWeight: '600' },
     epg: { color: 'rgba(244,244,248,0.7)', fontSize: 12 },
+    trackBtn: { padding: spacing.sm },
+    trackToast: {
+        position: 'absolute',
+        bottom: 96,
+        alignSelf: 'center',
+        backgroundColor: 'rgba(22,22,31,0.92)',
+        borderRadius: 20,
+        paddingHorizontal: spacing.lg,
+        paddingVertical: 8,
+    },
+    trackToastText: { color: colors.text, fontSize: 14, fontWeight: '600' },
     zapCol: {
         position: 'absolute',
         right: spacing.sm,

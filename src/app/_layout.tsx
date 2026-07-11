@@ -1,6 +1,7 @@
 import { Stack } from 'expo-router'
 import { StatusBar } from 'expo-status-bar'
 import { colors } from '../ui/theme'
+import { t } from '../i18n/strings'
 
 export default function RootLayout() {
     return (
@@ -20,7 +21,7 @@ export default function RootLayout() {
                 <Stack.Screen name="player" options={{ headerShown: false }} />
                 <Stack.Screen name="series/[id]" options={{ title: '' }} />
                 <Stack.Screen name="movie/[id]" options={{ title: '' }} />
-                <Stack.Screen name="downloads" options={{ title: 'Downloads' }} />
+                <Stack.Screen name="downloads" options={{ title: t('downloadsTitle') }} />
             </Stack>
         </>
     )

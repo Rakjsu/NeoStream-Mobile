@@ -8,6 +8,7 @@ import {
 } from '../services/downloads'
 import { colors, spacing } from '../ui/theme'
 import { EmptyState } from '../ui/components'
+import { t, tf } from '../i18n/strings'
 
 function formatMb(bytes: number): string {
     return `${Math.max(1, Math.round(bytes / 1048576))} MB`
@@ -45,9 +46,9 @@ export default function Downloads() {
     }
 
     const confirmRemove = (item: DownloadItem) => {
-        Alert.alert('Excluir download', `Apagar "${item.title}" do aparelho?`, [
-            { text: 'Cancelar', style: 'cancel' },
-            { text: 'Excluir', style: 'destructive', onPress: () => void removeDownload(item.id) },
+        Alert.alert(t('dlDelete'), tf('dlDeleteMsg', { title: item.title }), [
+            { text: t('cancel'), style: 'cancel' },
+            { text: t('delete'), style: 'destructive', onPress: () => void removeDownload(item.id) },
         ])
     }
 
@@ -55,12 +56,12 @@ export default function Downloads() {
 
     return (
         <View style={styles.root}>
-            <Stack.Screen options={{ title: 'Downloads' }} />
+            <Stack.Screen options={{ title: t('downloadsTitle') }} />
             {activeList.map(activeItem => (
                 <View key={activeItem.id} style={styles.activeRow}>
                     <Ionicons name="cloud-download" size={18} color={colors.accent} />
                     <View style={styles.activeInfo}>
-                        <Text style={styles.activeText}>Baixando… {Math.round(activeItem.progress * 100)}%</Text>
+                        <Text style={styles.activeText}>{tf('downloadingPct', { pct: Math.round(activeItem.progress * 100) })}</Text>
                         <View style={styles.track}>
                             <View style={[styles.fill, { width: `${Math.round(activeItem.progress * 100)}%` }]} />
                         </View>
@@ -75,12 +76,12 @@ export default function Downloads() {
                 keyExtractor={item => item.id}
                 ListHeaderComponent={
                     items.length > 0
-                        ? <Text style={styles.total}>{items.length} item(ns) · {formatMb(totalBytes)}</Text>
+                        ? <Text style={styles.total}>{tf('itemsSize', { n: items.length, mb: Math.max(1, Math.round(totalBytes / 1048576)) })}</Text>
                         : null
                 }
                 ListEmptyComponent={
                     activeList.length === 0
-                        ? <EmptyState icon="cloud-download-outline" label="Nada baixado ainda — use o ⬇ na ficha de um filme ou num episódio." />
+                        ? <EmptyState icon="cloud-download-outline" label={t('dlEmpty')} />
                         : null
                 }
                 contentContainerStyle={items.length === 0 ? { flexGrow: 1 } : undefined}
@@ -95,7 +96,7 @@ export default function Downloads() {
                         )}
                         <View style={styles.info}>
                             <Text style={styles.title} numberOfLines={2}>{item.title}</Text>
-                            <Text style={styles.meta}>{formatMb(item.sizeBytes)} · offline</Text>
+                            <Text style={styles.meta}>{formatMb(item.sizeBytes)} · {t('offline')}</Text>
                         </View>
                         <TouchableOpacity onPress={() => confirmRemove(item)} style={styles.iconBtn}>
                             <Ionicons name="trash-outline" size={18} color={colors.danger} />

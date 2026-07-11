@@ -12,6 +12,7 @@ import {
 } from '../../services/session'
 import { parseExpiry } from '../../services/xtream'
 import { colors, spacing } from '../../ui/theme'
+import { t, tf } from '../../i18n/strings'
 
 function InfoRow({ label, value }: { label: string; value: string }) {
     return (
@@ -48,10 +49,10 @@ export default function SettingsTab() {
     }
 
     const confirmRemove = (account: StoredAccount) => {
-        Alert.alert('Remover conta', `Remover ${accountLabel(account)} deste aparelho?`, [
-            { text: 'Cancelar', style: 'cancel' },
+        Alert.alert(t('removeAccountTitle'), tf('removeAccountMsg', { label: accountLabel(account) }), [
+            { text: t('cancel'), style: 'cancel' },
             {
-                text: 'Remover',
+                text: t('remove'),
                 style: 'destructive',
                 onPress: () => {
                     void removeAccount(account.id).then(nextActive => {
@@ -68,7 +69,7 @@ export default function SettingsTab() {
 
     return (
         <ScrollView style={styles.root} contentContainerStyle={{ padding: spacing.lg }}>
-            <Text style={styles.section}>Contas</Text>
+            <Text style={styles.section}>{t('secAccounts')}</Text>
             <View style={styles.card}>
                 {accounts.map(account => {
                     const isActive = account.id === active?.id
@@ -92,38 +93,36 @@ export default function SettingsTab() {
                 })}
                 <TouchableOpacity style={styles.addRow} onPress={() => router.push('/login')}>
                     <Ionicons name="add-circle-outline" size={18} color={colors.accent} />
-                    <Text style={styles.addText}>Adicionar conta</Text>
+                    <Text style={styles.addText}>{t('addAccount')}</Text>
                 </TouchableOpacity>
             </View>
 
-            <Text style={styles.section}>Conta ativa</Text>
+            <Text style={styles.section}>{t('secActiveAccount')}</Text>
             <View style={styles.card}>
-                <InfoRow label="Servidor" value={active?.url ?? '—'} />
-                <InfoRow label="Usuário" value={active?.username ?? '—'} />
-                <InfoRow label="Status" value={active?.userInfo?.status ?? '—'} />
+                <InfoRow label={t('serverRow')} value={active?.url ?? '—'} />
+                <InfoRow label={t('userRow')} value={active?.username ?? '—'} />
+                <InfoRow label={t('statusRow')} value={active?.userInfo?.status ?? '—'} />
                 <InfoRow
-                    label="Expira em"
-                    value={expiry ? expiry.toLocaleDateString('pt-BR', { day: '2-digit', month: '2-digit', year: 'numeric' }) : 'Sem expiração'}
+                    label={t('expiresRow')}
+                    value={expiry ? expiry.toLocaleDateString('pt-BR', { day: '2-digit', month: '2-digit', year: 'numeric' }) : t('noExpiry')}
                 />
                 <InfoRow
-                    label="Conexões"
-                    value={`${active?.userInfo?.active_cons ?? '?'} de ${active?.userInfo?.max_connections ?? '?'}`}
+                    label={t('connectionsRow')}
+                    value={tf('connOf', { a: active?.userInfo?.active_cons ?? '?', b: active?.userInfo?.max_connections ?? '?' })}
                 />
             </View>
 
-            <Text style={styles.section}>Controle parental</Text>
+            <Text style={styles.section}>{t('secParental')}</Text>
             <View style={[styles.card, { paddingVertical: spacing.md, gap: spacing.md }]}>
                 <Text style={styles.parentalHint}>
-                    {parentalOn
-                        ? 'Conteúdo adulto oculto. Digite o PIN pra desativar.'
-                        : 'Oculta categorias adultas das abas e da busca, protegido por PIN de 4 dígitos.'}
+                    {parentalOn ? t('parentalOnHint') : t('parentalOffHint')}
                 </Text>
                 <View style={styles.pinRow}>
                     <TextInput
                         style={styles.pinInput}
                         value={pin}
                         onChangeText={text => { setPin(text.replace(/[^0-9]/g, '')); setPinError('') }}
-                        placeholder="PIN (4 dígitos)"
+                        placeholder={t('pinPh')}
                         placeholderTextColor={colors.textDim}
                         keyboardType="number-pad"
                         secureTextEntry
@@ -133,45 +132,41 @@ export default function SettingsTab() {
                         style={[styles.parentalBtn, parentalOn && styles.parentalBtnOff]}
                         onPress={() => {
                             void (async () => {
-                                if (!isValidPin(pin)) { setPinError('O PIN tem 4 dígitos.'); return }
+                                if (!isValidPin(pin)) { setPinError(t('pinLen')); return }
                                 const ok = parentalOn ? await disableParental(pin) : await enableParental(pin)
-                                if (!ok) { setPinError('PIN incorreto.'); return }
+                                if (!ok) { setPinError(t('pinWrong')); return }
                                 setPin('')
                                 // Recarrega as abas já com (ou sem) o filtro.
                                 router.replace('/')
                             })()
                         }}
                     >
-                        <Text style={styles.parentalBtnText}>{parentalOn ? 'Desativar' : 'Ativar'}</Text>
+                        <Text style={styles.parentalBtnText}>{parentalOn ? t('disable') : t('enable')}</Text>
                     </TouchableOpacity>
                 </View>
                 {pinError ? <Text style={styles.pinError}>{pinError}</Text> : null}
             </View>
 
-            <Text style={styles.section}>Histórico</Text>
+            <Text style={styles.section}>{t('secHistory')}</Text>
             <View style={[styles.card, { paddingVertical: spacing.md, gap: spacing.md }]}>
-                <Text style={styles.parentalHint}>
-                    Zera o “continuar assistindo” e os episódios marcados como vistos.
-                </Text>
+                <Text style={styles.parentalHint}>{t('historyHint')}</Text>
                 <TouchableOpacity
                     style={[styles.backupBtn, styles.restoreBtn]}
                     onPress={() => {
-                        Alert.alert('Limpar histórico', 'Apagar todo o progresso e os vistos deste aparelho?', [
-                            { text: 'Cancelar', style: 'cancel' },
-                            { text: 'Limpar', style: 'destructive', onPress: () => void clearHistory() },
+                        Alert.alert(t('clearHistoryTitle'), t('clearHistoryMsg'), [
+                            { text: t('cancel'), style: 'cancel' },
+                            { text: t('clear'), style: 'destructive', onPress: () => void clearHistory() },
                         ])
                     }}
                 >
                     <Ionicons name="trash-outline" size={16} color="#fff" />
-                    <Text style={styles.backupBtnText}>Limpar progresso e vistos</Text>
+                    <Text style={styles.backupBtnText}>{t('clearHistoryBtn')}</Text>
                 </TouchableOpacity>
             </View>
 
-            <Text style={styles.section}>Backup</Text>
+            <Text style={styles.section}>{t('secBackup')}</Text>
             <View style={[styles.card, { paddingVertical: spacing.md, gap: spacing.md }]}>
-                <Text style={styles.parentalHint}>
-                    Exporta contas, favoritos, progresso e ajustes num texto — guarde no Drive ou mande pra você mesmo.
-                </Text>
+                <Text style={styles.parentalHint}>{t('backupHint')}</Text>
                 <TouchableOpacity
                     style={styles.backupBtn}
                     onPress={() => {
@@ -182,13 +177,13 @@ export default function SettingsTab() {
                     }}
                 >
                     <Ionicons name="share-outline" size={16} color="#fff" />
-                    <Text style={styles.backupBtnText}>Exportar (compartilhar)</Text>
+                    <Text style={styles.backupBtnText}>{t('exportBtn')}</Text>
                 </TouchableOpacity>
                 <TextInput
                     style={styles.importInput}
                     value={importText}
                     onChangeText={text => { setImportText(text); setBackupMsg('') }}
-                    placeholder="Cole aqui o conteúdo de um backup pra restaurar…"
+                    placeholder={t('importPh')}
                     placeholderTextColor={colors.textDim}
                     multiline
                     numberOfLines={3}
@@ -202,12 +197,12 @@ export default function SettingsTab() {
                         try {
                             const backup = parseBackup(importText)
                             Alert.alert(
-                                'Restaurar backup',
-                                `Substituir TUDO neste aparelho por ${backup.accounts.length} conta(s) do backup?`,
+                                t('restoreTitle'),
+                                tf('restoreMsg', { n: backup.accounts.length }),
                                 [
-                                    { text: 'Cancelar', style: 'cancel' },
+                                    { text: t('cancel'), style: 'cancel' },
                                     {
-                                        text: 'Restaurar',
+                                        text: t('restoreBtn'),
                                         style: 'destructive',
                                         onPress: () => {
                                             void applyBackup(backup).then(() => {
@@ -219,12 +214,12 @@ export default function SettingsTab() {
                                 ],
                             )
                         } catch (err) {
-                            setBackupMsg(err instanceof Error ? err.message : 'Backup inválido.')
+                            setBackupMsg(err instanceof Error ? err.message : t('backupInvalid'))
                         }
                     }}
                 >
                     <Ionicons name="download-outline" size={16} color="#fff" />
-                    <Text style={styles.backupBtnText}>Restaurar</Text>
+                    <Text style={styles.backupBtnText}>{t('restoreBtn')}</Text>
                 </TouchableOpacity>
                 {backupMsg ? <Text style={styles.pinError}>{backupMsg}</Text> : null}
             </View>

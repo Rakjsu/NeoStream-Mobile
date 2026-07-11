@@ -8,6 +8,7 @@ import { buildProgressId, getEntry, progressPct, resumePosition } from '../../se
 import { getClient } from '../../services/session'
 import type { VodDetails } from '../../services/xtream'
 import { colors, spacing } from '../../ui/theme'
+import { t, tf } from '../../i18n/strings'
 
 /** Ficha do filme: capa, sinopse e metadados antes de dar o play. */
 export default function MovieDetail() {
@@ -101,7 +102,7 @@ export default function MovieDetail() {
             <View style={styles.actions}>
                 <TouchableOpacity style={styles.playBtn} onPress={() => void play()}>
                     <Ionicons name="play" size={18} color="#fff" />
-                    <Text style={styles.playText}>{resumePct > 0 ? `Retomar (${resumePct}%)` : 'Assistir'}</Text>
+                    <Text style={styles.playText}>{resumePct > 0 ? tf('resumeAt', { pct: resumePct }) : t('watch')}</Text>
                 </TouchableOpacity>
                 <TouchableOpacity
                     style={[styles.favBtn, fav && styles.favBtnOn]}
@@ -124,12 +125,12 @@ export default function MovieDetail() {
                                 title: name ?? '',
                                 cover: details?.cover || cover || '',
                                 container: String(container || 'mp4'),
-                            }).catch(() => Alert.alert('Download', 'Não deu pra baixar este filme.'))
+                            }).catch(() => Alert.alert(t('dlTitle'), t('dlMovieFail')))
                         })()
                     } else if (dlState === 'done') {
-                        Alert.alert('Download', 'Este filme já está baixado (toca offline).', [
-                            { text: 'OK', style: 'cancel' },
-                            { text: 'Excluir download', style: 'destructive', onPress: () => void removeDownload(pid) },
+                        Alert.alert(t('dlTitle'), t('dlMovieDone'), [
+                            { text: t('ok'), style: 'cancel' },
+                            { text: t('dlDelete'), style: 'destructive', onPress: () => void removeDownload(pid) },
                         ])
                     }
                 }}
@@ -140,27 +141,27 @@ export default function MovieDetail() {
                     color={dlState === 'done' ? colors.live : colors.text}
                 />
                 <Text style={styles.trailerText}>
-                    {dlState === 'done' ? 'Baixado — assiste offline' : dlState === 'active' ? `Baixando… ${dlPct}%` : 'Baixar'}
+                    {dlState === 'done' ? t('downloadedBtn') : dlState === 'active' ? tf('downloadingPct', { pct: dlPct }) : t('download')}
                 </Text>
             </TouchableOpacity>
 
             {details?.trailer ? (
                 <TouchableOpacity style={styles.trailerBtn} onPress={() => void Linking.openURL(details.trailer)}>
                     <Ionicons name="logo-youtube" size={18} color={colors.text} />
-                    <Text style={styles.trailerText}>Assistir trailer</Text>
+                    <Text style={styles.trailerText}>{t('trailerBtn')}</Text>
                 </TouchableOpacity>
             ) : null}
 
             {details === null ? (
-                <Text style={styles.plotDim}>Carregando detalhes…</Text>
+                <Text style={styles.plotDim}>{t('loadingDetails')}</Text>
             ) : details.plot ? (
                 <Text style={styles.plot}>{details.plot}</Text>
             ) : (
-                <Text style={styles.plotDim}>Sem sinopse disponível.</Text>
+                <Text style={styles.plotDim}>{t('noPlot')}</Text>
             )}
 
-            {details?.cast ? <Text style={styles.credits}><Text style={styles.creditsLabel}>Elenco: </Text>{details.cast}</Text> : null}
-            {details?.director ? <Text style={styles.credits}><Text style={styles.creditsLabel}>Direção: </Text>{details.director}</Text> : null}
+            {details?.cast ? <Text style={styles.credits}><Text style={styles.creditsLabel}>{t('castLabel')}</Text>{details.cast}</Text> : null}
+            {details?.director ? <Text style={styles.credits}><Text style={styles.creditsLabel}>{t('directorLabel')}</Text>{details.director}</Text> : null}
         </ScrollView>
     )
 }

@@ -12,6 +12,7 @@ import { getClient } from '../../services/session'
 import type { Episode } from '../../services/xtream'
 import { EmptyState, Loading } from '../../ui/components'
 import { colors, spacing } from '../../ui/theme'
+import { t, tf } from '../../i18n/strings'
 
 interface Season {
     title: string
@@ -43,7 +44,7 @@ export default function SeriesDetail() {
                 const episodes = info.episodes ?? {}
                 const list: Season[] = Object.keys(episodes)
                     .sort((a, b) => Number(a) - Number(b))
-                    .map(season => ({ title: `Temporada ${season}`, seasonNum: season, data: episodes[season] ?? [] }))
+                    .map(season => ({ title: tf('seasonN', { n: season }), seasonNum: season, data: episodes[season] ?? [] }))
                 if (alive) {
                     setSeasons(list)
                     setPlot(info.info?.plot?.trim() ?? '')
@@ -51,7 +52,7 @@ export default function SeriesDetail() {
                 }
             } catch (err) {
                 if (alive) {
-                    setError(err instanceof Error ? err.message : 'Falha ao carregar os episódios.')
+                    setError(err instanceof Error ? err.message : t('failSeries'))
                     setSeasons([])
                 }
             }
@@ -137,7 +138,7 @@ export default function SeriesDetail() {
                         onPress={() => void persistToggle('series', String(id)).then(setFavorites)}
                     >
                         <Ionicons name={fav ? 'heart' : 'heart-outline'} size={16} color={fav ? '#fff' : colors.danger} />
-                        <Text style={[styles.favText, fav && styles.favTextOn]}>{fav ? 'Favorita' : 'Favoritar'}</Text>
+                        <Text style={[styles.favText, fav && styles.favTextOn]}>{fav ? t('favOn') : t('favBtn')}</Text>
                     </TouchableOpacity>
                 </View>
             </View>
@@ -145,7 +146,7 @@ export default function SeriesDetail() {
                 <TouchableOpacity style={styles.nextBtn} onPress={() => void play(next.ep, next.seasonNum)}>
                     <Ionicons name="play" size={16} color="#fff" />
                     <Text style={styles.nextText}>
-                        Continuar: T{next.seasonNum}E{next.ep.episode_num}
+                        {tf('continueEp', { s: next.seasonNum, e: next.ep.episode_num })}
                     </Text>
                 </TouchableOpacity>
             ) : null}
@@ -156,13 +157,13 @@ export default function SeriesDetail() {
         <View style={styles.root}>
             <Stack.Screen options={{ title: name ?? 'Série' }} />
             {seasons === null ? (
-                <Loading label="Carregando episódios…" />
+                <Loading label={t('loadingEpisodes')} />
             ) : (
                 <SectionList
                     sections={seasons}
                     keyExtractor={item => String(item.id)}
                     ListHeaderComponent={header}
-                    ListEmptyComponent={<EmptyState icon="albums-outline" label={error || 'Nenhum episódio.'} />}
+                    ListEmptyComponent={<EmptyState icon="albums-outline" label={error || t('noEpisodes')} />}
                     contentContainerStyle={seasons.length === 0 ? { flexGrow: 1 } : undefined}
                     renderSectionHeader={({ section }) => (
                         <Text style={styles.season}>{section.title}</Text>
@@ -184,7 +185,7 @@ export default function SeriesDetail() {
                                 </View>
                                 <View style={styles.epInfo}>
                                     <Text style={[styles.epTitle, seen && styles.epTitleSeen]} numberOfLines={1}>
-                                        {item.title || `Episódio ${item.episode_num}`}
+                                        {item.title || tf('episodeN', { n: item.episode_num })}
                                     </Text>
                                     {pct > 0 ? (
                                         <View style={styles.epTrack}>
@@ -196,9 +197,9 @@ export default function SeriesDetail() {
                                     style={styles.dlBtn}
                                     onPress={() => {
                                         if (downloaded.has(pid)) {
-                                            Alert.alert('Download', 'Episódio baixado (toca offline).', [
-                                                { text: 'OK', style: 'cancel' },
-                                                { text: 'Excluir', style: 'destructive', onPress: () => void removeDownload(pid) },
+                                            Alert.alert(t('dlTitle'), t('dlEpisodeDone'), [
+                                                { text: t('ok'), style: 'cancel' },
+                                                { text: t('delete'), style: 'destructive', onPress: () => void removeDownload(pid) },
                                             ])
                                             return
                                         }
@@ -213,7 +214,7 @@ export default function SeriesDetail() {
                                                 title: `${name ?? ''} · ${item.title || `T${section.seasonNum}E${item.episode_num}`}`,
                                                 cover: infoCover || cover || '',
                                                 container,
-                                            }).catch(() => Alert.alert('Download', 'Não deu pra baixar este episódio.'))
+                                            }).catch(() => Alert.alert(t('dlTitle'), t('dlEpisodeFail')))
                                         })()
                                     }}
                                 >

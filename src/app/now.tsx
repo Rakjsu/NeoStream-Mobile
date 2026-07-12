@@ -1,7 +1,7 @@
 import { Ionicons } from '@expo/vector-icons'
 import { Stack, router } from 'expo-router'
 import { useCallback, useEffect, useRef, useState } from 'react'
-import { Alert, FlatList, Image, StyleSheet, Text, TouchableOpacity, View, type ViewToken } from 'react-native'
+import { Alert, FlatList, Image, StyleSheet, Text, View, type ViewToken } from 'react-native'
 import { loadFavorites } from '../services/favorites'
 import { hiddenIdSet } from '../services/hidden'
 import { allowedCategoryIds, loadParental } from '../services/parental'
@@ -10,7 +10,7 @@ import { notifyAt } from '../services/notify'
 import { cachedFetch, getClient } from '../services/session'
 import type { Category, LiveChannel, NowNext } from '../services/xtream'
 import { rankChannels, setZapContext } from '../services/zap'
-import { EmptyState, Loading } from '../ui/components'
+import { EmptyState, Loading, TvTouchable } from '../ui/components'
 import { colors, spacing } from '../ui/theme'
 import { t, tf } from '../i18n/strings'
 
@@ -133,7 +133,7 @@ export default function NowOnTv() {
                     const nowNext = epgMap[id]
                     const pct = nowPct(nowNext, nowMs)
                     return (
-                        <TouchableOpacity
+                        <TvTouchable
                             style={styles.row}
                             onPress={() => play(item)}
                             onLongPress={() => remind(item)}
@@ -161,7 +161,7 @@ export default function NowOnTv() {
                                 ) : null}
                             </View>
                             <Ionicons name="play" size={18} color={colors.accent} />
-                        </TouchableOpacity>
+                        </TvTouchable>
                     )
                 }}
             />

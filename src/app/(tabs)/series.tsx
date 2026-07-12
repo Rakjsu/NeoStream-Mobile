@@ -7,7 +7,7 @@ import { listContinue, loadProgress, removeEntry, type ProgressEntry } from '../
 import { allowedCategoryIds, loadParental } from '../../services/parental'
 import { cachedFetch, getClient } from '../../services/session'
 import type { Category, SeriesItem } from '../../services/xtream'
-import { CategoryChips, ContinueRail, EmptyState, Loading, PosterCard, SearchBar } from '../../ui/components'
+import { CategoryChips, ContinueRail, EmptyState, Loading, PosterCard, SearchBar, TvTouchable } from '../../ui/components'
 import { nextSortMode, sortCatalog, type SortMode } from '../../services/sorting'
 import { colors, spacing } from '../../ui/theme'
 import { SORT_KEY, t, tf } from '../../i18n/strings'
@@ -174,9 +174,10 @@ export default function SeriesTab() {
                     />
                 }
                 contentContainerStyle={filtered.length === 0 ? { flexGrow: 1 } : styles.grid}
-                renderItem={({ item }) => (
-                    <TouchableOpacity
+                renderItem={({ item, index }) => (
+                    <TvTouchable
                         style={{ flex: 1 / columns }}
+                        hasTVPreferredFocus={index === 0}
                         onPress={() => {
                             const id = String(item.series_id)
                             if (selection) { toggleSelected(id); return }
@@ -194,7 +195,7 @@ export default function SeriesTab() {
                             fav={isFavorite(favorites, 'series', String(item.series_id))}
                             selected={selection?.has(String(item.series_id))}
                         />
-                    </TouchableOpacity>
+                    </TvTouchable>
                 )}
             />
         </View>

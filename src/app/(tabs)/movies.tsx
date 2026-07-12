@@ -9,7 +9,7 @@ import { enqueueDownloads, type DownloadRequest } from '../../services/downloads
 import { buildProgressId } from '../../services/progress'
 import { cachedFetch, getClient, resolvePlayableUrl } from '../../services/session'
 import type { Category, VodMovie } from '../../services/xtream'
-import { CategoryChips, ContinueRail, EmptyState, Loading, PosterCard, SearchBar } from '../../ui/components'
+import { CategoryChips, ContinueRail, EmptyState, Loading, PosterCard, SearchBar, TvTouchable } from '../../ui/components'
 import { nextSortMode, sortCatalog, type SortMode } from '../../services/sorting'
 import { colors, spacing } from '../../ui/theme'
 import { SORT_KEY, t, tf } from '../../i18n/strings'
@@ -211,11 +211,12 @@ export default function MoviesTab() {
                     />
                 }
                 contentContainerStyle={filtered.length === 0 ? { flexGrow: 1 } : styles.grid}
-                renderItem={({ item }) => {
+                renderItem={({ item, index }) => {
                     const id = String(item.stream_id)
                     return (
-                        <TouchableOpacity
+                        <TvTouchable
                             style={{ flex: 1 / columns }}
+                            hasTVPreferredFocus={index === 0}
                             onPress={() => (selection ? toggleSelected(id) : openDetails(item))}
                             onLongPress={() => setSelection(current => current ?? new Set([id]))}
                             delayLongPress={350}
@@ -226,7 +227,7 @@ export default function MoviesTab() {
                                 fav={isFavorite(favorites, 'movie', id)}
                                 selected={selection?.has(id)}
                             />
-                        </TouchableOpacity>
+                        </TvTouchable>
                     )
                 }}
             />

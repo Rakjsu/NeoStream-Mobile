@@ -9,7 +9,7 @@ import { recordRecentChannel } from '../../services/recents'
 import { cachedFetch, getClient } from '../../services/session'
 import type { Category, LiveChannel, NowNext } from '../../services/xtream'
 import { setZapContext } from '../../services/zap'
-import { CategoryChips, EmptyState, Loading, SearchBar } from '../../ui/components'
+import { CategoryChips, EmptyState, Loading, SearchBar, TvTouchable } from '../../ui/components'
 import { colors, spacing } from '../../ui/theme'
 import { t, tf } from '../../i18n/strings'
 
@@ -138,7 +138,7 @@ export default function LiveTab() {
                             ? `${t('nextUp')}${epg.next.title}`
                             : ''
                     return (
-                        <TouchableOpacity
+                        <TvTouchable
                             style={styles.row}
                             onPress={() => void play(item)}
                             onLongPress={() => {
@@ -176,7 +176,7 @@ export default function LiveTab() {
                                 />
                             </TouchableOpacity>
                             <Ionicons name="play" size={18} color={colors.accent} />
-                        </TouchableOpacity>
+                        </TvTouchable>
                     )
                 }}
             />

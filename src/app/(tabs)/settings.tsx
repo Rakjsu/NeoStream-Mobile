@@ -426,6 +426,10 @@ export default function SettingsTab() {
             <Text style={styles.section}>{t('secHistory')}</Text>
             <View style={[styles.card, { paddingVertical: spacing.md, gap: spacing.md }]}>
                 <Text style={styles.parentalHint}>{t('historyHint')}</Text>
+                <TouchableOpacity style={styles.backupBtn} onPress={() => router.push('/history')}>
+                    <Ionicons name="time-outline" size={16} color="#fff" />
+                    <Text style={styles.backupBtnText}>{t('viewHistory')}</Text>
+                </TouchableOpacity>
                 <TouchableOpacity
                     style={[styles.backupBtn, styles.restoreBtn]}
                     onPress={() => {

@@ -9,7 +9,7 @@ import { applyBackup, collectBackup, parseBackup, serializeBackup } from '../../
 import { disableParental, enableParental, isValidPin, loadParental } from '../../services/parental'
 import { clearHistory } from '../../services/progress'
 import {
-    accountLabel, listAccounts, loadAccount, removeAccount, renameAccount, switchAccount,
+    accountLabel, getClient, listAccounts, loadAccount, removeAccount, renameAccount, switchAccount,
     type StoredAccount,
 } from '../../services/session'
 import { dayKey, formatMinutes, loadUsage, summarize, type UsageSummary } from '../../services/usage'
@@ -82,6 +82,37 @@ export default function SettingsTab() {
                 },
             },
         ])
+    }
+
+
+    interface DiagRow { label: string; ok: boolean; ms: number; extra?: string }
+    const [diag, setDiag] = useState<DiagRow[] | 'running' | null>(null)
+
+    const testConnection = () => {
+        setDiag('running')
+        void (async () => {
+            const rows: DiagRow[] = []
+            const client = await getClient()
+            if (!client) { setDiag([]); return }
+            const timed = async (label: string, run: () => Promise<string>) => {
+                const startedAt = Date.now()
+                try {
+                    const extra = await run()
+                    rows.push({ label, ok: true, ms: Date.now() - startedAt, extra })
+                } catch {
+                    rows.push({ label, ok: false, ms: Date.now() - startedAt })
+                }
+            }
+            await timed(t('connAuth'), async () => {
+                await client.authenticate()
+                return ''
+            })
+            await timed(t('connChannels'), async () => {
+                const channels = await client.getLiveChannels()
+                return tf('connItems', { n: channels.length })
+            })
+            setDiag(rows)
+        })()
     }
 
     const expiry = parseExpiry(active?.userInfo?.exp_date)
@@ -163,6 +194,30 @@ export default function SettingsTab() {
                     label={t('connectionsRow')}
                     value={tf('connOf', { a: active?.userInfo?.active_cons ?? '?', b: active?.userInfo?.max_connections ?? '?' })}
                 />
+                <View style={{ paddingVertical: spacing.md, gap: spacing.sm }}>
+                    <TouchableOpacity
+                        style={styles.backupBtn}
+                        disabled={diag === 'running'}
+                        onPress={testConnection}
+                    >
+                        <Ionicons name="pulse-outline" size={16} color="#fff" />
+                        <Text style={styles.backupBtnText}>{diag === 'running' ? t('testing') : t('testConn')}</Text>
+                    </TouchableOpacity>
+                    {Array.isArray(diag) ? diag.map(row => (
+                        <View key={row.label} style={styles.diagRow}>
+                            <Ionicons
+                                name={row.ok ? 'checkmark-circle' : 'close-circle'}
+                                size={16}
+                                color={row.ok ? colors.live : colors.danger}
+                            />
+                            <Text style={styles.diagLabel}>{row.label}</Text>
+                            <Text style={styles.diagMeta}>
+                                {row.ms >= 1000 ? `${(row.ms / 1000).toFixed(1)}s` : `${row.ms}ms`}
+                                {row.extra ? ` · ${row.extra}` : ''}
+                            </Text>
+                        </View>
+                    )) : null}
+                </View>
             </View>
 
             <Text style={styles.section}>{t('secParental')}</Text>
@@ -416,6 +471,9 @@ const styles = StyleSheet.create({
     parentalBtnText: { color: '#fff', fontSize: 14, fontWeight: '600' },
     pinError: { color: colors.danger, fontSize: 13 },
     limitRow: { flexDirection: 'row', flexWrap: 'wrap', gap: spacing.sm },
+    diagRow: { flexDirection: 'row', alignItems: 'center', gap: spacing.sm },
+    diagLabel: { flex: 1, color: colors.text, fontSize: 14 },
+    diagMeta: { color: colors.textDim, fontSize: 13 },
     limitChip: {
         borderColor: colors.border,
         borderWidth: 1,

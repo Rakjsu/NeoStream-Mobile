@@ -94,6 +94,7 @@ export default function SettingsTab() {
                                 />
                                 <TouchableOpacity
                                     style={styles.trash}
+                                    accessibilityLabel={t('a11yConfirm')}
                                     onPress={() => {
                                         void renameAccount(account.id, aliasDraft).then(() => {
                                             setEditingId(null)
@@ -120,11 +121,12 @@ export default function SettingsTab() {
                             </TouchableOpacity>
                             <TouchableOpacity
                                 style={styles.trash}
+                                accessibilityLabel={t('a11yEdit')}
                                 onPress={() => { setEditingId(account.id); setAliasDraft(account.alias ?? '') }}
                             >
                                 <Ionicons name="pencil-outline" size={16} color={colors.textDim} />
                             </TouchableOpacity>
-                            <TouchableOpacity style={styles.trash} onPress={() => confirmRemove(account)}>
+                            <TouchableOpacity style={styles.trash} accessibilityLabel={t('a11yDelete')} onPress={() => confirmRemove(account)}>
                                 <Ionicons name="trash-outline" size={18} color={colors.danger} />
                             </TouchableOpacity>
                         </View>

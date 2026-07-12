@@ -106,6 +106,7 @@ export default function SearchTab() {
                                 <Text style={styles.section}>{t('recentSearches')}</Text>
                                 <TouchableOpacity
                                     style={styles.historyClear}
+                                    accessibilityLabel={t('a11yClear')}
                                     onPress={() => { void clearSearchTerms(); setHistory([]) }}
                                 >
                                     <Ionicons name="close-circle-outline" size={18} color={colors.textDim} />

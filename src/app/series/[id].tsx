@@ -207,6 +207,7 @@ export default function SeriesDetail() {
                                 </View>
                                 <TouchableOpacity
                                     style={styles.dlBtn}
+                                    accessibilityLabel={t('a11yDownload')}
                                     onPress={() => {
                                         if (downloaded.has(pid)) {
                                             Alert.alert(t('dlTitle'), t('dlEpisodeDone'), [

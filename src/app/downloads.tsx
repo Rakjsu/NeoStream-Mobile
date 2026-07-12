@@ -66,7 +66,7 @@ export default function Downloads() {
                             <View style={[styles.fill, { width: `${Math.round(activeItem.progress * 100)}%` }]} />
                         </View>
                     </View>
-                    <TouchableOpacity onPress={() => void cancelDownload(activeItem.id)} style={styles.iconBtn}>
+                    <TouchableOpacity accessibilityLabel={t('cancel')} onPress={() => void cancelDownload(activeItem.id)} style={styles.iconBtn}>
                         <Ionicons name="close-circle" size={20} color={colors.danger} />
                     </TouchableOpacity>
                 </View>
@@ -98,7 +98,7 @@ export default function Downloads() {
                             <Text style={styles.title} numberOfLines={2}>{item.title}</Text>
                             <Text style={styles.meta}>{formatMb(item.sizeBytes)} · {t('offline')}</Text>
                         </View>
-                        <TouchableOpacity onPress={() => confirmRemove(item)} style={styles.iconBtn}>
+                        <TouchableOpacity accessibilityLabel={t('a11yDelete')} onPress={() => confirmRemove(item)} style={styles.iconBtn}>
                             <Ionicons name="trash-outline" size={18} color={colors.danger} />
                         </TouchableOpacity>
                         <Ionicons name="play" size={18} color={colors.accent} />

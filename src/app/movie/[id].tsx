@@ -106,6 +106,7 @@ export default function MovieDetail() {
                 </TouchableOpacity>
                 <TouchableOpacity
                     style={[styles.favBtn, fav && styles.favBtnOn]}
+                    accessibilityLabel={t('a11yFav')}
                     onPress={() => void persistToggle('movie', String(id)).then(setFavorites)}
                 >
                     <Ionicons name={fav ? 'heart' : 'heart-outline'} size={20} color={fav ? '#fff' : colors.danger} />

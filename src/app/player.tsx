@@ -341,11 +341,12 @@ export default function Player() {
             {!chrome ? (
                 <TouchableOpacity
                     style={[styles.chromeStrip, { height: insets.top + 56 }]}
+                    accessibilityLabel={t('a11yShowBar')}
                     onPress={() => setChrome(true)}
                 />
             ) : (
             <View style={[styles.topBar, { paddingTop: insets.top + spacing.sm }]}>
-                <TouchableOpacity style={styles.back} onPress={() => router.back()}>
+                <TouchableOpacity style={styles.back} accessibilityLabel={t('a11yBack')} onPress={() => router.back()}>
                     <Ionicons name="chevron-back" size={24} color={colors.text} />
                 </TouchableOpacity>
                 <View style={styles.titleBlock}>
@@ -357,11 +358,11 @@ export default function Player() {
                     ) : null}
                 </View>
                 {canCast ? (
-                    <TouchableOpacity style={styles.trackBtn} onPress={() => void showCastPicker()}>
+                    <TouchableOpacity style={styles.trackBtn} accessibilityLabel={t('a11yCast')} onPress={() => void showCastPicker()}>
                         <Ionicons name="tv-outline" size={20} color={colors.text} />
                     </TouchableOpacity>
                 ) : null}
-                <TouchableOpacity style={styles.trackBtn} onPress={cycleSleep}>
+                <TouchableOpacity style={styles.trackBtn} accessibilityLabel={t('a11ySleep')} onPress={cycleSleep}>
                     <Ionicons
                         name={sleepMin > 0 ? 'moon' : 'moon-outline'}
                         size={20}
@@ -369,12 +370,12 @@ export default function Player() {
                     />
                 </TouchableOpacity>
                 {audioTracks.length > 1 ? (
-                    <TouchableOpacity style={styles.trackBtn} onPress={cycleAudio}>
+                    <TouchableOpacity style={styles.trackBtn} accessibilityLabel={t('a11yAudio')} onPress={cycleAudio}>
                         <Ionicons name="headset" size={20} color={colors.text} />
                     </TouchableOpacity>
                 ) : null}
                 {subtitleTracks.length > 0 ? (
-                    <TouchableOpacity style={styles.trackBtn} onPress={cycleSubtitle}>
+                    <TouchableOpacity style={styles.trackBtn} accessibilityLabel={t('a11ySubtitle')} onPress={cycleSubtitle}>
                         <Ionicons name="chatbox-ellipses" size={20} color={colors.text} />
                     </TouchableOpacity>
                 ) : null}
@@ -389,10 +390,10 @@ export default function Player() {
 
             {chrome && zappable ? (
                 <View style={styles.zapCol}>
-                    <TouchableOpacity style={styles.zapBtn} onPress={() => zap(1)}>
+                    <TouchableOpacity style={styles.zapBtn} accessibilityLabel={t('a11yZapNext')} onPress={() => zap(1)}>
                         <Ionicons name="chevron-up" size={26} color={colors.text} />
                     </TouchableOpacity>
-                    <TouchableOpacity style={styles.zapBtn} onPress={() => zap(-1)}>
+                    <TouchableOpacity style={styles.zapBtn} accessibilityLabel={t('a11yZapPrev')} onPress={() => zap(-1)}>
                         <Ionicons name="chevron-down" size={26} color={colors.text} />
                     </TouchableOpacity>
                 </View>
@@ -404,6 +405,7 @@ export default function Player() {
                     <Text style={styles.castText}>{t('castingOnTv')}</Text>
                     <TouchableOpacity
                         style={styles.castBtn}
+                        accessibilityLabel={castPaused ? t('a11yPlay') : t('a11yPause')}
                         onPress={() => {
                             if (castPaused) casting.play()
                             else casting.pause()

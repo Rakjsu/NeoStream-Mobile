@@ -189,9 +189,15 @@ export class M3uClient implements CatalogClient {
         this.playlistUrl = playlistUrl
     }
 
+    private async readLocalFile(): Promise<string> {
+        // Import dinâmico: expo-file-system só existe no app (não no vitest).
+        const FileSystem = await import('expo-file-system/legacy')
+        return FileSystem.readAsStringAsync(this.playlistUrl)
+    }
+
     private async load(): Promise<M3uCatalog> {
         if (this.catalog) return this.catalog
-        const text = await withRetry(async () => {
+        const text = this.playlistUrl.startsWith('file://') ? await this.readLocalFile() : await withRetry(async () => {
             const controller = new AbortController()
             const timer = setTimeout(() => controller.abort(), 30000)
             try {

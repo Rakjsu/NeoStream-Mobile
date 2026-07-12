@@ -5,14 +5,18 @@ import {
     ActivityIndicator, KeyboardAvoidingView, Platform, ScrollView,
     StyleSheet, Text, TextInput, TouchableOpacity, View,
 } from 'react-native'
+import * as DocumentPicker from 'expo-document-picker'
+import * as FileSystem from 'expo-file-system/legacy'
 import { M3uClient } from '../services/m3u'
+import { StalkerClient, normalizeMac, normalizePortalUrl } from '../services/stalker'
 import { addAccount } from '../services/session'
 import { XtreamClient, normalizeBaseUrl } from '../services/xtream'
 import { colors, spacing } from '../ui/theme'
 import { t } from '../i18n/strings'
 
 export default function Login() {
-    const [mode, setMode] = useState<'xtream' | 'm3u'>('xtream')
+    const [mode, setMode] = useState<'xtream' | 'm3u' | 'stalker'>('xtream')
+    const [mac, setMac] = useState('00:1A:79:')
     const [url, setUrl] = useState('')
     const [username, setUsername] = useState('')
     const [password, setPassword] = useState('')
@@ -20,7 +24,11 @@ export default function Login() {
     const [busy, setBusy] = useState(false)
     const [error, setError] = useState('')
 
-    const canSubmit = url.trim() !== '' && (mode === 'm3u' || (username.trim() !== '' && password !== '')) && !busy
+    const canSubmit = url.trim() !== '' && !busy && (
+        mode === 'm3u'
+        || (mode === 'stalker' && normalizeMac(mac) !== '')
+        || (mode === 'xtream' && username.trim() !== '' && password !== '')
+    )
 
     const submit = async () => {
         if (!canSubmit) return
@@ -31,6 +39,11 @@ export default function Login() {
                 const listUrl = normalizeBaseUrl(url)
                 const userInfo = await new M3uClient(listUrl).authenticate()
                 await addAccount({ url: listUrl, username: '', password: '', type: 'm3u' }, userInfo)
+            } else if (mode === 'stalker') {
+                const portalUrl = normalizePortalUrl(url)
+                const macAddress = normalizeMac(mac)
+                const userInfo = await new StalkerClient(portalUrl, macAddress).authenticate()
+                await addAccount({ url: portalUrl, username: macAddress, password: '', type: 'stalker' }, userInfo)
             } else {
                 const account = { url: normalizeBaseUrl(url), username: username.trim(), password }
                 const userInfo = await new XtreamClient(account).authenticate()
@@ -51,7 +64,7 @@ export default function Login() {
                     <Ionicons name="play-circle" size={64} color={colors.accent} />
                     <Text style={styles.title}>NeoStream</Text>
                     <Text style={styles.subtitle}>
-                        {mode === 'm3u' ? t('loginSubtitleM3u') : t('loginSubtitleXtream')}
+                        {mode === 'm3u' ? t('loginSubtitleM3u') : mode === 'stalker' ? t('loginSubtitleStalker') : t('loginSubtitleXtream')}
                     </Text>
                 </View>
 
@@ -68,6 +81,12 @@ export default function Login() {
                     >
                         <Text style={[styles.modeText, mode === 'm3u' && styles.modeTextOn]}>{t('modeM3u')}</Text>
                     </TouchableOpacity>
+                    <TouchableOpacity
+                        style={[styles.modeBtn, mode === 'stalker' && styles.modeBtnOn]}
+                        onPress={() => { setMode('stalker'); setError('') }}
+                    >
+                        <Text style={[styles.modeText, mode === 'stalker' && styles.modeTextOn]}>{t('modeStalker')}</Text>
+                    </TouchableOpacity>
                 </View>
 
                 <Text style={styles.label}>{mode === 'm3u' ? t('m3uLabel') : t('serverLabel')}</Text>
@@ -75,12 +94,53 @@ export default function Login() {
                     style={styles.input}
                     value={url}
                     onChangeText={setUrl}
-                    placeholder={mode === 'm3u' ? 'http://provedor.tv/lista.m3u' : 'http://servidor.tv:8080'}
+                    placeholder={mode === 'm3u' ? 'http://provedor.tv/lista.m3u' : mode === 'stalker' ? 'http://portal.tv/c/' : 'http://servidor.tv:8080'}
                     placeholderTextColor={colors.textDim}
                     autoCapitalize="none"
                     autoCorrect={false}
                     keyboardType="url"
                 />
+
+                {mode === 'm3u' ? (
+                    <TouchableOpacity
+                        style={styles.fileBtn}
+                        onPress={() => {
+                            void (async () => {
+                                try {
+                                    const picked = await DocumentPicker.getDocumentAsync({ copyToCacheDirectory: true })
+                                    const asset = picked.assets?.[0]
+                                    if (!asset?.uri) return
+                                    // Cópia própria: o cache do picker pode sumir; a playlist não.
+                                    const dir = FileSystem.documentDirectory + 'playlists/'
+                                    await FileSystem.makeDirectoryAsync(dir, { intermediates: true }).catch(() => undefined)
+                                    const dest = dir + (asset.name || 'lista.m3u').replace(/[^\w.-]/g, '_')
+                                    await FileSystem.copyAsync({ from: asset.uri, to: dest })
+                                    setUrl(dest)
+                                    setError('')
+                                } catch {
+                                    setError(t('fileReadFail'))
+                                }
+                            })()
+                        }}
+                    >
+                        <Text style={styles.fileBtnText}>{t('openM3uFile')}</Text>
+                    </TouchableOpacity>
+                ) : null}
+
+                {mode === 'stalker' ? (
+                    <>
+                        <Text style={styles.label}>{t('macLabel')}</Text>
+                        <TextInput
+                            style={styles.input}
+                            value={mac}
+                            onChangeText={setMac}
+                            placeholder="00:1A:79:AB:CD:EF"
+                            placeholderTextColor={colors.textDim}
+                            autoCapitalize="characters"
+                            autoCorrect={false}
+                        />
+                    </>
+                ) : null}
 
                 {mode === 'xtream' ? <>
                 <Text style={styles.label}>{t('userLabel')}</Text>
@@ -134,6 +194,16 @@ export default function Login() {
 }
 
 const styles = StyleSheet.create({
+    fileBtn: {
+        alignSelf: 'flex-start',
+        borderColor: colors.border,
+        borderWidth: 1,
+        borderRadius: 8,
+        paddingHorizontal: 12,
+        paddingVertical: 8,
+        marginTop: 8,
+    },
+    fileBtnText: { color: colors.text, fontSize: 13, fontWeight: '600' },
     root: { flex: 1, backgroundColor: colors.bg },
     scroll: { flexGrow: 1, justifyContent: 'center', padding: spacing.xl },
     logoWrap: { alignItems: 'center', marginBottom: spacing.xl, gap: spacing.xs },

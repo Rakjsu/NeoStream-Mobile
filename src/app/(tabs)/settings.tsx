@@ -1,10 +1,16 @@
 import { Ionicons } from '@expo/vector-icons'
 import Constants from 'expo-constants'
 import { router, useFocusEffect } from 'expo-router'
-import { useCallback, useState } from 'react'
+import { useCallback, useRef, useState } from 'react'
 import { Alert, Linking, ScrollView, Share, StyleSheet, Text, TextInput, TouchableOpacity, View } from 'react-native'
+import * as DocumentPicker from 'expo-document-picker'
+import * as FileSystem from 'expo-file-system/legacy'
 import { disableAppLock, enableAppLock, loadAppLock } from '../../services/appLock'
+import { applyCapturePolicy } from '../../services/privacy'
+import { isDataSaverEnabled, setDataSaver } from '../../services/dataSaver'
 import { getDownloadLimitGb, listDownloads, setDownloadLimitGb } from '../../services/downloads'
+import { captureRef } from 'react-native-view-shot'
+import * as Sharing from 'expo-sharing'
 import { applyBackup, collectBackup, parseBackup, serializeBackup } from '../../services/backup'
 import { disableParental, enableParental, isValidPin, loadParental } from '../../services/parental'
 import { clearHistory } from '../../services/progress'
@@ -13,7 +19,7 @@ import {
     accountLabel, getClient, listAccounts, loadAccount, removeAccount, renameAccount, switchAccount,
     type StoredAccount,
 } from '../../services/session'
-import { dayKey, formatMinutes, loadUsage, summarize, type UsageSummary } from '../../services/usage'
+import { dayKey, formatMinutes, lastDays, loadTitleUsage, loadUsage, summarize, topTitles, type TopTitle, type UsageSummary } from '../../services/usage'
 import { parseExpiry } from '../../services/xtream'
 import { colors, spacing } from '../../ui/theme'
 import { t, tf } from '../../i18n/strings'
@@ -39,8 +45,13 @@ export default function SettingsTab() {
     const [editingId, setEditingId] = useState<string | null>(null)
     const [dlLimit, setDlLimit] = useState(0)
     const [dlBytes, setDlBytes] = useState(0)
+    const [dataSaver, setDataSaverState] = useState(false)
     const [updateMsg, setUpdateMsg] = useState('')
     const [usage, setUsage] = useState<UsageSummary>({ totals: { live: 0, movie: 0, episode: 0 }, totalMinutes: 0 })
+    const [usageDays, setUsageDays] = useState<{ day: string; minutes: number }[]>([])
+    const [topLive, setTopLive] = useState<TopTitle[]>([])
+    const [topShows, setTopShows] = useState<TopTitle[]>([])
+    const usageShotRef = useRef<View>(null)
     const [aliasDraft, setAliasDraft] = useState('')
     const [importText, setImportText] = useState('')
     const [backupMsg, setBackupMsg] = useState('')
@@ -55,8 +66,18 @@ export default function SettingsTab() {
         void loadParental().then(state => setParentalOn(state.enabled))
         void loadAppLock().then(state => setLockOn(state.enabled))
         void getDownloadLimitGb().then(setDlLimit)
+        void isDataSaverEnabled().then(setDataSaverState)
         refreshStorage()
-        void loadUsage().then(map => setUsage(summarize(map, dayKey(Date.now()))))
+        void loadUsage().then(map => {
+            const today = dayKey(Date.now())
+            setUsage(summarize(map, today))
+            setUsageDays(lastDays(map, today))
+        })
+        void loadTitleUsage().then(titles => {
+            const today = dayKey(Date.now())
+            setTopLive(topTitles(titles, today, ['live']))
+            setTopShows(topTitles(titles, today, ['episode', 'movie']))
+        })
     }, [refreshStorage])
 
     useFocusEffect(useCallback(() => { queueMicrotask(refresh) }, [refresh]))
@@ -109,10 +130,22 @@ export default function SettingsTab() {
                 await client.authenticate()
                 return ''
             })
+            let firstChannel = ''
             await timed(t('connChannels'), async () => {
                 const channels = await client.getLiveChannels()
+                firstChannel = channels[0] ? String(channels[0].stream_id) : ''
                 return tf('connItems', { n: channels.length })
             })
+            await timed(t('connVod'), async () => {
+                const movies = await client.getVodMovies()
+                return tf('connItems', { n: movies.length })
+            })
+            if (firstChannel) {
+                await timed(t('connEpg'), async () => {
+                    const nowNext = await client.getShortEpg(firstChannel)
+                    return nowNext.now?.title ?? '—'
+                })
+            }
             setDiag(rows)
         })()
     }
@@ -280,6 +313,7 @@ export default function SettingsTab() {
                                 if (!ok) { setLockError(t('pinWrong')); return }
                                 setLockPin('')
                                 setLockOn(!lockOn)
+                                void applyCapturePolicy()
                             })()
                         }}
                     >
@@ -290,12 +324,63 @@ export default function SettingsTab() {
             </View>
 
             <Text style={styles.section}>{t('secUsage')}</Text>
-            <View style={styles.card}>
+            <View ref={usageShotRef} collapsable={false} style={styles.card}>
                 <InfoRow label={t('usageWeek')} value="" />
+                <View style={styles.usageBars}>
+                    {usageDays.map(entry => {
+                        const peak = Math.max(1, ...usageDays.map(d => d.minutes))
+                        return (
+                            <View key={entry.day} style={styles.usageBarSlot}>
+                                <View style={[styles.usageBar, { height: Math.max(3, Math.round((entry.minutes / peak) * 44)) }]} />
+                                <Text style={styles.usageBarLabel}>{entry.day.slice(8)}</Text>
+                            </View>
+                        )
+                    })}
+                </View>
                 <InfoRow label={t('tabLive')} value={formatMinutes(usage.totals.live)} />
                 <InfoRow label={t('tabMovies')} value={formatMinutes(usage.totals.movie)} />
                 <InfoRow label={t('tabSeries')} value={formatMinutes(usage.totals.episode)} />
                 <InfoRow label={t('usageTotal')} value={formatMinutes(usage.totalMinutes)} />
+                {topLive.length > 0 ? <InfoRow label={t('topChannels')} value="" /> : null}
+                {topLive.map((entry, index) => (
+                    <InfoRow key={`l${entry.title}`} label={`${index + 1}. ${entry.title}`} value={formatMinutes(entry.minutes)} />
+                ))}
+                {topShows.length > 0 ? <InfoRow label={t('topContent')} value="" /> : null}
+                {topShows.map((entry, index) => (
+                    <InfoRow key={`s${entry.title}`} label={`${index + 1}. ${entry.title}`} value={formatMinutes(entry.minutes)} />
+                ))}
+                <View style={{ paddingVertical: spacing.md, gap: spacing.sm }}>
+                    <TouchableOpacity
+                        style={styles.backupBtn}
+                        onPress={() => {
+                            void (async () => {
+                                try {
+                                    const uri = await captureRef(usageShotRef, { format: 'png', quality: 1 })
+                                    if (await Sharing.isAvailableAsync()) await Sharing.shareAsync(uri)
+                                } catch { /* aparelho sem share de arquivo */ }
+                            })()
+                        }}
+                    >
+                        <Ionicons name="image-outline" size={16} color="#fff" />
+                        <Text style={styles.backupBtnText}>{t('shareImageBtn')}</Text>
+                    </TouchableOpacity>
+                    <TouchableOpacity
+                        style={styles.backupBtn}
+                        onPress={() => {
+                            void Share.share({
+                                message: tf('usageShare', {
+                                    total: formatMinutes(usage.totalMinutes),
+                                    live: formatMinutes(usage.totals.live),
+                                    movie: formatMinutes(usage.totals.movie),
+                                    episode: formatMinutes(usage.totals.episode),
+                                }),
+                            }).catch(() => undefined)
+                        }}
+                    >
+                        <Ionicons name="share-social-outline" size={16} color="#fff" />
+                        <Text style={styles.backupBtnText}>{t('shareUsageBtn')}</Text>
+                    </TouchableOpacity>
+                </View>
             </View>
 
             <Text style={styles.section}>{t('secStorage')}</Text>
@@ -318,6 +403,24 @@ export default function SettingsTab() {
                     ))}
                 </View>
                 <Text style={styles.parentalHint}>{tf('usedSpace', { mb: Math.round(dlBytes / 1048576) })}</Text>
+                <TouchableOpacity
+                    style={styles.saverRow}
+                    onPress={() => {
+                        const next = !dataSaver
+                        setDataSaverState(next)
+                        void setDataSaver(next)
+                    }}
+                >
+                    <Ionicons
+                        name={dataSaver ? 'checkbox' : 'square-outline'}
+                        size={20}
+                        color={dataSaver ? colors.accent : colors.textDim}
+                    />
+                    <View style={{ flex: 1 }}>
+                        <Text style={styles.saverTitle}>{t('dataSaverTitle')}</Text>
+                        <Text style={styles.parentalHint}>{t('dataSaverHint')}</Text>
+                    </View>
+                </TouchableOpacity>
             </View>
 
             <Text style={styles.section}>{t('secHistory')}</Text>
@@ -351,6 +454,47 @@ export default function SettingsTab() {
                 >
                     <Ionicons name="share-outline" size={16} color="#fff" />
                     <Text style={styles.backupBtnText}>{t('exportBtn')}</Text>
+                </TouchableOpacity>
+                <TouchableOpacity
+                    style={styles.ghRow}
+                    onPress={() => {
+                        void (async () => {
+                            try {
+                                const picked = await DocumentPicker.getDocumentAsync({ copyToCacheDirectory: true })
+                                const asset = picked.assets?.[0]
+                                if (!asset?.uri) return
+                                const content = await FileSystem.readAsStringAsync(asset.uri)
+                                setImportText(content)
+                                setBackupMsg('')
+                            } catch {
+                                setBackupMsg(t('fileReadFail'))
+                            }
+                        })()
+                    }}
+                >
+                    <Ionicons name="folder-open-outline" size={16} color={colors.textDim} />
+                    <Text style={styles.ghText}>{t('openBackupFile')}</Text>
+                </TouchableOpacity>
+                <TouchableOpacity
+                    style={styles.backupBtn}
+                    onPress={() => {
+                        void (async () => {
+                            try {
+                                const json = serializeBackup(await collectBackup())
+                                const permission = await FileSystem.StorageAccessFramework.requestDirectoryPermissionsAsync()
+                                if (!permission.granted) return
+                                const fileUri = await FileSystem.StorageAccessFramework.createFileAsync(
+                                    permission.directoryUri, `neostream-backup-${dayKey(Date.now())}`, 'application/json')
+                                await FileSystem.writeAsStringAsync(fileUri, json)
+                                setBackupMsg(t('backupSaved'))
+                            } catch {
+                                setBackupMsg(t('fileReadFail'))
+                            }
+                        })()
+                    }}
+                >
+                    <Ionicons name="save-outline" size={16} color="#fff" />
+                    <Text style={styles.backupBtnText}>{t('saveBackupFile')}</Text>
                 </TouchableOpacity>
                 <TextInput
                     style={styles.importInput}
@@ -500,7 +644,18 @@ const styles = StyleSheet.create({
     parentalBtnText: { color: '#fff', fontSize: 14, fontWeight: '600' },
     pinError: { color: colors.danger, fontSize: 13 },
     limitRow: { flexDirection: 'row', flexWrap: 'wrap', gap: spacing.sm },
+    saverRow: { flexDirection: 'row', alignItems: 'flex-start', gap: spacing.md, paddingTop: 4, paddingBottom: spacing.sm },
+    saverTitle: { color: colors.text, fontSize: 14, fontWeight: '600' },
     diagRow: { flexDirection: 'row', alignItems: 'center', gap: spacing.sm },
+    usageBars: {
+        flexDirection: 'row',
+        alignItems: 'flex-end',
+        gap: spacing.sm,
+        paddingVertical: spacing.md,
+    },
+    usageBarSlot: { flex: 1, alignItems: 'center', gap: 4 },
+    usageBar: { width: '70%', backgroundColor: colors.accent, borderRadius: 3, opacity: 0.9 },
+    usageBarLabel: { color: colors.textDim, fontSize: 10 },
     ghRow: { flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: spacing.sm, paddingVertical: 4 },
     ghText: { color: colors.textDim, fontSize: 13, fontWeight: '600' },
     diagLabel: { flex: 1, color: colors.text, fontSize: 14 },

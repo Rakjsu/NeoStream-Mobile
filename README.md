@@ -2,18 +2,19 @@
 
 Player IPTV pra celular (Android primeiro) — o irmão mobile do [NeoStream desktop](https://github.com/Rakjsu/NeoStream). Adicione sua lista **Xtream Codes** ou **M3U** e assista TV ao vivo, filmes e séries direto no aparelho.
 
-> **Status: v0.3** — app completo pro dia a dia: catálogo, player, downloads offline, multi-conta e 3 idiomas.
+> **Status: v0.4** — app completo pro dia a dia: catálogo (Xtream, M3U e portal MAC), player, downloads offline, Chromecast, multi-conta e 3 idiomas.
 
 ## Funcionalidades
 
-- **Contas**: login Xtream Codes ou lista M3U (séries detectadas por `SxxEyy`), multi-conta com troca rápida
+- **Contas**: Xtream Codes, lista M3U (URL **ou arquivo**, séries por `SxxEyy`) e **portal Stalker/MAC** (TV ao vivo); multi-conta com apelidos e troca rápida
 - **Início**: continuar assistindo, favoritos, canais favoritos, filmes/séries recém-adicionados
-- **TV ao vivo**: categorias, EPG agora/a seguir sob demanda, zapping por gesto dentro do player
+- **TV ao vivo**: categorias, EPG agora/a seguir (Xtream e XMLTV das listas M3U), zapping por gesto e **gaveta de canais com filtro** dentro do player, canais recentes no Início
 - **Filmes/Séries**: ficha com sinopse/elenco/trailer, temporadas e episódios, episódios vistos (✓), ordenação (recentes · A-Z · nota), grade adaptável a tablet/paisagem
-- **Player** (ExoPlayer via expo-video): retomar do ponto, faixas de áudio 🎧 e legenda 💬, **autoplay do próximo episódio** com contagem regressiva
-- **Downloads offline**: filme ou episódio no aparelho, com progresso, cancelamento e player apontando pro arquivo local
+- **Player** (ExoPlayer via expo-video): retomar do ponto, faixas 🎧💬, **autoplay do próximo episódio**, sleep timer 🌙, PiP automático e **Chromecast** (retoma do ponto; a fila de episódios segue na TV)
+- **Downloads offline**: filme, episódio ou **temporada inteira** (fila sequencial), com teto de armazenamento (LRU), notificação ao concluir, recuperação de interrompidos e player local
 - **Busca global**: canais + filmes + séries numa consulta só
-- **Proteções**: controle parental por categorias (PIN) e **bloqueio do app com PIN** ao abrir
+- **Proteções**: controle parental (PIN), bloqueio do app com PIN + FLAG_SECURE (sem screenshot/preview) e ErrorBoundary global
+- **Extras**: onboarding na 1ª abertura, atalhos no ícone do app, economia de dados em rede móvel, "Seu uso" (tempo assistido), diagnóstico da conta e buscas recentes
 - **Backup**: exporta/importa contas, favoritos, progresso e ajustes como texto
 - **Idiomas**: português, inglês e espanhol (segue o idioma do sistema)
 - **Aviso de atualização**: banner no Início quando sai release nova no GitHub

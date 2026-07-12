@@ -2,14 +2,16 @@ import { Ionicons } from '@expo/vector-icons'
 import { Stack, router, useFocusEffect, useLocalSearchParams } from 'expo-router'
 import { useCallback, useEffect, useState } from 'react'
 import { Alert, Image, SectionList, StyleSheet, Text, TouchableOpacity, View } from 'react-native'
+import { castAvailable, castToCurrentSession, showCastPicker } from '../../services/cast'
 import { activeProgress, enqueueDownloads, listActiveDownloads, listDownloads, listQueuedIds, removeDownload, startDownload, subscribeDownloads, type DownloadRequest } from '../../services/downloads'
+import { tapLight } from '../../services/haptics'
 import { setEpisodeQueue } from '../../services/episodeQueue'
 import { emptyFavorites, isFavorite, loadFavorites, persistToggle, type Favorites } from '../../services/favorites'
 import {
     buildProgressId, loadProgress, loadWatched, markWatched, pickNextEpisode,
     progressPct, removeEntry, unmarkWatched, type ProgressEntry,
 } from '../../services/progress'
-import { getClient } from '../../services/session'
+import { getClient, resolvePlayableUrl } from '../../services/session'
 import type { Episode } from '../../services/xtream'
 import { EmptyState, Loading } from '../../ui/components'
 import { colors, spacing } from '../../ui/theme'
@@ -83,8 +85,25 @@ export default function SeriesDetail() {
         })
     }, []))
 
+    const canCast = castAvailable()
+
+    /** Manda o "Continuar" pra TV (com sessão; senão só abre o seletor). */
+    const castNext = (episode: Episode, seasonNum: string) => {
+        void (async () => {
+            const client = await getClient()
+            if (!client) return
+            const container = episode.container_extension || 'mp4'
+            const epTitle = episode.title || `T${seasonNum}E${episode.episode_num}`
+            const url = await resolvePlayableUrl(client.seriesStreamUrl(episode.id, container))
+            const sent = await castToCurrentSession(
+                url, name ? `${name} · ${epTitle}` : epTitle, infoCover || cover || '', false)
+            if (!sent) await showCastPicker()
+        })()
+    }
+
     // Segurar o episódio alterna visto/não visto (marcar limpa o progresso).
     const toggleWatched = (episodePid: string) => {
+        tapLight()
         void (async () => {
             const set = await loadWatched()
             if (set.has(episodePid)) await unmarkWatched(episodePid)
@@ -128,6 +147,35 @@ export default function SeriesDetail() {
         })
     }
 
+    // Long-press no cabeçalho: marca/desmarca a temporada inteira como vista.
+    const toggleSeasonSeen = (season: Season) => {
+        const pids = season.data.map(episode => buildProgressId('episode', episode.id))
+        const allSeen = pids.length > 0 && pids.every(pid => watched.has(pid))
+        Alert.alert(
+            tf('seasonSeenTitle', { s: season.seasonNum }),
+            tf(allSeen ? 'seasonUnseenMsg' : 'seasonSeenMsg', { n: pids.length }),
+            [
+                { text: t('cancel'), style: 'cancel' },
+                {
+                    text: allSeen ? t('unmark') : t('mark'),
+                    onPress: () => {
+                        void (async () => {
+                            for (const pid of pids) {
+                                if (allSeen) await unmarkWatched(pid)
+                                else {
+                                    await markWatched(pid)
+                                    await removeEntry(pid)
+                                }
+                            }
+                            setWatched(new Set(await loadWatched()))
+                            setProgress({ ...(await loadProgress()) })
+                        })()
+                    },
+                },
+            ],
+        )
+    }
+
     const downloadSeason = (season: Season) => {
         void (async () => {
             const client = await getClient()
@@ -166,7 +214,7 @@ export default function SeriesDetail() {
                     <View style={styles.headerBtns}>
                         <TouchableOpacity
                             style={[styles.favBtn, fav && styles.favBtnOn]}
-                            onPress={() => void persistToggle('series', String(id)).then(setFavorites)}
+                            onPress={() => { tapLight(); void persistToggle('series', String(id)).then(setFavorites) }}
                         >
                             <Ionicons name={fav ? 'heart' : 'heart-outline'} size={16} color={fav ? '#fff' : colors.danger} />
                             <Text style={[styles.favText, fav && styles.favTextOn]}>{fav ? t('favOn') : t('favBtn')}</Text>
@@ -179,12 +227,23 @@ export default function SeriesDetail() {
                 </View>
             </View>
             {next ? (
-                <TouchableOpacity style={styles.nextBtn} onPress={() => void play(next.ep, next.seasonNum)}>
-                    <Ionicons name="play" size={16} color="#fff" />
-                    <Text style={styles.nextText}>
-                        {tf('continueEp', { s: next.seasonNum, e: next.ep.episode_num })}
-                    </Text>
-                </TouchableOpacity>
+                <View style={styles.nextRow}>
+                    <TouchableOpacity style={[styles.nextBtn, { flex: 1 }]} onPress={() => void play(next.ep, next.seasonNum)}>
+                        <Ionicons name="play" size={16} color="#fff" />
+                        <Text style={styles.nextText}>
+                            {tf('continueEp', { s: next.seasonNum, e: next.ep.episode_num })}
+                        </Text>
+                    </TouchableOpacity>
+                    {canCast ? (
+                        <TouchableOpacity
+                            style={styles.nextCast}
+                            accessibilityLabel={t('a11yCast')}
+                            onPress={() => castNext(next.ep, next.seasonNum)}
+                        >
+                            <Ionicons name="tv-outline" size={18} color={colors.text} />
+                        </TouchableOpacity>
+                    ) : null}
+                </View>
             ) : null}
         </View>
     )
@@ -207,7 +266,12 @@ export default function SeriesDetail() {
                     contentContainerStyle={seasons.length === 0 ? { flexGrow: 1 } : undefined}
                     renderSectionHeader={({ section }) => (
                         <View style={styles.seasonRow}>
-                            <Text style={styles.season}>{section.title}</Text>
+                            <Text
+                                style={styles.season}
+                                onLongPress={() => toggleSeasonSeen(section)}
+                            >
+                                {section.title}
+                            </Text>
                             <TouchableOpacity
                                 style={styles.seasonDl}
                                 accessibilityLabel={t('a11yDlSeason')}
@@ -315,6 +379,15 @@ const styles = StyleSheet.create({
     favBtnOn: { backgroundColor: colors.danger },
     favText: { color: colors.danger, fontSize: 13, fontWeight: '600' },
     favTextOn: { color: '#fff' },
+    nextRow: { flexDirection: 'row', alignItems: 'stretch', gap: spacing.sm },
+    nextCast: {
+        width: 48,
+        alignItems: 'center',
+        justifyContent: 'center',
+        borderColor: colors.border,
+        borderWidth: 1,
+        borderRadius: 10,
+    },
     nextBtn: {
         flexDirection: 'row',
         alignItems: 'center',

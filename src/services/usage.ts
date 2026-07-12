@@ -11,6 +11,7 @@ export type UsageKind = 'live' | 'movie' | 'episode'
 export type UsageMap = Record<string, Partial<Record<UsageKind, number>>>
 
 const STORAGE_KEY = 'neostream_usage'
+const TITLES_KEY = 'neostream_usage_titles'
 const KEEP_DAYS = 30
 
 /** Epoch ms → "YYYY-MM-DD" no fuso local. */
@@ -49,6 +50,56 @@ export function summarize(map: UsageMap, todayKey: string, windowDays = 7): Usag
     return { totals, totalMinutes: totals.live + totals.movie + totals.episode }
 }
 
+/** dia → "kind|título" → minutos (o que exatamente tocou). */
+export type TitleUsageMap = Record<string, Record<string, number>>
+
+/** Soma 1 minuto num título, sem mutar; poda dias velhos (PURO). */
+export function addTitleMinute(map: TitleUsageMap, day: string, kind: UsageKind, title: string, keepDays = 8): TitleUsageMap {
+    const key = `${kind}|${title}`
+    const next: TitleUsageMap = { ...map, [day]: { ...map[day], [key]: (map[day]?.[key] ?? 0) + 1 } }
+    const days = Object.keys(next).sort()
+    for (const stale of days.slice(0, Math.max(0, days.length - keepDays))) delete next[stale]
+    return next
+}
+
+export interface TopTitle {
+    title: string
+    kind: UsageKind
+    minutes: number
+}
+
+/** Top N títulos da janela, filtrando por tipo (PURO). */
+export function topTitles(map: TitleUsageMap, todayKey: string, kinds: UsageKind[], top = 3, windowDays = 7): TopTitle[] {
+    const totals = new Map<string, number>()
+    for (const [day, entries] of Object.entries(map)) {
+        if (day > todayKey) continue
+        const age = (Date.parse(todayKey) - Date.parse(day)) / 86_400_000
+        if (age >= windowDays) continue
+        for (const [key, minutes] of Object.entries(entries)) totals.set(key, (totals.get(key) ?? 0) + minutes)
+    }
+    return [...totals.entries()]
+        .map(([key, minutes]) => {
+            const separator = key.indexOf('|')
+            return { kind: key.slice(0, separator) as UsageKind, title: key.slice(separator + 1), minutes }
+        })
+        .filter(entry => kinds.includes(entry.kind) && entry.title)
+        .sort((a, b) => b.minutes - a.minutes)
+        .slice(0, top)
+}
+
+/** Os últimos `n` dias (mais antigo → hoje), com zero nos dias sem uso (PURO). */
+export function lastDays(map: UsageMap, todayKey: string, n = 7): { day: string; minutes: number }[] {
+    const [year, month, day] = todayKey.split('-').map(Number)
+    const series: { day: string; minutes: number }[] = []
+    for (let offset = n - 1; offset >= 0; offset--) {
+        const date = new Date(Date.UTC(year, month - 1, day - offset))
+        const key = `${date.getUTCFullYear()}-${String(date.getUTCMonth() + 1).padStart(2, '0')}-${String(date.getUTCDate()).padStart(2, '0')}`
+        const kinds = map[key] ?? {}
+        series.push({ day: key, minutes: (kinds.live ?? 0) + (kinds.movie ?? 0) + (kinds.episode ?? 0) })
+    }
+    return series
+}
+
 /** 205 → "3h 25min"; 45 → "45min". */
 export function formatMinutes(minutes: number): string {
     const hours = Math.floor(minutes / 60)
@@ -68,10 +119,24 @@ export async function loadUsage(): Promise<UsageMap> {
     }
 }
 
-/** O player chama isto a cada minuto tocado. */
-export async function recordWatchMinute(kind: UsageKind, nowMs = Date.now()): Promise<void> {
+export async function loadTitleUsage(): Promise<TitleUsageMap> {
+    try {
+        const raw = await AsyncStorage.getItem(TITLES_KEY)
+        const parsed = raw ? (JSON.parse(raw) as TitleUsageMap) : {}
+        return parsed && typeof parsed === 'object' ? parsed : {}
+    } catch {
+        return {}
+    }
+}
+
+/** O player chama isto a cada minuto tocado (com o título do que toca). */
+export async function recordWatchMinute(kind: UsageKind, nowMs = Date.now(), title = ''): Promise<void> {
     try {
         const map = addMinutes(await loadUsage(), dayKey(nowMs), kind, 1)
         await AsyncStorage.setItem(STORAGE_KEY, JSON.stringify(map))
+        if (title) {
+            const titles = addTitleMinute(await loadTitleUsage(), dayKey(nowMs), kind, title)
+            await AsyncStorage.setItem(TITLES_KEY, JSON.stringify(titles))
+        }
     } catch { /* best-effort */ }
 }

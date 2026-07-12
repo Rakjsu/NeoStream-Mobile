@@ -3,8 +3,9 @@ import { Stack, router } from 'expo-router'
 import { useCallback, useEffect, useState } from 'react'
 import { Alert, FlatList, Image, StyleSheet, Text, TouchableOpacity, View } from 'react-native'
 import {
-    cancelDownload, listActiveDownloads, listDownloads, removeDownload,
-    subscribeDownloads, type DownloadItem,
+    cancelDownload, discardInterrupted, listActiveDownloads, listDownloads,
+    listInterrupted, removeDownload, startDownload, subscribeDownloads,
+    type DownloadItem, type DownloadRequest,
 } from '../services/downloads'
 import { colors, spacing } from '../ui/theme'
 import { EmptyState } from '../ui/components'
@@ -18,10 +19,12 @@ function formatMb(bytes: number): string {
 export default function Downloads() {
     const [items, setItems] = useState<DownloadItem[]>([])
     const [activeList, setActiveList] = useState<{ id: string; progress: number }[]>([])
+    const [interrupted, setInterrupted] = useState<DownloadRequest[]>([])
 
     const refresh = useCallback(() => {
         void listDownloads().then(setItems)
         setActiveList(listActiveDownloads())
+        void listInterrupted().then(setInterrupted)
     }, [])
 
     useEffect(() => {
@@ -71,6 +74,31 @@ export default function Downloads() {
                     </TouchableOpacity>
                 </View>
             ))}
+            {interrupted.length > 0 ? (
+                <View style={styles.interruptedBox}>
+                    <Text style={styles.total}>{t('dlInterrupted')}</Text>
+                    {interrupted.map(request => (
+                        <View key={request.id} style={styles.activeRow}>
+                            <Ionicons name="cloud-offline-outline" size={18} color={colors.textDim} />
+                            <Text style={[styles.activeText, { flex: 1 }]} numberOfLines={1}>{request.title}</Text>
+                            <TouchableOpacity
+                                style={styles.iconBtn}
+                                accessibilityLabel={t('a11yRetry')}
+                                onPress={() => { void startDownload(request).catch(() => undefined) }}
+                            >
+                                <Ionicons name="refresh" size={18} color={colors.accent} />
+                            </TouchableOpacity>
+                            <TouchableOpacity
+                                style={styles.iconBtn}
+                                accessibilityLabel={t('a11yDelete')}
+                                onPress={() => void discardInterrupted(request.id)}
+                            >
+                                <Ionicons name="trash-outline" size={18} color={colors.danger} />
+                            </TouchableOpacity>
+                        </View>
+                    ))}
+                </View>
+            ) : null}
             <FlatList
                 data={items}
                 keyExtractor={item => item.id}
@@ -128,6 +156,7 @@ const styles = StyleSheet.create({
     track: { height: 4, backgroundColor: colors.border, borderRadius: 2 },
     fill: { height: 4, backgroundColor: colors.accent, borderRadius: 2 },
     total: { color: colors.textDim, fontSize: 12, paddingHorizontal: spacing.lg, paddingVertical: spacing.sm },
+    interruptedBox: { paddingTop: spacing.sm },
     row: {
         flexDirection: 'row',
         alignItems: 'center',

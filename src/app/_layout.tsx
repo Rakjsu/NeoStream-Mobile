@@ -3,6 +3,9 @@ import { useEffect } from 'react'
 import { StatusBar } from 'expo-status-bar'
 import { onNotificationRoute } from '../services/notify'
 import { setupShortcuts } from '../services/shortcuts'
+import { applyCapturePolicy } from '../services/privacy'
+import { refreshDataSaver } from '../services/dataSaver'
+import { ErrorBoundary } from '../ui/ErrorBoundary'
 import { colors } from '../ui/theme'
 import { t } from '../i18n/strings'
 
@@ -13,8 +16,14 @@ export default function RootLayout() {
     // Atalhos do ícone do app (launcher) → rota direta.
     useEffect(() => setupShortcuts(href => router.push(href)), [])
 
+    // Bloqueio do app ligado → sem screenshot nem preview no multitarefa.
+    useEffect(() => { void applyCapturePolicy() }, [])
+
+    // Cache síncrono da economia de dados (opção + tipo de rede).
+    useEffect(() => { void refreshDataSaver() }, [])
+
     return (
-        <>
+        <ErrorBoundary>
             <StatusBar style="light" />
             <Stack
                 screenOptions={{
@@ -27,12 +36,13 @@ export default function RootLayout() {
                 <Stack.Screen name="index" options={{ headerShown: false }} />
                 <Stack.Screen name="login" options={{ headerShown: false }} />
                 <Stack.Screen name="unlock" options={{ headerShown: false }} />
+                <Stack.Screen name="welcome" options={{ headerShown: false }} />
                 <Stack.Screen name="(tabs)" options={{ headerShown: false }} />
                 <Stack.Screen name="player" options={{ headerShown: false }} />
                 <Stack.Screen name="series/[id]" options={{ title: '' }} />
                 <Stack.Screen name="movie/[id]" options={{ title: '' }} />
                 <Stack.Screen name="downloads" options={{ title: t('downloadsTitle') }} />
             </Stack>
-        </>
+        </ErrorBoundary>
     )
 }

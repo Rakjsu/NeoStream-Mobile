@@ -4,16 +4,20 @@ import { useKeepAwake } from 'expo-keep-awake'
 import { router, useLocalSearchParams } from 'expo-router'
 import { useVideoPlayer, VideoView, type AudioTrack, type SubtitleTrack } from 'expo-video'
 import { useEffect, useRef, useState } from 'react'
-import { StyleSheet, Text, TouchableOpacity, View } from 'react-native'
+import { FlatList, Platform, StyleSheet, Text, TextInput, TouchableOpacity, View } from 'react-native'
 import { useSafeAreaInsets } from 'react-native-safe-area-context'
+import { StatusBar } from 'expo-status-bar'
+import * as NavigationBar from 'expo-navigation-bar'
 import { getDownload } from '../services/downloads'
 import { castAvailable, castToCurrentSession, onCastSessionStarted, showCastPicker, type CastControls } from '../services/cast'
 import { nextEpisodeAfter, type QueuedEpisode } from '../services/episodeQueue'
 import { getEntry, resumePosition, saveSample, type ProgressKind } from '../services/progress'
-import { recordRecentChannel } from '../services/recents'
-import { cachedFetch, getClient } from '../services/session'
+import { listRecentChannels, recordRecentChannel } from '../services/recents'
+import { loadFavorites } from '../services/favorites'
+import { cachedFetch, getClient, resolvePlayableUrl } from '../services/session'
+import { tapLight } from '../services/haptics'
 import { recordWatchMinute } from '../services/usage'
-import { hasZapContext, zapBy } from '../services/zap'
+import { hasZapContext, rankChannels, zapBy, zapList, zapTo, type ZapChannel } from '../services/zap'
 import { colors, spacing } from '../ui/theme'
 import { t, tf } from '../i18n/strings'
 
@@ -26,6 +30,9 @@ function applyAudioTrack(target: TrackPlayer, track: AudioTrack) {
 }
 function applySubtitleTrack(target: TrackPlayer, track: SubtitleTrack | null) {
     target.subtitleTrack = track
+}
+function applyPlaybackRate(target: { playbackRate: number }, rate: number) {
+    target.playbackRate = rate
 }
 
 export default function Player() {
@@ -45,7 +52,9 @@ export default function Player() {
 
     // Item baixado troca a fonte pro arquivo local — mudar o `source` faz o
     // useVideoPlayer recriar o player (jeito permitido pela regra de hooks).
-    const [source, setSource] = useState(String(url ?? ''))
+    // URL adiada (stalker://) começa vazia — o effect resolve e preenche.
+    const initialUrl = String(url ?? '')
+    const [source, setSource] = useState(initialUrl.startsWith('stalker://') ? '' : initialUrl)
     const player = useVideoPlayer(source, p => {
         p.play()
     })
@@ -78,6 +87,25 @@ export default function Player() {
         setTrackToast(text)
         if (toastTimer.current) clearTimeout(toastTimer.current)
         toastTimer.current = setTimeout(() => setTrackToast(''), 2000)
+    }
+
+    // Tela cheia de verdade: barra de navegação some enquanto o player vive.
+    useEffect(() => {
+        if (Platform.OS !== 'android') return
+        void NavigationBar.setVisibilityAsync('hidden').catch(() => undefined)
+        return () => {
+            void NavigationBar.setVisibilityAsync('visible').catch(() => undefined)
+        }
+    }, [])
+
+    // Velocidade de reprodução (VOD): 1x → 1.25x → 1.5x → 2x.
+    const RATES = [1, 1.25, 1.5, 2]
+    const [rate, setRate] = useState(1)
+    const cycleRate = () => {
+        const next = RATES[(RATES.indexOf(rate) + 1) % RATES.length]
+        setRate(next)
+        try { applyPlaybackRate(player, next) } catch { /* player já liberado */ }
+        showTrackToast(`⏩ ${next}x`)
     }
 
     // Sleep timer: 🌙 cicla 30 → 60 → 90 min → desligado; ao zerar, pausa.
@@ -150,9 +178,7 @@ export default function Player() {
         })()
     }
 
-    const zap = (delta: number) => {
-        const channel = zapBy(delta)
-        if (!channel) return
+    const switchChannel = (channel: ZapChannel) => {
         void (async () => {
             const client = await getClient()
             if (!client) return
@@ -164,6 +190,36 @@ export default function Player() {
             showEpg(channel.id)
         })()
     }
+
+    const zap = (delta: number) => {
+        const channel = zapBy(delta)
+        if (channel) {
+            tapLight()
+            switchChannel(channel)
+        }
+    }
+
+    // Gaveta de canais: lista do contexto de zap com filtro; toque troca direto.
+    // Favoritos e recentes sobem pro topo (carregados ao abrir a gaveta).
+    const [channelsOpen, setChannelsOpen] = useState(false)
+    const [channelFilter, setChannelFilter] = useState('')
+    const [drawerFavs, setDrawerFavs] = useState<Set<string>>(new Set())
+    const [drawerRecents, setDrawerRecents] = useState<string[]>([])
+
+    const openDrawer = () => {
+        setChannelFilter('')
+        setChannelsOpen(true)
+        void loadFavorites().then(favorites => setDrawerFavs(new Set(favorites.live)))
+        void listRecentChannels().then(recents => setDrawerRecents(recents.map(channel => channel.id)))
+    }
+
+    const drawerChannels = channelsOpen
+        ? rankChannels(
+            zapList().filter(channel => channel.name.toLowerCase().includes(channelFilter.trim().toLowerCase())),
+            drawerFavs,
+            drawerRecents,
+        )
+        : []
 
 
     // Chromecast: 📺 abre o seletor; conectou → manda a mídia atual (retomando
@@ -237,7 +293,7 @@ export default function Player() {
                 const client = await getClient()
                 if (!client) return
                 const controls = await castToCurrentSession(
-                    client.seriesStreamUrl(next.sid, next.container),
+                    await resolvePlayableUrl(client.seriesStreamUrl(next.sid, next.container)),
                     next.title,
                     next.cover,
                     false,
@@ -298,8 +354,12 @@ export default function Player() {
 
     // O autoplay troca os params deste mesmo screen (replace) — segue a URL nova.
     useEffect(() => {
-        queueMicrotask(() => setSource(String(url ?? '')))
-         
+        queueMicrotask(() => {
+            const raw = String(url ?? '')
+            void resolvePlayableUrl(raw)
+                .then(resolved => setSource(resolved || raw))
+                .catch(() => setSource(raw))
+        })
     }, [url])
 
     // Item baixado → aponta a fonte pro arquivo local.
@@ -330,16 +390,20 @@ export default function Player() {
     // Tempo assistido: 1 minuto contabilizado por minuto tocando (local ou TV).
     useEffect(() => {
         const usageKind = live === '1' ? 'live' : kind === 'episode' ? 'episode' : 'movie'
+        // Episódio agrega pela série ("Série · Ep 3" → "Série").
+        const usageTitle = live === '1'
+            ? liveTitle
+            : kind === 'episode' ? String(title ?? '').split(' · ')[0] : String(title ?? '')
         const timer = setInterval(() => {
             let playing = castingRef.current && !castPaused
             if (!playing) {
                 try { playing = player.playing } catch { return } // player já liberado
             }
-            if (playing) void recordWatchMinute(usageKind)
+            if (playing) void recordWatchMinute(usageKind, Date.now(), usageTitle)
         }, 60_000)
         return () => clearInterval(timer)
         // eslint-disable-next-line react-hooks/exhaustive-deps
-    }, [live, kind, castPaused])
+    }, [live, kind, castPaused, liveTitle])
 
     // Amostra a posição a cada 5s + gravação final ao sair da tela.
     useEffect(() => {
@@ -378,6 +442,7 @@ export default function Player() {
 
     return (
         <View style={styles.root}>
+            <StatusBar hidden />
             <VideoView
                 player={player}
                 style={styles.video}
@@ -411,6 +476,11 @@ export default function Player() {
                         <Ionicons name="tv-outline" size={20} color={colors.text} />
                     </TouchableOpacity>
                 ) : null}
+                {live !== '1' ? (
+                    <TouchableOpacity style={styles.trackBtn} accessibilityLabel={t('a11yRate')} onPress={cycleRate}>
+                        <Text style={styles.rateText}>{rate}x</Text>
+                    </TouchableOpacity>
+                ) : null}
                 <TouchableOpacity style={styles.trackBtn} accessibilityLabel={t('a11ySleep')} onPress={cycleSleep}>
                     <Ionicons
                         name={sleepMin > 0 ? 'moon' : 'moon-outline'}
@@ -439,12 +509,66 @@ export default function Player() {
 
             {chrome && zappable ? (
                 <View style={styles.zapCol}>
+                    <TouchableOpacity
+                        style={styles.zapBtn}
+                        accessibilityLabel={t('a11yChannels')}
+                        onPress={openDrawer}
+                    >
+                        <Ionicons name="list" size={24} color={colors.text} />
+                    </TouchableOpacity>
                     <TouchableOpacity style={styles.zapBtn} accessibilityLabel={t('a11yZapNext')} onPress={() => zap(1)}>
                         <Ionicons name="chevron-up" size={26} color={colors.text} />
                     </TouchableOpacity>
                     <TouchableOpacity style={styles.zapBtn} accessibilityLabel={t('a11yZapPrev')} onPress={() => zap(-1)}>
                         <Ionicons name="chevron-down" size={26} color={colors.text} />
                     </TouchableOpacity>
+                </View>
+            ) : null}
+
+            {channelsOpen ? (
+                <View style={styles.drawer}>
+                    <View style={styles.drawerHeader}>
+                        <TextInput
+                            style={styles.drawerFilter}
+                            value={channelFilter}
+                            onChangeText={setChannelFilter}
+                            placeholder={t('chFilterPh')}
+                            placeholderTextColor={colors.textDim}
+                            autoCorrect={false}
+                        />
+                        <TouchableOpacity
+                            style={styles.drawerClose}
+                            accessibilityLabel={t('cancel')}
+                            onPress={() => setChannelsOpen(false)}
+                        >
+                            <Ionicons name="close" size={22} color={colors.text} />
+                        </TouchableOpacity>
+                    </View>
+                    <FlatList
+                        data={drawerChannels}
+                        keyExtractor={channel => channel.id}
+                        keyboardShouldPersistTaps="handled"
+                        renderItem={({ item }) => (
+                            <TouchableOpacity
+                                style={styles.drawerRow}
+                                onPress={() => {
+                                    const channel = zapTo(item.id)
+                                    if (channel) switchChannel(channel)
+                                    setChannelsOpen(false)
+                                }}
+                            >
+                                <Text
+                                    style={[styles.drawerName, item.name === liveTitle && styles.drawerNameOn]}
+                                    numberOfLines={1}
+                                >
+                                    {item.name}
+                                </Text>
+                                {item.name === liveTitle ? (
+                                    <Ionicons name="play" size={14} color={colors.accent} />
+                                ) : null}
+                            </TouchableOpacity>
+                        )}
+                    />
                 </View>
             ) : null}
 
@@ -518,6 +642,7 @@ const styles = StyleSheet.create({
     title: { color: colors.text, fontSize: 16, fontWeight: '600' },
     epg: { color: 'rgba(244,244,248,0.7)', fontSize: 12 },
     trackBtn: { padding: spacing.sm },
+    rateText: { color: colors.text, fontSize: 13, fontWeight: '700', minWidth: 30, textAlign: 'center' },
     trackToast: {
         position: 'absolute',
         bottom: 96,
@@ -548,6 +673,48 @@ const styles = StyleSheet.create({
         alignItems: 'center',
         justifyContent: 'center',
     },
+    drawer: {
+        position: 'absolute',
+        top: 0,
+        right: 0,
+        bottom: 0,
+        width: 300,
+        maxWidth: '80%',
+        backgroundColor: 'rgba(11,11,16,0.97)',
+        borderLeftColor: colors.border,
+        borderLeftWidth: 1,
+        paddingTop: 48,
+    },
+    drawerHeader: {
+        flexDirection: 'row',
+        alignItems: 'center',
+        gap: spacing.sm,
+        paddingHorizontal: spacing.md,
+        paddingBottom: spacing.sm,
+    },
+    drawerFilter: {
+        flex: 1,
+        backgroundColor: colors.card,
+        borderColor: colors.border,
+        borderWidth: 1,
+        borderRadius: 8,
+        color: colors.text,
+        paddingHorizontal: spacing.md,
+        paddingVertical: 6,
+        fontSize: 14,
+    },
+    drawerClose: { padding: spacing.xs },
+    drawerRow: {
+        flexDirection: 'row',
+        alignItems: 'center',
+        gap: spacing.sm,
+        paddingHorizontal: spacing.lg,
+        paddingVertical: 10,
+        borderBottomColor: colors.border,
+        borderBottomWidth: StyleSheet.hairlineWidth,
+    },
+    drawerName: { flex: 1, color: colors.text, fontSize: 14 },
+    drawerNameOn: { color: colors.accent, fontWeight: '700' },
     castBar: {
         position: 'absolute',
         bottom: 32,

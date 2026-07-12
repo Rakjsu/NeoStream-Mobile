@@ -8,6 +8,7 @@ import AsyncStorage from '@react-native-async-storage/async-storage'
 import * as FileSystem from 'expo-file-system/legacy'
 import { notifyDownloadDone } from './notify'
 import { loadWatched } from './progress'
+import { resolvePlayableUrl } from './session'
 
 export interface DownloadItem {
     /** Mesmo id do progresso: "movie:<id>" | "episode:<id>". */
@@ -30,6 +31,7 @@ export interface DownloadRequest {
 
 const STORAGE_KEY = 'neostream_downloads'
 const LIMIT_KEY = 'neostream_dl_limit_gb'
+const PENDING_KEY = 'neostream_dl_pending'
 const DIR = `${FileSystem.documentDirectory}downloads/`
 
 /**
@@ -154,15 +156,58 @@ export function listActiveDownloads(): { id: string; progress: number }[] {
     return [...active.entries()].map(([id, task]) => ({ id, progress: task.progress }))
 }
 
+// Pendentes: pedidos que começaram mas não terminaram (app fechado no meio).
+// Ao reabrir, a tela de Downloads oferece tentar de novo ou descartar.
+async function readPending(): Promise<Record<string, DownloadRequest>> {
+    try {
+        const raw = await AsyncStorage.getItem(PENDING_KEY)
+        const parsed = raw ? (JSON.parse(raw) as Record<string, DownloadRequest>) : {}
+        return parsed && typeof parsed === 'object' ? parsed : {}
+    } catch {
+        return {}
+    }
+}
+
+async function writePending(map: Record<string, DownloadRequest>): Promise<void> {
+    try {
+        await AsyncStorage.setItem(PENDING_KEY, JSON.stringify(map))
+    } catch { /* best-effort */ }
+}
+
+/** Interrompidos: pendentes que não estão baixando nem concluídos. */
+export async function listInterrupted(): Promise<DownloadRequest[]> {
+    const pending = await readPending()
+    const registry = await loadRegistry()
+    return Object.values(pending).filter(request =>
+        !registry[request.id] && !active.has(request.id) && !listQueuedIds().includes(request.id))
+}
+
+export async function discardInterrupted(id: string): Promise<void> {
+    const pending = await readPending()
+    const request = pending[id]
+    if (!request) return
+    delete pending[id]
+    await writePending(pending)
+    // Limpa o arquivo parcial que ficou pra trás.
+    await FileSystem.deleteAsync(DIR + safeFileName(id, request.container), { idempotent: true }).catch(() => undefined)
+    notify()
+}
+
 export async function startDownload(request: DownloadRequest): Promise<void> {
     if (active.has(request.id)) return
     if ((await loadRegistry())[request.id]) return
     if (!request.url) throw new Error('Sem URL pra baixar.')
 
+    const pending = await readPending()
+    pending[request.id] = request
+    await writePending(pending)
+
     await FileSystem.makeDirectoryAsync(DIR, { intermediates: true }).catch(() => undefined)
     const fileUri = DIR + safeFileName(request.id, request.container)
+    // URL adiada de portal resolve agora (create_link é de uso único).
+    const downloadUrl = await resolvePlayableUrl(request.url).catch(() => request.url)
 
-    const task = FileSystem.createDownloadResumable(request.url, fileUri, {}, progress => {
+    const task = FileSystem.createDownloadResumable(downloadUrl || request.url, fileUri, {}, progress => {
         const entry = active.get(request.id)
         if (entry && progress.totalBytesExpectedToWrite > 0) {
             entry.progress = progress.totalBytesWritten / progress.totalBytesExpectedToWrite
@@ -195,6 +240,12 @@ export async function startDownload(request: DownloadRequest): Promise<void> {
         throw error
     } finally {
         active.delete(request.id)
+        // Terminou (com sucesso OU cancelado de vez) → sai dos pendentes.
+        const map = await readPending()
+        if (map[request.id]) {
+            delete map[request.id]
+            await writePending(map)
+        }
         notify()
     }
 }

@@ -5,6 +5,7 @@
  */
 import AsyncStorage from '@react-native-async-storage/async-storage'
 import { M3uClient } from './m3u'
+import { StalkerClient } from './stalker'
 import { XtreamClient, normalizeBaseUrl, type CatalogClient, type UserInfo, type XtreamAccount } from './xtream'
 
 export interface StoredAccount extends XtreamAccount {
@@ -26,20 +27,31 @@ export function accountId(account: XtreamAccount): string {
     return `${user}@${normalizeBaseUrl(account.url)}`
 }
 
+function isStalker(account: XtreamAccount): boolean {
+    return account.type === 'stalker'
+}
+
 /** Nome de exibição: apelido se houver; senão usuário@host (M3U mostra o host). */
 export function accountLabel(account: XtreamAccount & { alias?: string }): string {
     if (account.alias?.trim()) return account.alias.trim()
+    if (account.url.startsWith('file://')) {
+        const file = account.url.split('/').pop() ?? 'lista.m3u'
+        return `M3U · ${decodeURIComponent(file)}`
+    }
     try {
         const host = new URL(normalizeBaseUrl(account.url)).host
+        if (isStalker(account)) return `MAC · ${host}`
         return account.type === 'm3u' ? `M3U · ${host}` : `${account.username}@${host}`
     } catch {
         return accountId(account)
     }
 }
 
-/** Client certo pro tipo da conta (Xtream ou lista M3U). */
+/** Client certo pro tipo da conta (Xtream, lista M3U ou portal Stalker). */
 export function buildClient(account: XtreamAccount): CatalogClient {
-    return account.type === 'm3u' ? new M3uClient(normalizeBaseUrl(account.url)) : new XtreamClient(account)
+    if (account.type === 'm3u') return new M3uClient(normalizeBaseUrl(account.url))
+    if (account.type === 'stalker') return new StalkerClient(account.url, account.username)
+    return new XtreamClient(account)
 }
 
 /** Insere/atualiza uma conta (PURO) — dedup pelo id determinístico. */
@@ -182,6 +194,17 @@ export async function getClient(): Promise<CatalogClient | null> {
     if (!account) return null
     client = buildClient(account)
     return client
+}
+
+/**
+ * URLs adiadas (stalker://…) só viram stream na hora do play (create_link).
+ * Qualquer outra URL passa reta — player e downloads chamam sempre.
+ */
+export async function resolvePlayableUrl(url: string): Promise<string> {
+    if (!url.startsWith('stalker://')) return url
+    const active = await getClient()
+    if (active instanceof StalkerClient) return active.resolveStalkerUrl(url)
+    return ''
 }
 
 /** Restauração de backup: substitui as contas e reativa o client. */

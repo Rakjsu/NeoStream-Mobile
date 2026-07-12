@@ -4,6 +4,8 @@ import { router, useFocusEffect } from 'expo-router'
 import { useCallback, useEffect, useState } from 'react'
 import { Alert, Linking, RefreshControl, ScrollView, StyleSheet, Text, TouchableOpacity, View } from 'react-native'
 import { loadFavorites } from '../../services/favorites'
+import { checkNewEpisodes } from '../../services/newEpisodes'
+import { notifyNow } from '../../services/notify'
 import { listRecentChannels, recordRecentChannel } from '../../services/recents'
 import { allowedCategoryIds, loadParental } from '../../services/parental'
 import { listContinue, loadProgress, removeEntry, type ProgressEntry } from '../../services/progress'
@@ -33,6 +35,7 @@ export default function HomeTab() {
     const [recentChannels, setRecentChannels] = useState<{ id: string; name: string; logo: string }[]>([])
     const [newMovies, setNewMovies] = useState<RailItem[]>([])
     const [newSeries, setNewSeries] = useState<RailItem[]>([])
+    const [freshEpisodes, setFreshEpisodes] = useState<RailItem[]>([])
     const [update, setUpdate] = useState<UpdateInfo | null>(null)
 
     const load = useCallback(async (force = false) => {
@@ -89,6 +92,15 @@ export default function HomeTab() {
                 if (!channel || !pass(allowedLive, channel.category_id)) return []
                 return [{ id: recent.id, name: channel.name, logo: channel.stream_icon || recent.logo }]
             }).slice(0, RAIL_MAX))
+
+            // Séries favoritas com episódios novos desde a última visita.
+            const fresh = await checkNewEpisodes(visibleShows, favorites.series)
+            setFreshEpisodes(fresh.slice(0, RAIL_MAX).map(seriesRail))
+            if (fresh.length === 1) {
+                void notifyNow(t('newEpsTitle'), tf('newEpsOne', { title: fresh[0].name }), '/(tabs)/home')
+            } else if (fresh.length > 1) {
+                void notifyNow(t('newEpsTitle'), tf('newEpsMany', { n: fresh.length }), '/(tabs)/home')
+            }
 
             setNewMovies([...visibleVod].sort((a, b) => epoch(b.added) - epoch(a.added)).slice(0, RAIL_MAX).map(movieRail))
             setNewSeries([...visibleShows].sort((a, b) => epoch(b.last_modified) - epoch(a.last_modified)).slice(0, RAIL_MAX).map(seriesRail))
@@ -168,7 +180,7 @@ export default function HomeTab() {
     if (!ready) return <Loading label={t('loadingHome')} />
 
     const empty = continueList.length === 0 && favPosters.length === 0 && favChannels.length === 0 && recentChannels.length === 0
-        && newMovies.length === 0 && newSeries.length === 0
+        && newMovies.length === 0 && newSeries.length === 0 && freshEpisodes.length === 0
 
     return (
         <ScrollView
@@ -197,6 +209,7 @@ export default function HomeTab() {
             ) : (
                 <View style={{ gap: spacing.md }}>
                     <ContinueRail entries={continueList} onPlay={entry => void resume(entry)} onRemove={confirmRemoveContinue} />
+                    <PosterRail title={t('newEpisodesRail')} items={freshEpisodes} onPress={openRailItem} />
                     <PosterRail title={t('favRail')} items={favPosters} onPress={openRailItem} />
                     <ChannelRail title={t('recentChannelsRail')} items={recentChannels} onPress={item => void playChannel(item, recentChannels)} />
                     <ChannelRail title={t('favChannelsRail')} items={favChannels} onPress={item => void playChannel(item, favChannels)} />

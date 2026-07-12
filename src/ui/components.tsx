@@ -53,10 +53,15 @@ export function EmptyState({ icon, label }: { icon: keyof typeof Ionicons.glyphM
     )
 }
 
-/** Card de pôster 2:3 pras grades de Filmes/Séries (❤ = favorito). */
-export function PosterCard({ name, cover, fav }: { name: string; cover?: string; fav?: boolean }) {
+/** Card de pôster 2:3 pras grades de Filmes/Séries (❤ = favorito; ✓ = seleção em lote). */
+export function PosterCard({ name, cover, fav, selected }: { name: string; cover?: string; fav?: boolean; selected?: boolean }) {
     return (
-        <View style={styles.poster}>
+        <View style={[styles.poster, selected && styles.posterSelected]}>
+            {selected ? (
+                <View style={styles.selBadge}>
+                    <Ionicons name="checkmark" size={12} color="#fff" />
+                </View>
+            ) : null}
             {cover && !skipImages() ? (
                 <Image source={{ uri: cover }} style={styles.posterImg} resizeMode="cover" />
             ) : (
@@ -250,6 +255,19 @@ const styles = StyleSheet.create({
     dim: { color: colors.textDim, fontSize: 14, textAlign: 'center' },
     poster: { flex: 1, padding: spacing.xs },
     posterImg: { width: '100%', aspectRatio: 2 / 3, borderRadius: 8, backgroundColor: colors.card },
+    posterSelected: { opacity: 0.85, borderColor: colors.accent, borderWidth: 2, borderRadius: 10 },
+    selBadge: {
+        position: 'absolute',
+        top: 6,
+        left: 6,
+        zIndex: 1,
+        backgroundColor: colors.accent,
+        borderRadius: 10,
+        width: 20,
+        height: 20,
+        alignItems: 'center',
+        justifyContent: 'center',
+    },
     posterFallback: { alignItems: 'center', justifyContent: 'center' },
     posterName: { color: colors.text, fontSize: 12, marginTop: 4 },
     favBadge: {

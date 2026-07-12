@@ -34,6 +34,31 @@ const LIMIT_KEY = 'neostream_dl_limit_gb'
 const PENDING_KEY = 'neostream_dl_pending'
 const DIR = `${FileSystem.documentDirectory}downloads/`
 
+export interface DownloadGroup {
+    title: string
+    bytes: number
+    data: DownloadItem[]
+}
+
+/**
+ * Agrupa pra tela: episódios pela série (título "Série · Ep"), filmes num
+ * grupo próprio no fim (PURO). Grupos na ordem do download mais recente.
+ */
+export function groupDownloads(items: DownloadItem[], moviesTitle: string): DownloadGroup[] {
+    const groups = new Map<string, DownloadGroup>()
+    for (const item of items) {
+        const isEpisode = item.id.startsWith('episode:')
+        const key = isEpisode ? (item.title.split(' · ')[0] || moviesTitle) : moviesTitle
+        const group = groups.get(key) ?? { title: key, bytes: 0, data: [] }
+        group.bytes += item.sizeBytes
+        group.data.push(item)
+        groups.set(key, group)
+    }
+    // Filmes sempre por último; o resto na ordem de inserção (mais recente 1º).
+    const list = [...groups.values()]
+    return [...list.filter(g => g.title !== moviesTitle), ...list.filter(g => g.title === moviesTitle)]
+}
+
 /**
  * Quais pedidos ainda valem entrar na fila (PURO): fora os já baixados,
  * os baixando e os que já estão na fila.

@@ -13,6 +13,7 @@ import { captureRef } from 'react-native-view-shot'
 import * as Sharing from 'expo-sharing'
 import { listAutoBackups, readAutoBackup, type AutoBackupFile } from '../../services/autoBackup'
 import { listErrors, type LoggedError } from '../../services/errorLog'
+import { cancelScheduled, listScheduled, type ScheduledReminder } from '../../services/notify'
 import { listHiddenChannels, unhideChannel, type HiddenChannel } from '../../services/hidden'
 import { applyBackup, collectBackup, parseBackup, serializeBackup } from '../../services/backup'
 import { disableParental, enableParental, isValidPin, loadParental } from '../../services/parental'
@@ -61,6 +62,7 @@ export default function SettingsTab() {
     const [autoCopies, setAutoCopies] = useState<AutoBackupFile[]>([])
     const [hiddenList, setHiddenList] = useState<HiddenChannel[]>([])
     const [errorList, setErrorList] = useState<LoggedError[]>([])
+    const [reminders, setReminders] = useState<ScheduledReminder[]>([])
 
     const refreshStorage = useCallback(() => {
         void listDownloads().then(items => setDlBytes(items.reduce((sum, item) => sum + item.sizeBytes, 0)))
@@ -74,6 +76,7 @@ export default function SettingsTab() {
         void listAutoBackups().then(setAutoCopies)
         void listHiddenChannels().then(setHiddenList)
         void listErrors().then(setErrorList)
+        void listScheduled().then(setReminders)
         void getDownloadLimitGb().then(setDlLimit)
         void isDataSaverEnabled().then(setDataSaverState)
         refreshStorage()
@@ -442,6 +445,30 @@ export default function SettingsTab() {
                         <Text style={styles.parentalHint}>{t('dataSaverHint')}</Text>
                     </View>
                 </TouchableOpacity>
+            </View>
+
+            <Text style={styles.section}>{t('remindersSection')}</Text>
+            <View style={[styles.card, { paddingVertical: spacing.md, gap: spacing.sm }]}>
+                {reminders.length === 0 ? (
+                    <Text style={styles.parentalHint}>{t('remindersNone')}</Text>
+                ) : reminders.map(reminder => (
+                    <View key={reminder.id} style={styles.diagRow}>
+                        <Ionicons name="alarm-outline" size={16} color={colors.textDim} />
+                        <Text style={styles.diagLabel} numberOfLines={1}>
+                            {reminder.title} · {new Date(reminder.atMs).toLocaleTimeString().slice(0, 5)}
+                        </Text>
+                        <TouchableOpacity
+                            accessibilityLabel={t('cancel')}
+                            onPress={() => {
+                                void cancelScheduled(reminder.id)
+                                    .then(listScheduled)
+                                    .then(setReminders)
+                            }}
+                        >
+                            <Ionicons name="close-circle-outline" size={18} color={colors.danger} />
+                        </TouchableOpacity>
+                    </View>
+                ))}
             </View>
 
             <Text style={styles.section}>{t('hiddenSection')}</Text>

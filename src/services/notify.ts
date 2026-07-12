@@ -60,6 +60,39 @@ export async function notifyAt(title: string, body: string, route: string, atMs:
     }
 }
 
+export interface ScheduledReminder {
+    id: string
+    title: string
+    body: string
+    atMs: number
+}
+
+/** Lembretes agendados (só os com gatilho por data). */
+export async function listScheduled(): Promise<ScheduledReminder[]> {
+    try {
+        const all = await Notifications.getAllScheduledNotificationsAsync()
+        return all.flatMap(item => {
+            const trigger = item.trigger as { type?: string; value?: number; date?: number } | null
+            const atMs = Number(trigger?.value ?? trigger?.date)
+            if (!Number.isFinite(atMs)) return []
+            return [{
+                id: item.identifier,
+                title: item.content.title ?? '',
+                body: item.content.body ?? '',
+                atMs,
+            }]
+        }).sort((a, b) => a.atMs - b.atMs)
+    } catch {
+        return []
+    }
+}
+
+export async function cancelScheduled(id: string): Promise<void> {
+    try {
+        await Notifications.cancelScheduledNotificationAsync(id)
+    } catch { /* best-effort */ }
+}
+
 /** O clique numa notificação navega pra rota gravada no payload. */
 export function onNotificationRoute(handler: (route: string) => void): () => void {
     configureOnce()

@@ -17,7 +17,7 @@ import {
     accountLabel, getClient, listAccounts, loadAccount, removeAccount, renameAccount, switchAccount,
     type StoredAccount,
 } from '../../services/session'
-import { dayKey, formatMinutes, lastDays, loadUsage, summarize, type UsageSummary } from '../../services/usage'
+import { dayKey, formatMinutes, lastDays, loadTitleUsage, loadUsage, summarize, topTitles, type TopTitle, type UsageSummary } from '../../services/usage'
 import { parseExpiry } from '../../services/xtream'
 import { colors, spacing } from '../../ui/theme'
 import { t, tf } from '../../i18n/strings'
@@ -47,6 +47,8 @@ export default function SettingsTab() {
     const [updateMsg, setUpdateMsg] = useState('')
     const [usage, setUsage] = useState<UsageSummary>({ totals: { live: 0, movie: 0, episode: 0 }, totalMinutes: 0 })
     const [usageDays, setUsageDays] = useState<{ day: string; minutes: number }[]>([])
+    const [topLive, setTopLive] = useState<TopTitle[]>([])
+    const [topShows, setTopShows] = useState<TopTitle[]>([])
     const [aliasDraft, setAliasDraft] = useState('')
     const [importText, setImportText] = useState('')
     const [backupMsg, setBackupMsg] = useState('')
@@ -67,6 +69,11 @@ export default function SettingsTab() {
             const today = dayKey(Date.now())
             setUsage(summarize(map, today))
             setUsageDays(lastDays(map, today))
+        })
+        void loadTitleUsage().then(titles => {
+            const today = dayKey(Date.now())
+            setTopLive(topTitles(titles, today, ['live']))
+            setTopShows(topTitles(titles, today, ['episode', 'movie']))
         })
     }, [refreshStorage])
 
@@ -319,6 +326,14 @@ export default function SettingsTab() {
                 <InfoRow label={t('tabMovies')} value={formatMinutes(usage.totals.movie)} />
                 <InfoRow label={t('tabSeries')} value={formatMinutes(usage.totals.episode)} />
                 <InfoRow label={t('usageTotal')} value={formatMinutes(usage.totalMinutes)} />
+                {topLive.length > 0 ? <InfoRow label={t('topChannels')} value="" /> : null}
+                {topLive.map((entry, index) => (
+                    <InfoRow key={`l${entry.title}`} label={`${index + 1}. ${entry.title}`} value={formatMinutes(entry.minutes)} />
+                ))}
+                {topShows.length > 0 ? <InfoRow label={t('topContent')} value="" /> : null}
+                {topShows.map((entry, index) => (
+                    <InfoRow key={`s${entry.title}`} label={`${index + 1}. ${entry.title}`} value={formatMinutes(entry.minutes)} />
+                ))}
                 <View style={{ paddingVertical: spacing.md }}>
                     <TouchableOpacity
                         style={styles.backupBtn}
@@ -430,6 +445,27 @@ export default function SettingsTab() {
                 >
                     <Ionicons name="folder-open-outline" size={16} color={colors.textDim} />
                     <Text style={styles.ghText}>{t('openBackupFile')}</Text>
+                </TouchableOpacity>
+                <TouchableOpacity
+                    style={styles.backupBtn}
+                    onPress={() => {
+                        void (async () => {
+                            try {
+                                const json = serializeBackup(await collectBackup())
+                                const permission = await FileSystem.StorageAccessFramework.requestDirectoryPermissionsAsync()
+                                if (!permission.granted) return
+                                const fileUri = await FileSystem.StorageAccessFramework.createFileAsync(
+                                    permission.directoryUri, `neostream-backup-${dayKey(Date.now())}`, 'application/json')
+                                await FileSystem.writeAsStringAsync(fileUri, json)
+                                setBackupMsg(t('backupSaved'))
+                            } catch {
+                                setBackupMsg(t('fileReadFail'))
+                            }
+                        })()
+                    }}
+                >
+                    <Ionicons name="save-outline" size={16} color="#fff" />
+                    <Text style={styles.backupBtnText}>{t('saveBackupFile')}</Text>
                 </TouchableOpacity>
                 <TextInput
                     style={styles.importInput}

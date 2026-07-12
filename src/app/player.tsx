@@ -386,16 +386,20 @@ export default function Player() {
     // Tempo assistido: 1 minuto contabilizado por minuto tocando (local ou TV).
     useEffect(() => {
         const usageKind = live === '1' ? 'live' : kind === 'episode' ? 'episode' : 'movie'
+        // Episódio agrega pela série ("Série · Ep 3" → "Série").
+        const usageTitle = live === '1'
+            ? liveTitle
+            : kind === 'episode' ? String(title ?? '').split(' · ')[0] : String(title ?? '')
         const timer = setInterval(() => {
             let playing = castingRef.current && !castPaused
             if (!playing) {
                 try { playing = player.playing } catch { return } // player já liberado
             }
-            if (playing) void recordWatchMinute(usageKind)
+            if (playing) void recordWatchMinute(usageKind, Date.now(), usageTitle)
         }, 60_000)
         return () => clearInterval(timer)
         // eslint-disable-next-line react-hooks/exhaustive-deps
-    }, [live, kind, castPaused])
+    }, [live, kind, castPaused, liveTitle])
 
     // Amostra a posição a cada 5s + gravação final ao sair da tela.
     useEffect(() => {

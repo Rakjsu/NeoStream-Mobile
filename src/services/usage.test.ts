@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest'
-import { addMinutes, dayKey, formatMinutes, lastDays, summarize, type UsageMap } from './usage'
+import { addMinutes, addTitleMinute, dayKey, formatMinutes, lastDays, summarize, topTitles, type TitleUsageMap, type UsageMap } from './usage'
 
 describe('dayKey', () => {
     it('formata YYYY-MM-DD', () => {
@@ -60,5 +60,28 @@ describe('lastDays', () => {
     it('atravessa viradas de mês', () => {
         const days = lastDays({}, '2026-08-01', 2)
         expect(days.map(d => d.day)).toEqual(['2026-07-31', '2026-08-01'])
+    })
+})
+
+describe('mais assistidos (títulos)', () => {
+    it('acumula por título e poda dias velhos', () => {
+        let map: TitleUsageMap = {}
+        map = addTitleMinute(map, '2026-07-12', 'live', 'Globo')
+        map = addTitleMinute(map, '2026-07-12', 'live', 'Globo')
+        expect(map['2026-07-12']['live|Globo']).toBe(2)
+        for (let day = 1; day <= 9; day++) map = addTitleMinute(map, `2026-07-0${day}`, 'movie', 'X', 3)
+        expect(Object.keys(map).length).toBeLessThanOrEqual(3)
+    })
+
+    it('topTitles filtra por tipo e ordena por minutos na janela', () => {
+        const map: TitleUsageMap = {
+            '2026-07-12': { 'live|Globo': 30, 'live|SBT': 10, 'episode|Dark': 50 },
+            '2026-07-11': { 'live|SBT': 40 },
+            '2026-07-01': { 'live|Velho': 999 },
+        }
+        const channels = topTitles(map, '2026-07-12', ['live'], 2)
+        expect(channels.map(c => c.title)).toEqual(['SBT', 'Globo'])
+        const shows = topTitles(map, '2026-07-12', ['episode', 'movie'])
+        expect(shows[0]).toMatchObject({ title: 'Dark', minutes: 50 })
     })
 })

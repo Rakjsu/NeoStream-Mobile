@@ -45,6 +45,21 @@ export async function notifyNow(title: string, body: string, route: string): Pro
     } catch { /* best-effort */ }
 }
 
+/** Notificação agendada pra um horário (lembrete de programa). */
+export async function notifyAt(title: string, body: string, route: string, atMs: number): Promise<boolean> {
+    try {
+        if (atMs <= Date.now()) return false
+        if (!(await ensureNotifyPermission())) return false
+        await Notifications.scheduleNotificationAsync({
+            content: { title, body, data: { route } },
+            trigger: { type: Notifications.SchedulableTriggerInputTypes.DATE, date: atMs },
+        })
+        return true
+    } catch {
+        return false
+    }
+}
+
 /** O clique numa notificação navega pra rota gravada no payload. */
 export function onNotificationRoute(handler: (route: string) => void): () => void {
     configureOnce()

@@ -19,7 +19,7 @@ import { disableParental, enableParental, isValidPin, loadParental } from '../..
 import { clearHistory } from '../../services/progress'
 import { checkForUpdate } from '../../services/updates'
 import {
-    accountLabel, getClient, listAccounts, loadAccount, removeAccount, renameAccount, switchAccount,
+    accountLabel, clearCatalogCache, getClient, listAccounts, loadAccount, removeAccount, renameAccount, switchAccount,
     type StoredAccount,
 } from '../../services/session'
 import { dayKey, formatMinutes, lastDays, loadTitleUsage, loadUsage, summarize, topTitles, type TopTitle, type UsageSummary } from '../../services/usage'
@@ -246,6 +246,18 @@ export default function SettingsTab() {
                     >
                         <Ionicons name="pulse-outline" size={16} color="#fff" />
                         <Text style={styles.backupBtnText}>{diag === 'running' ? t('testing') : t('testConn')}</Text>
+                    </TouchableOpacity>
+                    <TouchableOpacity
+                        style={[styles.backupBtn, styles.restoreBtn]}
+                        onPress={() => {
+                            void clearCatalogCache().then(() => {
+                                setBackupMsg('')
+                                router.replace('/')
+                            })
+                        }}
+                    >
+                        <Ionicons name="refresh-circle-outline" size={16} color="#fff" />
+                        <Text style={styles.backupBtnText}>{t('clearCacheBtn')}</Text>
                     </TouchableOpacity>
                     {Array.isArray(diag) ? diag.map(row => (
                         <View key={row.label} style={styles.diagRow}>

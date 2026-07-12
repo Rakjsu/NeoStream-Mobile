@@ -1,17 +1,18 @@
 import { Ionicons } from '@expo/vector-icons'
 import { Stack, router } from 'expo-router'
 import { useCallback, useEffect, useRef, useState } from 'react'
-import { FlatList, Image, StyleSheet, Text, TouchableOpacity, View, type ViewToken } from 'react-native'
+import { Alert, FlatList, Image, StyleSheet, Text, TouchableOpacity, View, type ViewToken } from 'react-native'
 import { loadFavorites } from '../services/favorites'
 import { hiddenIdSet } from '../services/hidden'
 import { allowedCategoryIds, loadParental } from '../services/parental'
 import { listRecentChannels, recordRecentChannel } from '../services/recents'
+import { notifyAt } from '../services/notify'
 import { cachedFetch, getClient } from '../services/session'
 import type { Category, LiveChannel, NowNext } from '../services/xtream'
 import { rankChannels, setZapContext } from '../services/zap'
 import { EmptyState, Loading } from '../ui/components'
 import { colors, spacing } from '../ui/theme'
-import { t } from '../i18n/strings'
+import { t, tf } from '../i18n/strings'
 
 const VIEWABILITY = { itemVisiblePercentThreshold: 40 }
 
@@ -76,6 +77,24 @@ export default function NowOnTv() {
         }
     }, [])
 
+    /** Long-press: notificação quando o PRÓXIMO programa do canal começar. */
+    const remind = (channel: LiveChannel) => {
+        const next = epgMap[String(channel.stream_id)]?.next
+        if (!next) return
+        const time = new Date(next.startMs)
+        const hhmm = `${String(time.getHours()).padStart(2, '0')}:${String(time.getMinutes()).padStart(2, '0')}`
+        Alert.alert(channel.name, tf('remindMsg', { title: next.title, time: hhmm }), [
+            { text: t('cancel'), style: 'cancel' },
+            {
+                text: t('remindBtn'),
+                onPress: () => {
+                    void notifyAt(tf('remindNotif', { title: next.title }), channel.name, '/now', next.startMs)
+                        .then(ok => { if (ok) Alert.alert(t('remindSet')) })
+                },
+            },
+        ])
+    }
+
     const play = (channel: LiveChannel) => {
         void (async () => {
             const client = await getClient()
@@ -114,7 +133,12 @@ export default function NowOnTv() {
                     const nowNext = epgMap[id]
                     const pct = nowPct(nowNext, nowMs)
                     return (
-                        <TouchableOpacity style={styles.row} onPress={() => play(item)}>
+                        <TouchableOpacity
+                            style={styles.row}
+                            onPress={() => play(item)}
+                            onLongPress={() => remind(item)}
+                            delayLongPress={350}
+                        >
                             {item.stream_icon ? (
                                 <Image source={{ uri: item.stream_icon }} style={styles.logo} resizeMode="contain" />
                             ) : (

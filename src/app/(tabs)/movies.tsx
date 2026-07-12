@@ -5,9 +5,11 @@ import { Alert, FlatList, RefreshControl, StyleSheet, Text, TouchableOpacity, us
 import { emptyFavorites, isFavorite, loadFavorites, persistToggle, type Favorites } from '../../services/favorites'
 import { listContinue, loadProgress, removeEntry, type ProgressEntry } from '../../services/progress'
 import { allowedCategoryIds, loadParental } from '../../services/parental'
-import { cachedFetch, getClient } from '../../services/session'
+import { enqueueDownloads, type DownloadRequest } from '../../services/downloads'
+import { buildProgressId } from '../../services/progress'
+import { cachedFetch, getClient, resolvePlayableUrl } from '../../services/session'
 import type { Category, VodMovie } from '../../services/xtream'
-import { CategoryChips, ContinueRail, EmptyState, Loading, PosterCard, SearchBar } from '../../ui/components'
+import { CategoryChips, ContinueRail, EmptyState, Loading, PosterCard, SearchBar, TvTouchable } from '../../ui/components'
 import { nextSortMode, sortCatalog, type SortMode } from '../../services/sorting'
 import { colors, spacing } from '../../ui/theme'
 import { SORT_KEY, t, tf } from '../../i18n/strings'
@@ -23,6 +25,47 @@ export default function MoviesTab() {
     const [error, setError] = useState('')
     const [allowed, setAllowed] = useState<Set<string> | null>(null)
     const [sort, setSort] = useState<SortMode>('default')
+    // Seleção em lote: long-press entra; toque marca; barra age em todos.
+    const [selection, setSelection] = useState<Set<string> | null>(null)
+
+    const toggleSelected = (id: string) => {
+        setSelection(current => {
+            if (!current) return current
+            const next = new Set(current)
+            if (next.has(id)) next.delete(id)
+            else next.add(id)
+            return next.size === 0 ? null : next
+        })
+    }
+
+    const favoriteSelection = async () => {
+        if (!selection) return
+        let favs = await loadFavorites()
+        for (const id of selection) {
+            if (!favs.movie.includes(id)) favs = await persistToggle('movie', id)
+        }
+        setFavorites(favs)
+        setSelection(null)
+    }
+
+    const downloadSelection = async () => {
+        if (!selection || !movies) return
+        const client = await getClient()
+        if (!client) return
+        const requests: DownloadRequest[] = []
+        for (const movie of movies.filter(m => selection.has(String(m.stream_id)))) {
+            const container = movie.container_extension || 'mp4'
+            requests.push({
+                id: buildProgressId('movie', String(movie.stream_id)),
+                url: await resolvePlayableUrl(client.vodStreamUrl(String(movie.stream_id), container)),
+                title: movie.name,
+                cover: movie.stream_icon || '',
+                container,
+            })
+        }
+        await enqueueDownloads(requests)
+        setSelection(null)
+    }
     // Colunas pela largura: 3 no celular em pé, 5-6 deitado/tablet.
     const { width } = useWindowDimensions()
     const columns = Math.max(3, Math.min(8, Math.floor(width / 128)))
@@ -128,6 +171,21 @@ export default function MoviesTab() {
                 </TouchableOpacity>
             </View>
             {error ? <Text style={styles.error}>{error}</Text> : null}
+            {selection ? (
+                <View style={styles.selBar}>
+                    <Text style={styles.selText}>{tf('selCount', { n: selection.size })}</Text>
+                    <TouchableOpacity style={styles.selBtn} onPress={() => void favoriteSelection()}>
+                        <Text style={styles.selBtnText}>{t('selFav')}</Text>
+                    </TouchableOpacity>
+                    <TouchableOpacity style={styles.selBtn} onPress={() => void downloadSelection()}>
+                        <Text style={styles.selBtnText}>{t('selDownload')}</Text>
+                    </TouchableOpacity>
+                    <TouchableOpacity style={styles.selBtn} onPress={() => setSelection(null)}>
+                        <Ionicons name="close" size={18} color={colors.textDim} />
+                    </TouchableOpacity>
+                </View>
+            ) : null}
+
             <FlatList
                 data={filtered}
                 keyExtractor={item => String(item.stream_id)}
@@ -153,26 +211,48 @@ export default function MoviesTab() {
                     />
                 }
                 contentContainerStyle={filtered.length === 0 ? { flexGrow: 1 } : styles.grid}
-                renderItem={({ item }) => (
-                    <TouchableOpacity
-                        style={{ flex: 1 / columns }}
-                        onPress={() => openDetails(item)}
-                        onLongPress={() => void persistToggle('movie', String(item.stream_id)).then(setFavorites)}
-                        delayLongPress={350}
-                    >
-                        <PosterCard
-                            name={item.name}
-                            cover={item.stream_icon}
-                            fav={isFavorite(favorites, 'movie', String(item.stream_id))}
-                        />
-                    </TouchableOpacity>
-                )}
+                renderItem={({ item, index }) => {
+                    const id = String(item.stream_id)
+                    return (
+                        <TvTouchable
+                            style={{ flex: 1 / columns }}
+                            hasTVPreferredFocus={index === 0}
+                            onPress={() => (selection ? toggleSelected(id) : openDetails(item))}
+                            onLongPress={() => setSelection(current => current ?? new Set([id]))}
+                            delayLongPress={350}
+                        >
+                            <PosterCard
+                                name={item.name}
+                                cover={item.stream_icon}
+                                fav={isFavorite(favorites, 'movie', id)}
+                                selected={selection?.has(id)}
+                            />
+                        </TvTouchable>
+                    )
+                }}
             />
         </View>
     )
 }
 
 const styles = StyleSheet.create({
+    selBar: {
+        flexDirection: 'row',
+        alignItems: 'center',
+        gap: spacing.md,
+        backgroundColor: colors.card,
+        borderColor: colors.accent,
+        borderWidth: 1,
+        borderRadius: 10,
+        marginHorizontal: spacing.lg,
+        marginBottom: spacing.sm,
+        paddingHorizontal: spacing.md,
+        paddingVertical: 8,
+    },
+    selText: { flex: 1, color: colors.text, fontSize: 13, fontWeight: '700' },
+    selBtn: { paddingHorizontal: spacing.sm, paddingVertical: 4 },
+    selBtnText: { color: colors.accent, fontSize: 13, fontWeight: '700' },
+
     root: { flex: 1, backgroundColor: colors.bg, paddingTop: spacing.sm },
     filterRow: { flexDirection: 'row', alignItems: 'flex-start' },
     sortBtn: {

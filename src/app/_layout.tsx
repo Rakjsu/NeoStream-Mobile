@@ -1,14 +1,15 @@
 import { router, Stack } from 'expo-router'
 import { useEffect } from 'react'
 import { StatusBar } from 'expo-status-bar'
-import { onNotificationRoute } from '../services/notify'
+import AsyncStorage from '@react-native-async-storage/async-storage'
+import { notifyNow, onNotificationRoute } from '../services/notify'
 import { setupShortcuts } from '../services/shortcuts'
 import { applyCapturePolicy } from '../services/privacy'
 import { refreshDataSaver } from '../services/dataSaver'
 import { runAutoBackup } from '../services/autoBackup'
 import { ErrorBoundary } from '../ui/ErrorBoundary'
 import { colors } from '../ui/theme'
-import { t } from '../i18n/strings'
+import { t, tf } from '../i18n/strings'
 
 export default function RootLayout() {
     // Clique em notificação (ex.: download concluído) navega pra rota do payload.
@@ -25,6 +26,23 @@ export default function RootLayout() {
 
     // Auto-backup silencioso (a cada 3 dias, mantém as 5 últimas cópias).
     useEffect(() => { void runAutoBackup() }, [])
+
+    // Dezembro: retrospectiva anual, uma vez por ano.
+    useEffect(() => {
+        void (async () => {
+            const now = new Date()
+            if (now.getMonth() !== 11) return
+            const flag = `neostream_wrapped_${now.getFullYear()}`
+            const seen = await AsyncStorage.getItem(flag).catch(() => '1')
+            if (seen) return
+            await AsyncStorage.setItem(flag, '1').catch(() => undefined)
+            void notifyNow(
+                tf('wrappedNotifTitle', { year: now.getFullYear() }),
+                t('wrappedNotifBody'),
+                '/wrapped',
+            )
+        })()
+    }, [])
 
     return (
         <ErrorBoundary>
@@ -47,6 +65,8 @@ export default function RootLayout() {
                 <Stack.Screen name="movie/[id]" options={{ title: '' }} />
                 <Stack.Screen name="downloads" options={{ title: t('downloadsTitle') }} />
                 <Stack.Screen name="history" options={{ title: t('historyTitle') }} />
+                <Stack.Screen name="now" options={{ title: t('nowTitle') }} />
+                <Stack.Screen name="wrapped" options={{ headerShown: false }} />
             </Stack>
         </ErrorBoundary>
     )

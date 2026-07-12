@@ -29,6 +29,8 @@ export interface CatalogClient {
     getSeriesInfo(seriesId: string | number): Promise<SeriesInfo>
     getVodDetails(vodId: string | number): Promise<VodDetails>
     getShortEpg(streamId: number | string): Promise<NowNext>
+    /** Grade do dia do canal (opcional — nem todo tipo de conta tem). */
+    getDaySchedule?(streamId: number | string): Promise<EpgProgram[]>
     liveStreamUrl(streamId: number | string): string
     vodStreamUrl(streamId: number | string, container?: string): string
     seriesStreamUrl(episodeId: number | string, container?: string): string
@@ -208,6 +210,39 @@ export function parseAuthResponse(data: unknown): UserInfo {
 }
 
 /** exp_date do Xtream é epoch em segundos (string); null/ausente = sem expiração. */
+/** get_simple_data_table → programas das próximas 24h, ordenados (PURO). */
+export function parseDaySchedule(data: unknown, nowMs: number): EpgProgram[] {
+    const obj = (data ?? {}) as { epg_listings?: unknown[] }
+    const rows = Array.isArray(obj.epg_listings) ? obj.epg_listings : []
+    const horizon = nowMs + 24 * 3600_000
+    return rows.flatMap(row => {
+        const item = row as { title?: unknown; start_timestamp?: unknown; stop_timestamp?: unknown }
+        const startMs = Number(item?.start_timestamp) * 1000
+        const endMs = Number(item?.stop_timestamp) * 1000
+        if (typeof item?.title !== 'string' || !Number.isFinite(startMs) || !Number.isFinite(endMs)) return []
+        if (endMs <= nowMs || startMs > horizon) return []
+        const title = decodeBase64Utf8(item.title).trim() || item.title
+        return [{ title, startMs, endMs }]
+    }).sort((a, b) => a.startMs - b.startMs)
+}
+
+/** Dias inteiros até a data (0 = hoje; negativo = venceu; null = sem data). */
+export function daysUntil(date: Date | null, nowMs: number): number | null {
+    if (!date) return null
+    return Math.floor((date.getTime() - nowMs) / 86_400_000)
+}
+
+/**
+ * Formato alternativo do stream ao vivo Xtream: .m3u8 ↔ .ts. Provedor que só
+ * serve um dos dois quebra o outro — o player tenta o irmão antes de desistir.
+ */
+export function alternateLiveUrl(url: string): string | null {
+    if (!/\/live\//.test(url)) return null
+    if (url.endsWith('.m3u8')) return url.slice(0, -5) + '.ts'
+    if (url.endsWith('.ts')) return url.slice(0, -3) + '.m3u8'
+    return null
+}
+
 export function parseExpiry(expDate: string | null | undefined): Date | null {
     if (!expDate) return null
     const seconds = Number(expDate)
@@ -340,6 +375,11 @@ export class XtreamClient implements CatalogClient {
     }
 
     /** "Agora / a seguir" de um canal (busca sob demanda no guia). */
+    async getDaySchedule(streamId: number | string): Promise<EpgProgram[]> {
+        const data = await this.request('get_simple_data_table', { stream_id: String(streamId) })
+        return parseDaySchedule(data, Date.now())
+    }
+
     async getShortEpg(streamId: number | string): Promise<NowNext> {
         return parseShortEpg(
             await this.request('get_short_epg', { stream_id: String(streamId), limit: '4' }),

@@ -2,7 +2,7 @@
 
 Player IPTV pra celular (Android primeiro) — o irmão mobile do [NeoStream desktop](https://github.com/Rakjsu/NeoStream). Adicione sua lista **Xtream Codes** ou **M3U** e assista TV ao vivo, filmes e séries direto no aparelho.
 
-> **Status: v0.4** — app completo pro dia a dia: catálogo (Xtream, M3U e portal MAC), player, downloads offline, Chromecast, multi-conta e 3 idiomas.
+> **Status: v0.5** — app completo pro dia a dia (e pra sala): catálogo (Xtream, M3U e portal MAC), player, downloads offline, Chromecast, multi-conta, 3 idiomas e **instalável na Android TV**.
 
 ## Funcionalidades
 
@@ -14,7 +14,8 @@ Player IPTV pra celular (Android primeiro) — o irmão mobile do [NeoStream des
 - **Downloads offline**: filme, episódio ou **temporada inteira** (fila sequencial), tela agrupada por série, teto de armazenamento (LRU), notificação ao concluir, recuperação de interrompidos e player local
 - **Busca global**: canais + filmes + séries numa consulta só
 - **Proteções**: controle parental (PIN), bloqueio do app com PIN + FLAG_SECURE (sem screenshot/preview) e ErrorBoundary global
-- **Extras**: onboarding, atalhos no ícone, economia de dados, "Seu uso" com mais assistidos e **retrospectiva em imagem**, episódios novos das favoritas (rail + notificação), diagnóstico da conta em 4 passos, buscas recentes, gaveta de canais com favoritos/recentes no topo e toques hápticos
+- **Guia**: "Agora na TV" (programa atual com progresso, favoritos/recentes no topo), **lembrete de programa** (notificação na hora que começa) e ocultar canais
+- **Extras**: onboarding, atalhos no ícone, economia de dados, "Seu uso" com mais assistidos e **retrospectiva em imagem** (+ Wrapped anual em dezembro), episódios novos das favoritas, histórico completo, multi-select nas grades, diagnóstico em 4 passos, buscas recentes com filtros, gaveta de canais, compartilhar por deep link, auto-backup (e backup v2 completo), toques hápticos e **Android TV** (leanback + foco de D-pad)
 - **Backup**: exporta/importa contas, favoritos, progresso e ajustes como texto
 - **Idiomas**: português, inglês e espanhol (segue o idioma do sistema)
 - **Aviso de atualização**: banner no Início quando sai release nova no GitHub

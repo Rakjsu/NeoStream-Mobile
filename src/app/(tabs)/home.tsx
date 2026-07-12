@@ -4,14 +4,17 @@ import { router, useFocusEffect } from 'expo-router'
 import { useCallback, useEffect, useState } from 'react'
 import { Alert, Linking, RefreshControl, ScrollView, StyleSheet, Text, TouchableOpacity, View } from 'react-native'
 import { loadFavorites } from '../../services/favorites'
+import AsyncStorage from '@react-native-async-storage/async-storage'
 import { checkNewEpisodes } from '../../services/newEpisodes'
 import { notifyNow } from '../../services/notify'
 import { listRecentChannels, recordRecentChannel } from '../../services/recents'
 import { allowedCategoryIds, loadParental } from '../../services/parental'
 import { listContinue, loadProgress, removeEntry, type ProgressEntry } from '../../services/progress'
-import { cachedFetch, getClient } from '../../services/session'
+import { accountLabel, cachedFetch, getClient, loadAccount } from '../../services/session'
+import { daysUntil, parseExpiry } from '../../services/xtream'
 import type { Category, SeriesItem, VodMovie } from '../../services/xtream'
 import { setZapContext } from '../../services/zap'
+import { dayKey } from '../../services/usage'
 import { checkForUpdate, type UpdateInfo } from '../../services/updates'
 import { ChannelRail, ContinueRail, EmptyState, Loading, PosterRail, type RailItem } from '../../ui/components'
 import { colors, spacing } from '../../ui/theme'
@@ -37,6 +40,7 @@ export default function HomeTab() {
     const [newSeries, setNewSeries] = useState<RailItem[]>([])
     const [freshEpisodes, setFreshEpisodes] = useState<RailItem[]>([])
     const [update, setUpdate] = useState<UpdateInfo | null>(null)
+    const [expiryDays, setExpiryDays] = useState<number | null>(null)
 
     const load = useCallback(async (force = false) => {
         try {
@@ -122,6 +126,28 @@ export default function HomeTab() {
         })
     }, [])
 
+    // Conta perto de vencer: banner + notificação (1x por dia).
+    useEffect(() => {
+        queueMicrotask(() => {
+            void (async () => {
+                const account = await loadAccount()
+                if (!account) return
+                const days = daysUntil(parseExpiry(account.userInfo?.exp_date), Date.now())
+                if (days === null || days > 7 || days < 0) { setExpiryDays(null); return }
+                setExpiryDays(days)
+                const flag = `neostream_expiry_notified_${account.id}_${dayKey(Date.now())}`
+                const seen = await AsyncStorage.getItem(flag).catch(() => '1')
+                if (seen) return
+                await AsyncStorage.setItem(flag, '1').catch(() => undefined)
+                void notifyNow(
+                    days === 0 ? t('expiryToday') : tf('expiryBanner', { n: days }),
+                    accountLabel(account),
+                    '/(tabs)/settings',
+                )
+            })()
+        })
+    }, [])
+
     // A Home reflete favoritos/progresso feitos em outras telas → recarrega no foco.
     useFocusEffect(useCallback(() => { queueMicrotask(() => { void load() }) }, [load]))
 
@@ -202,6 +228,14 @@ export default function HomeTab() {
                     <Ionicons name="arrow-up-circle" size={18} color={colors.accent} />
                     <Text style={styles.updateText}>{tf('updateBanner', { version: update.version })}</Text>
                 </TouchableOpacity>
+            ) : null}
+            {expiryDays !== null ? (
+                <View style={[styles.updateBanner, { borderColor: colors.danger }]}>
+                    <Ionicons name="alert-circle" size={18} color={colors.danger} />
+                    <Text style={styles.updateText}>
+                        {expiryDays === 0 ? t('expiryToday') : tf('expiryBanner', { n: expiryDays })}
+                    </Text>
+                </View>
             ) : null}
             {error ? <Text style={styles.error}>{error}</Text> : null}
             {empty ? (

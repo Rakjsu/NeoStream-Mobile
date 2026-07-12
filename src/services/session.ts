@@ -274,6 +274,16 @@ export function invalidateCatalog(): void {
     catalog.clear()
 }
 
+/** "Desligou e ligou": zera memória + disco do catálogo da conta ativa. */
+export async function clearCatalogCache(): Promise<void> {
+    invalidateCatalog()
+    const { activeId } = await loadState()
+    if (activeId) await dropPersistedCatalog(activeId)
+    // Client novo = caches internos (M3U/Stalker) zerados também.
+    const active = (await loadState()).accounts.find(a => a.id === activeId)
+    client = active ? buildClient(active) : client
+}
+
 /**
  * Cache em três camadas: memória (sessão) → disco (SWR, por conta) → rede.
  * Cache fresco em disco abre o app na hora e atualiza em background; se a

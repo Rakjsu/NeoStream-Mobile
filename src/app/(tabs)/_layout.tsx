@@ -34,6 +34,15 @@ export default function TabsLayout() {
                 options={{
                     title: t('tabLive'),
                     tabBarIcon: ({ color, size }) => <Ionicons name="tv" size={size} color={color} />,
+                    headerRight: () => (
+                        <TouchableOpacity
+                            style={{ paddingHorizontal: 16 }}
+                            accessibilityLabel={t('nowTitle')}
+                            onPress={() => router.push('/now')}
+                        >
+                            <Ionicons name="calendar-outline" size={22} color={colors.text} />
+                        </TouchableOpacity>
+                    ),
                 }}
             />
             <Tabs.Screen

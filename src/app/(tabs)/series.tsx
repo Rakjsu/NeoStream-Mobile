@@ -7,7 +7,7 @@ import { listContinue, loadProgress, removeEntry, type ProgressEntry } from '../
 import { allowedCategoryIds, loadParental } from '../../services/parental'
 import { cachedFetch, getClient } from '../../services/session'
 import type { Category, SeriesItem } from '../../services/xtream'
-import { CategoryChips, ContinueRail, EmptyState, Loading, PosterCard, SearchBar } from '../../ui/components'
+import { CategoryChips, ContinueRail, EmptyState, Loading, PosterCard, SearchBar, TvTouchable } from '../../ui/components'
 import { nextSortMode, sortCatalog, type SortMode } from '../../services/sorting'
 import { colors, spacing } from '../../ui/theme'
 import { SORT_KEY, t, tf } from '../../i18n/strings'
@@ -23,6 +23,27 @@ export default function SeriesTab() {
     const [error, setError] = useState('')
     const [allowed, setAllowed] = useState<Set<string> | null>(null)
     const [sort, setSort] = useState<SortMode>('default')
+    const [selection, setSelection] = useState<Set<string> | null>(null)
+
+    const toggleSelected = (id: string) => {
+        setSelection(current => {
+            if (!current) return current
+            const next = new Set(current)
+            if (next.has(id)) next.delete(id)
+            else next.add(id)
+            return next.size === 0 ? null : next
+        })
+    }
+
+    const favoriteSelection = async () => {
+        if (!selection) return
+        let favs = await loadFavorites()
+        for (const id of selection) {
+            if (!favs.series.includes(id)) favs = await persistToggle('series', id)
+        }
+        setFavorites(favs)
+        setSelection(null)
+    }
     // Colunas pela largura: 3 no celular em pé, 5-6 deitado/tablet.
     const { width } = useWindowDimensions()
     const columns = Math.max(3, Math.min(8, Math.floor(width / 128)))
@@ -115,6 +136,19 @@ export default function SeriesTab() {
                 </TouchableOpacity>
             </View>
             {error ? <Text style={styles.error}>{error}</Text> : null}
+            {selection ? (
+                <View style={styles.selBar}>
+                    <Text style={styles.selText}>{tf('selCount', { n: selection.size })}</Text>
+                    <TouchableOpacity style={styles.selBtn} onPress={() => void favoriteSelection()}>
+                        <Text style={styles.selBtnText}>{t('selFav')}</Text>
+                    </TouchableOpacity>
+
+                    <TouchableOpacity style={styles.selBtn} onPress={() => setSelection(null)}>
+                        <Ionicons name="close" size={18} color={colors.textDim} />
+                    </TouchableOpacity>
+                </View>
+            ) : null}
+
             <FlatList
                 data={filtered}
                 keyExtractor={item => String(item.series_id)}
@@ -140,22 +174,28 @@ export default function SeriesTab() {
                     />
                 }
                 contentContainerStyle={filtered.length === 0 ? { flexGrow: 1 } : styles.grid}
-                renderItem={({ item }) => (
-                    <TouchableOpacity
+                renderItem={({ item, index }) => (
+                    <TvTouchable
                         style={{ flex: 1 / columns }}
-                        onPress={() => router.push({
-                            pathname: '/series/[id]',
-                            params: { id: String(item.series_id), name: item.name, cover: item.cover || '' },
-                        })}
-                        onLongPress={() => void persistToggle('series', String(item.series_id)).then(setFavorites)}
+                        hasTVPreferredFocus={index === 0}
+                        onPress={() => {
+                            const id = String(item.series_id)
+                            if (selection) { toggleSelected(id); return }
+                            router.push({
+                                pathname: '/series/[id]',
+                                params: { id, name: item.name, cover: item.cover || '' },
+                            })
+                        }}
+                        onLongPress={() => setSelection(current => current ?? new Set([String(item.series_id)]))}
                         delayLongPress={350}
                     >
                         <PosterCard
                             name={item.name}
                             cover={item.cover}
                             fav={isFavorite(favorites, 'series', String(item.series_id))}
+                            selected={selection?.has(String(item.series_id))}
                         />
-                    </TouchableOpacity>
+                    </TvTouchable>
                 )}
             />
         </View>
@@ -163,6 +203,23 @@ export default function SeriesTab() {
 }
 
 const styles = StyleSheet.create({
+    selBar: {
+        flexDirection: 'row',
+        alignItems: 'center',
+        gap: spacing.md,
+        backgroundColor: colors.card,
+        borderColor: colors.accent,
+        borderWidth: 1,
+        borderRadius: 10,
+        marginHorizontal: spacing.lg,
+        marginBottom: spacing.sm,
+        paddingHorizontal: spacing.md,
+        paddingVertical: 8,
+    },
+    selText: { flex: 1, color: colors.text, fontSize: 13, fontWeight: '700' },
+    selBtn: { paddingHorizontal: spacing.sm, paddingVertical: 4 },
+    selBtnText: { color: colors.accent, fontSize: 13, fontWeight: '700' },
+
     root: { flex: 1, backgroundColor: colors.bg, paddingTop: spacing.sm },
     filterRow: { flexDirection: 'row', alignItems: 'flex-start' },
     sortBtn: {

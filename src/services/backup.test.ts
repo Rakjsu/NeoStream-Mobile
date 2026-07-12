@@ -5,6 +5,14 @@ import { parseBackup, serializeBackup, type MobileBackup } from './backup'
 vi.mock('@react-native-async-storage/async-storage', () => ({
     default: { getItem: vi.fn(), setItem: vi.fn(), removeItem: vi.fn(), multiRemove: vi.fn() },
 }))
+vi.mock('./downloads', () => ({
+    getDownloadLimitGb: vi.fn(async () => 0),
+    setDownloadLimitGb: vi.fn(async () => undefined),
+}))
+vi.mock('./dataSaver', () => ({
+    isDataSaverEnabled: vi.fn(async () => false),
+    setDataSaver: vi.fn(async () => undefined),
+}))
 
 const sample: MobileBackup = {
     app: 'neostream-mobile',
@@ -27,5 +35,24 @@ describe('parseBackup (validação do texto colado)', () => {
         expect(() => parseBackup('{"app":"outro-app"}')).toThrow(/não é um backup/)
         expect(() => parseBackup(JSON.stringify({ ...sample, version: 99 }))).toThrow(/não suportada/)
         expect(() => parseBackup(JSON.stringify({ app: 'neostream-mobile', version: 1 }))).toThrow(/sem a lista de contas/)
+    })
+})
+
+describe('backup v2 (retrocompatível)', () => {
+    it('aceita v1 sem hidden/prefs', () => {
+        const v1 = parseBackup(JSON.stringify({ app: 'neostream-mobile', version: 1, accounts: [] }))
+        expect(v1.version).toBe(1)
+        expect(v1.hiddenByAccount).toBeUndefined()
+    })
+
+    it('aceita v2 com ocultos e preferências; rejeita v3', () => {
+        const v2 = parseBackup(JSON.stringify({
+            app: 'neostream-mobile', version: 2, accounts: [],
+            hiddenByAccount: { 'u@http://a.tv': [{ id: '1', name: 'X' }] },
+            prefs: { downloadLimitGb: 2, dataSaver: true },
+        }))
+        expect(v2.prefs?.downloadLimitGb).toBe(2)
+        expect(() => parseBackup(JSON.stringify({ app: 'neostream-mobile', version: 3, accounts: [] })))
+            .toThrow(/não suportada/)
     })
 })

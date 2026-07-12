@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest'
-import { addMinutes, addTitleMinute, dayKey, formatMinutes, lastDays, summarize, topTitles, type TitleUsageMap, type UsageMap } from './usage'
+import { addMinutes, addMonthMinute, addTitleMinute, dayKey, formatMinutes, lastDays, monthKey, summarize, topTitles, yearSummary, type MonthUsageMap, type TitleUsageMap, type UsageMap } from './usage'
 
 describe('dayKey', () => {
     it('formata YYYY-MM-DD', () => {
@@ -83,5 +83,22 @@ describe('mais assistidos (títulos)', () => {
         expect(channels.map(c => c.title)).toEqual(['SBT', 'Globo'])
         const shows = topTitles(map, '2026-07-12', ['episode', 'movie'])
         expect(shows[0]).toMatchObject({ title: 'Dark', minutes: 50 })
+    })
+})
+
+describe('wrapped anual (meses)', () => {
+    it('acumula por mês e resume o ano com mês campeão', () => {
+        let map: MonthUsageMap = {}
+        for (let i = 0; i < 3; i++) map = addMonthMinute(map, '2026-07', 'live')
+        map = addMonthMinute(map, '2026-08', 'movie')
+        map = addMonthMinute(map, '2025-12', 'live')
+        const summary = yearSummary(map, 2026)
+        expect(summary.totals).toEqual({ live: 3, movie: 1, episode: 0 })
+        expect(summary.totalMinutes).toBe(4)
+        expect(summary.topMonth).toEqual({ month: '2026-07', minutes: 3 })
+    })
+
+    it('monthKey no fuso local', () => {
+        expect(monthKey(new Date(2026, 11, 25).getTime())).toBe('2026-12')
     })
 })

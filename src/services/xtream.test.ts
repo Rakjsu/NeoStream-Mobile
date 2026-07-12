@@ -10,8 +10,7 @@ import {
     sanitizeCategories,
     sanitizeList,
     XtreamClient,
-    type LiveChannel,
-} from './xtream'
+    type LiveChannel, alternateLiveUrl, daysUntil } from './xtream'
 
 const b64 = (text: string) => Buffer.from(text, 'utf-8').toString('base64')
 
@@ -175,5 +174,21 @@ describe('XtreamClient (montagem de URLs)', () => {
         expect(client.vodStreamUrl(7, 'mkv')).toBe('http://prov.tv:8080/movie/user/p@ss/7.mkv')
         expect(client.vodStreamUrl(7)).toBe('http://prov.tv:8080/movie/user/p@ss/7.mp4')
         expect(client.seriesStreamUrl('900', 'avi')).toBe('http://prov.tv:8080/series/user/p@ss/900.avi')
+    })
+})
+
+describe('expiração e resgate ao vivo', () => {
+    it('daysUntil: hoje=0, futuro conta cheio, sem data = null', () => {
+        const now = Date.UTC(2026, 6, 12, 12, 0)
+        expect(daysUntil(new Date(now + 5 * 86_400_000), now)).toBe(5)
+        expect(daysUntil(new Date(now + 3600_000), now)).toBe(0)
+        expect(daysUntil(new Date(now - 3600_000), now)).toBe(-1)
+        expect(daysUntil(null, now)).toBeNull()
+    })
+
+    it('alternateLiveUrl alterna m3u8↔ts só em URLs de live', () => {
+        expect(alternateLiveUrl('http://s/live/u/p/9.m3u8')).toBe('http://s/live/u/p/9.ts')
+        expect(alternateLiveUrl('http://s/live/u/p/9.ts')).toBe('http://s/live/u/p/9.m3u8')
+        expect(alternateLiveUrl('http://s/movie/u/p/9.mp4')).toBeNull()
     })
 })

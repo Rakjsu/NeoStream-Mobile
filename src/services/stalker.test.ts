@@ -1,7 +1,8 @@
 import { describe, it, expect } from 'vitest'
 import {
     cmdToUrl, normalizeMac, normalizePortalUrl, parseHandshakeToken,
-    parseStalkerChannels, parseStalkerEpg, parseStalkerGenres, parseStalkerVodPage,
+    decodeStalkerEpisode, encodeStalkerEpisode, parseCreateLink, parseStalkerChannels,
+    parseStalkerEpg, parseStalkerGenres, parseStalkerSeasons, parseStalkerVodPage, seasonNumberFromName,
 } from './stalker'
 
 describe('normalizePortalUrl / normalizeMac', () => {
@@ -84,5 +85,35 @@ describe('fase 2: VOD + EPG do portal', () => {
 
     it('EPG vazio devolve nulls', () => {
         expect(parseStalkerEpg({ js: [] }, 0)).toEqual({ now: null, next: null })
+    })
+})
+
+describe('fase 3: séries do portal', () => {
+    it('temporadas: episódios do array series[], linha sem id fora', () => {
+        const seasons = parseStalkerSeasons({
+            js: { data: [
+                { id: 'S1', name: 'Season 1', series: [1, 2, 3], cmd: '/media/serial_1.mpg' },
+                { name: 'sem id' },
+            ] },
+        })
+        expect(seasons).toHaveLength(1)
+        expect(seasons[0]).toEqual({ id: 'S1', name: 'Season 1', episodes: [1, 2, 3], cmd: '/media/serial_1.mpg' })
+    })
+
+    it('número da temporada sai do nome (fallback pro índice)', () => {
+        expect(seasonNumberFromName('Season 2', 9)).toBe(2)
+        expect(seasonNumberFromName('Temporada 03', 9)).toBe(3)
+        expect(seasonNumberFromName('Extras', 4)).toBe(4)
+    })
+
+    it('URL adiada: encode/decode redondinho', () => {
+        const url = encodeStalkerEpisode('S1:2', 7)
+        expect(decodeStalkerEpisode(url)).toEqual({ seasonId: 'S1:2', episode: 7 })
+        expect(decodeStalkerEpisode('http://normal')).toBeNull()
+    })
+
+    it('create_link → URL tocável', () => {
+        expect(parseCreateLink({ js: { cmd: 'ffmpeg http://srv/ep7.mpg?token=x' } })).toBe('http://srv/ep7.mpg?token=x')
+        expect(parseCreateLink({ js: {} })).toBe('')
     })
 })

@@ -9,7 +9,7 @@
  */
 import { withRetry } from './net'
 import type {
-    CatalogClient, Category, EpgProgram, LiveChannel, NowNext, SeriesInfo,
+    CatalogClient, Category, Episode, EpgProgram, LiveChannel, NowNext, SeriesInfo,
     SeriesItem, UserInfo, VodDetails, VodMovie,
 } from './xtream'
 
@@ -134,6 +134,59 @@ export function parseStalkerEpg(data: unknown, nowMs: number): NowNext {
     return { now, next }
 }
 
+export interface StalkerSeason {
+    id: string
+    name: string
+    /** Números dos episódios da temporada (o portal manda como array). */
+    episodes: number[]
+    cmd: string
+}
+
+/** Temporadas de uma série (get_ordered_list com movie_id). */
+export function parseStalkerSeasons(data: unknown): StalkerSeason[] {
+    const js = parseJs<{ data?: unknown[] }>(data)
+    const rows = Array.isArray(js?.data) ? js.data : []
+    return rows.flatMap(row => {
+        const item = row as { id?: unknown; name?: unknown; series?: unknown; cmd?: unknown }
+        if (item?.id === undefined) return []
+        const episodes = Array.isArray(item.series)
+            ? item.series.map(Number).filter(n => Number.isFinite(n) && n > 0)
+            : []
+        return [{
+            id: String(item.id),
+            name: typeof item.name === 'string' ? item.name : '',
+            episodes,
+            cmd: typeof item.cmd === 'string' ? item.cmd : '',
+        }]
+    })
+}
+
+/** "Season 2" / "Temporada 3" / "S01" → número; sem dígito → fallback. */
+export function seasonNumberFromName(name: string, fallback: number): number {
+    const match = /(\d{1,3})/.exec(name)
+    return match ? Number(match[1]) : fallback
+}
+
+/**
+ * Episódio de portal não tem URL até o create_link — o id/URL adiado carrega
+ * a temporada e o número do episódio pro player resolver na hora do play.
+ */
+export function encodeStalkerEpisode(seasonId: string, episode: number): string {
+    return `stalker://ep/${encodeURIComponent(seasonId)}/${episode}`
+}
+
+export function decodeStalkerEpisode(url: string): { seasonId: string; episode: number } | null {
+    const match = /^stalker:\/\/ep\/([^/]+)\/(\d+)$/.exec(url)
+    if (!match) return null
+    return { seasonId: decodeURIComponent(match[1]), episode: Number(match[2]) }
+}
+
+/** create_link devolve { js: { cmd: 'ffmpeg http://...' } }. */
+export function parseCreateLink(data: unknown): string {
+    const js = parseJs<{ cmd?: unknown }>(data)
+    return typeof js?.cmd === 'string' ? cmdToUrl(js.cmd) : ''
+}
+
 // ---------------------------------------------------------------- client --
 
 export class StalkerClient implements CatalogClient {
@@ -145,6 +198,8 @@ export class StalkerClient implements CatalogClient {
     private vod: StalkerVod[] | null = null
     private vodUrlById = new Map<string, string>()
     private vodPlotById = new Map<string, string>()
+    private series: StalkerVod[] | null = null
+    private seasonCmdById = new Map<string, string>()
 
     constructor(portalUrl: string, mac: string) {
         this.baseUrl = normalizePortalUrl(portalUrl)
@@ -262,10 +317,67 @@ export class StalkerClient implements CatalogClient {
         return parseStalkerGenres(await this.request({ type: 'vod', action: 'get_categories' }))
     }
 
-    /** Séries do portal ficam pra fase 3. */
-    async getSeries(): Promise<SeriesItem[]> { return [] }
-    async getSeriesCategories(): Promise<Category[]> { return [] }
-    async getSeriesInfo(): Promise<SeriesInfo> { return {} }
+    private async loadSeries(): Promise<StalkerVod[]> {
+        if (this.series) return this.series
+        await this.ensureToken()
+        const MAX_PAGES = 25
+        const all: StalkerVod[] = []
+        for (let page = 1; page <= MAX_PAGES; page++) {
+            const { items, totalItems } = parseStalkerVodPage(
+                await this.request({ type: 'series', action: 'get_ordered_list', p: String(page) }))
+            all.push(...items)
+            if (items.length === 0 || all.length >= totalItems) break
+        }
+        this.series = all
+        return all
+    }
+
+    async getSeries(): Promise<SeriesItem[]> {
+        return (await this.loadSeries()).map(show => ({
+            series_id: show.id,
+            name: show.name,
+            cover: show.cover,
+            category_id: show.categoryId,
+        }))
+    }
+
+    async getSeriesCategories(): Promise<Category[]> {
+        await this.ensureToken()
+        return parseStalkerGenres(await this.request({ type: 'series', action: 'get_categories' }))
+    }
+
+    async getSeriesInfo(seriesId: string | number): Promise<SeriesInfo> {
+        await this.ensureToken()
+        const seasons = parseStalkerSeasons(
+            await this.request({ type: 'series', action: 'get_ordered_list', movie_id: String(seriesId), p: '1' }))
+        const episodes: Record<string, Episode[]> = {}
+        seasons.forEach((season, index) => {
+            this.seasonCmdById.set(season.id, season.cmd)
+            const number = String(seasonNumberFromName(season.name, index + 1))
+            episodes[number] = season.episodes.map(episode => ({
+                id: encodeStalkerEpisode(season.id, episode),
+                episode_num: episode,
+                container_extension: 'mp4',
+            }))
+        })
+        const show = (this.series ?? []).find(item => item.id === String(seriesId))
+        return { info: { name: show?.name, cover: show?.cover, plot: show?.plot }, episodes }
+    }
+
+    /** Resolve a URL adiada de um episódio via create_link (na hora do play). */
+    async resolveStalkerUrl(url: string): Promise<string> {
+        const decoded = decodeStalkerEpisode(url)
+        if (!decoded) return url
+        const cmd = this.seasonCmdById.get(decoded.seasonId)
+        if (!cmd) return ''
+        await this.ensureToken()
+        const data = await this.request({
+            type: 'vod', action: 'create_link', cmd, series: String(decoded.episode),
+        }).catch(() => null)
+        const resolved = data ? parseCreateLink(data) : ''
+        // Portal sem create_link: tenta a URL crua da temporada.
+        return resolved || cmdToUrl(cmd)
+    }
 
     async getVodDetails(vodId?: string | number): Promise<VodDetails> {
         const plot = vodId === undefined ? '' : this.vodPlotById.get(String(vodId)) ?? ''
@@ -284,5 +396,7 @@ export class StalkerClient implements CatalogClient {
     vodStreamUrl(streamId: number | string): string {
         return this.vodUrlById.get(String(streamId)) ?? ''
     }
-    seriesStreamUrl(): string { return '' }
+    seriesStreamUrl(episodeId: number | string): string {
+        return String(episodeId)
+    }
 }

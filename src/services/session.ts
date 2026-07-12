@@ -196,6 +196,17 @@ export async function getClient(): Promise<CatalogClient | null> {
     return client
 }
 
+/**
+ * URLs adiadas (stalker://…) só viram stream na hora do play (create_link).
+ * Qualquer outra URL passa reta — player e downloads chamam sempre.
+ */
+export async function resolvePlayableUrl(url: string): Promise<string> {
+    if (!url.startsWith('stalker://')) return url
+    const active = await getClient()
+    if (active instanceof StalkerClient) return active.resolveStalkerUrl(url)
+    return ''
+}
+
 /** Restauração de backup: substitui as contas e reativa o client. */
 export async function restoreAccounts(accounts: StoredAccount[], activeId: string | null): Promise<void> {
     accountsCache = accounts.filter(a => !!a?.id && !!a.url)

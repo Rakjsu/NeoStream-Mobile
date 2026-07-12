@@ -4,7 +4,7 @@ import { useKeepAwake } from 'expo-keep-awake'
 import { router, useLocalSearchParams } from 'expo-router'
 import { useVideoPlayer, VideoView, type AudioTrack, type SubtitleTrack } from 'expo-video'
 import { useEffect, useRef, useState } from 'react'
-import { FlatList, Platform, StyleSheet, Text, TextInput, TouchableOpacity, View } from 'react-native'
+import { FlatList, Platform, StyleSheet, Text, TextInput, View } from 'react-native'
 import { useSafeAreaInsets } from 'react-native-safe-area-context'
 import { StatusBar } from 'expo-status-bar'
 import * as NavigationBar from 'expo-navigation-bar'
@@ -19,6 +19,7 @@ import { tapLight } from '../services/haptics'
 import { alternateLiveUrl } from '../services/xtream'
 import { recordWatchMinute } from '../services/usage'
 import { hasZapContext, rankChannels, zapBy, zapList, zapTo, type ZapChannel } from '../services/zap'
+import { TvTouchable } from '../ui/components'
 import { colors, spacing } from '../ui/theme'
 import { t, tf } from '../i18n/strings'
 
@@ -502,16 +503,16 @@ export default function Player() {
             />
 
             {!chrome ? (
-                <TouchableOpacity
+                <TvTouchable
                     style={[styles.chromeStrip, { height: insets.top + 56 }]}
                     accessibilityLabel={t('a11yShowBar')}
                     onPress={() => setChrome(true)}
                 />
             ) : (
             <View style={[styles.topBar, { paddingTop: insets.top + spacing.sm }]}>
-                <TouchableOpacity style={styles.back} accessibilityLabel={t('a11yBack')} onPress={() => router.back()}>
+                <TvTouchable style={styles.back} accessibilityLabel={t('a11yBack')} onPress={() => router.back()}>
                     <Ionicons name="chevron-back" size={24} color={colors.text} />
-                </TouchableOpacity>
+                </TvTouchable>
                 <View style={styles.titleBlock}>
                     <Text style={styles.title} numberOfLines={1}>
                         {live === '1' ? `🔴 ${liveTitle}` : title ?? ''}
@@ -521,47 +522,47 @@ export default function Player() {
                     ) : null}
                 </View>
                 {canCast ? (
-                    <TouchableOpacity style={styles.trackBtn} accessibilityLabel={t('a11yCast')} onPress={() => void showCastPicker()}>
+                    <TvTouchable style={styles.trackBtn} accessibilityLabel={t('a11yCast')} onPress={() => void showCastPicker()}>
                         <Ionicons name="tv-outline" size={20} color={colors.text} />
-                    </TouchableOpacity>
+                    </TvTouchable>
                 ) : null}
-                <TouchableOpacity style={styles.trackBtn} accessibilityLabel={t('a11yBgAudio')} onPress={toggleBgAudio}>
+                <TvTouchable style={styles.trackBtn} accessibilityLabel={t('a11yBgAudio')} onPress={toggleBgAudio}>
                     <Ionicons
                         name={bgAudio ? 'musical-notes' : 'musical-notes-outline'}
                         size={20}
                         color={bgAudio ? colors.accent : colors.text}
                     />
-                </TouchableOpacity>
+                </TvTouchable>
                 {kind === 'episode' ? (
-                    <TouchableOpacity style={styles.trackBtn} accessibilityLabel={t('a11yStopAfter')} onPress={toggleStopAfter}>
+                    <TvTouchable style={styles.trackBtn} accessibilityLabel={t('a11yStopAfter')} onPress={toggleStopAfter}>
                         <Ionicons
                             name={stopAfter ? 'pause-circle' : 'pause-circle-outline'}
                             size={20}
                             color={stopAfter ? colors.accent : colors.text}
                         />
-                    </TouchableOpacity>
+                    </TvTouchable>
                 ) : null}
                 {live !== '1' ? (
-                    <TouchableOpacity style={styles.trackBtn} accessibilityLabel={t('a11yRate')} onPress={cycleRate}>
+                    <TvTouchable style={styles.trackBtn} accessibilityLabel={t('a11yRate')} onPress={cycleRate}>
                         <Text style={styles.rateText}>{rate}x</Text>
-                    </TouchableOpacity>
+                    </TvTouchable>
                 ) : null}
-                <TouchableOpacity style={styles.trackBtn} accessibilityLabel={t('a11ySleep')} onPress={cycleSleep}>
+                <TvTouchable style={styles.trackBtn} accessibilityLabel={t('a11ySleep')} onPress={cycleSleep}>
                     <Ionicons
                         name={sleepMin > 0 ? 'moon' : 'moon-outline'}
                         size={20}
                         color={sleepMin > 0 ? colors.accent : colors.text}
                     />
-                </TouchableOpacity>
+                </TvTouchable>
                 {audioTracks.length > 1 ? (
-                    <TouchableOpacity style={styles.trackBtn} accessibilityLabel={t('a11yAudio')} onPress={cycleAudio}>
+                    <TvTouchable style={styles.trackBtn} accessibilityLabel={t('a11yAudio')} onPress={cycleAudio}>
                         <Ionicons name="headset" size={20} color={colors.text} />
-                    </TouchableOpacity>
+                    </TvTouchable>
                 ) : null}
                 {subtitleTracks.length > 0 ? (
-                    <TouchableOpacity style={styles.trackBtn} accessibilityLabel={t('a11ySubtitle')} onPress={cycleSubtitle}>
+                    <TvTouchable style={styles.trackBtn} accessibilityLabel={t('a11ySubtitle')} onPress={cycleSubtitle}>
                         <Ionicons name="chatbox-ellipses" size={20} color={colors.text} />
-                    </TouchableOpacity>
+                    </TvTouchable>
                 ) : null}
             </View>
             )}
@@ -574,19 +575,19 @@ export default function Player() {
 
             {chrome && zappable ? (
                 <View style={styles.zapCol}>
-                    <TouchableOpacity
+                    <TvTouchable
                         style={styles.zapBtn}
                         accessibilityLabel={t('a11yChannels')}
                         onPress={openDrawer}
                     >
                         <Ionicons name="list" size={24} color={colors.text} />
-                    </TouchableOpacity>
-                    <TouchableOpacity style={styles.zapBtn} accessibilityLabel={t('a11yZapNext')} onPress={() => zap(1)}>
+                    </TvTouchable>
+                    <TvTouchable style={styles.zapBtn} accessibilityLabel={t('a11yZapNext')} onPress={() => zap(1)}>
                         <Ionicons name="chevron-up" size={26} color={colors.text} />
-                    </TouchableOpacity>
-                    <TouchableOpacity style={styles.zapBtn} accessibilityLabel={t('a11yZapPrev')} onPress={() => zap(-1)}>
+                    </TvTouchable>
+                    <TvTouchable style={styles.zapBtn} accessibilityLabel={t('a11yZapPrev')} onPress={() => zap(-1)}>
                         <Ionicons name="chevron-down" size={26} color={colors.text} />
-                    </TouchableOpacity>
+                    </TvTouchable>
                 </View>
             ) : null}
 
@@ -601,20 +602,20 @@ export default function Player() {
                             placeholderTextColor={colors.textDim}
                             autoCorrect={false}
                         />
-                        <TouchableOpacity
+                        <TvTouchable
                             style={styles.drawerClose}
                             accessibilityLabel={t('cancel')}
                             onPress={() => setChannelsOpen(false)}
                         >
                             <Ionicons name="close" size={22} color={colors.text} />
-                        </TouchableOpacity>
+                        </TvTouchable>
                     </View>
                     <FlatList
                         data={drawerChannels}
                         keyExtractor={channel => channel.id}
                         keyboardShouldPersistTaps="handled"
                         renderItem={({ item }) => (
-                            <TouchableOpacity
+                            <TvTouchable
                                 style={styles.drawerRow}
                                 onPress={() => {
                                     const channel = zapTo(item.id)
@@ -631,7 +632,7 @@ export default function Player() {
                                 {item.name === liveTitle ? (
                                     <Ionicons name="play" size={14} color={colors.accent} />
                                 ) : null}
-                            </TouchableOpacity>
+                            </TvTouchable>
                         )}
                     />
                 </View>
@@ -641,7 +642,7 @@ export default function Player() {
                 <View style={styles.castBar}>
                     <Ionicons name="tv" size={18} color={colors.accent} />
                     <Text style={styles.castText}>{t('castingOnTv')}</Text>
-                    <TouchableOpacity
+                    <TvTouchable
                         style={styles.castBtn}
                         accessibilityLabel={castPaused ? t('a11yPlay') : t('a11yPause')}
                         onPress={() => {
@@ -651,10 +652,10 @@ export default function Player() {
                         }}
                     >
                         <Ionicons name={castPaused ? 'play' : 'pause'} size={18} color={colors.text} />
-                    </TouchableOpacity>
-                    <TouchableOpacity style={styles.castBtn} onPress={stopCasting}>
+                    </TvTouchable>
+                    <TvTouchable style={styles.castBtn} onPress={stopCasting}>
                         <Text style={styles.castStopText}>{t('stopCast')}</Text>
-                    </TouchableOpacity>
+                    </TvTouchable>
                 </View>
             ) : null}
 
@@ -663,13 +664,13 @@ export default function Player() {
                     <Text style={styles.upNextLabel}>{t('upNextTitle')} {tf('autoplayIn', { s: countdown })}</Text>
                     <Text style={styles.upNextName} numberOfLines={1}>{upNext.title}</Text>
                     <View style={styles.upNextRow}>
-                        <TouchableOpacity style={styles.upNextPlay} onPress={() => playNext(upNext)}>
+                        <TvTouchable style={styles.upNextPlay} onPress={() => playNext(upNext)}>
                             <Ionicons name="play" size={16} color="#fff" />
                             <Text style={styles.upNextPlayText}>{t('watchNow')}</Text>
-                        </TouchableOpacity>
-                        <TouchableOpacity style={styles.upNextCancel} onPress={() => setUpNext(null)}>
+                        </TvTouchable>
+                        <TvTouchable style={styles.upNextCancel} onPress={() => setUpNext(null)}>
                             <Text style={styles.upNextCancelText}>{t('cancel')}</Text>
-                        </TouchableOpacity>
+                        </TvTouchable>
                     </View>
                 </View>
             ) : null}

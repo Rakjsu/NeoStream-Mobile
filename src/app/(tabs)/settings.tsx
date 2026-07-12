@@ -2,7 +2,7 @@ import { Ionicons } from '@expo/vector-icons'
 import Constants from 'expo-constants'
 import { router, useFocusEffect } from 'expo-router'
 import { useCallback, useRef, useState } from 'react'
-import { Alert, Linking, ScrollView, Share, StyleSheet, Text, TextInput, TouchableOpacity, View } from 'react-native'
+import { Alert, Linking, ScrollView, Share, StyleSheet, Text, TextInput, View } from 'react-native'
 import * as DocumentPicker from 'expo-document-picker'
 import * as FileSystem from 'expo-file-system/legacy'
 import { disableAppLock, enableAppLock, loadAppLock } from '../../services/appLock'
@@ -25,6 +25,7 @@ import {
 } from '../../services/session'
 import { dayKey, formatMinutes, lastDays, loadTitleUsage, loadUsage, summarize, topTitles, type TopTitle, type UsageSummary } from '../../services/usage'
 import { parseExpiry } from '../../services/xtream'
+import { TvTouchable } from '../../ui/components'
 import { colors, spacing } from '../../ui/theme'
 import { t, tf } from '../../i18n/strings'
 
@@ -182,7 +183,7 @@ export default function SettingsTab() {
                                     autoFocus
                                     maxLength={24}
                                 />
-                                <TouchableOpacity
+                                <TvTouchable
                                     style={styles.trash}
                                     accessibilityLabel={t('a11yConfirm')}
                                     onPress={() => {
@@ -193,13 +194,13 @@ export default function SettingsTab() {
                                     }}
                                 >
                                     <Ionicons name="checkmark" size={20} color={colors.accent} />
-                                </TouchableOpacity>
+                                </TvTouchable>
                             </View>
                         )
                     }
                     return (
                         <View key={account.id} style={styles.accountRow}>
-                            <TouchableOpacity style={styles.accountMain} onPress={() => activate(account)}>
+                            <TvTouchable style={styles.accountMain} onPress={() => activate(account)}>
                                 <Ionicons
                                     name={isActive ? 'radio-button-on' : 'radio-button-off'}
                                     size={18}
@@ -208,24 +209,24 @@ export default function SettingsTab() {
                                 <Text style={[styles.accountName, isActive && styles.accountNameActive]} numberOfLines={1}>
                                     {accountLabel(account)}
                                 </Text>
-                            </TouchableOpacity>
-                            <TouchableOpacity
+                            </TvTouchable>
+                            <TvTouchable
                                 style={styles.trash}
                                 accessibilityLabel={t('a11yEdit')}
                                 onPress={() => { setEditingId(account.id); setAliasDraft(account.alias ?? '') }}
                             >
                                 <Ionicons name="pencil-outline" size={16} color={colors.textDim} />
-                            </TouchableOpacity>
-                            <TouchableOpacity style={styles.trash} accessibilityLabel={t('a11yDelete')} onPress={() => confirmRemove(account)}>
+                            </TvTouchable>
+                            <TvTouchable style={styles.trash} accessibilityLabel={t('a11yDelete')} onPress={() => confirmRemove(account)}>
                                 <Ionicons name="trash-outline" size={18} color={colors.danger} />
-                            </TouchableOpacity>
+                            </TvTouchable>
                         </View>
                     )
                 })}
-                <TouchableOpacity style={styles.addRow} onPress={() => router.push('/login')}>
+                <TvTouchable style={styles.addRow} onPress={() => router.push('/login')}>
                     <Ionicons name="add-circle-outline" size={18} color={colors.accent} />
                     <Text style={styles.addText}>{t('addAccount')}</Text>
-                </TouchableOpacity>
+                </TvTouchable>
             </View>
 
             <Text style={styles.section}>{t('secActiveAccount')}</Text>
@@ -242,15 +243,15 @@ export default function SettingsTab() {
                     value={tf('connOf', { a: active?.userInfo?.active_cons ?? '?', b: active?.userInfo?.max_connections ?? '?' })}
                 />
                 <View style={{ paddingVertical: spacing.md, gap: spacing.sm }}>
-                    <TouchableOpacity
+                    <TvTouchable
                         style={styles.backupBtn}
                         disabled={diag === 'running'}
                         onPress={testConnection}
                     >
                         <Ionicons name="pulse-outline" size={16} color="#fff" />
                         <Text style={styles.backupBtnText}>{diag === 'running' ? t('testing') : t('testConn')}</Text>
-                    </TouchableOpacity>
-                    <TouchableOpacity
+                    </TvTouchable>
+                    <TvTouchable
                         style={[styles.backupBtn, styles.restoreBtn]}
                         onPress={() => {
                             void clearCatalogCache().then(() => {
@@ -261,7 +262,7 @@ export default function SettingsTab() {
                     >
                         <Ionicons name="refresh-circle-outline" size={16} color="#fff" />
                         <Text style={styles.backupBtnText}>{t('clearCacheBtn')}</Text>
-                    </TouchableOpacity>
+                    </TvTouchable>
                     {Array.isArray(diag) ? diag.map(row => (
                         <View key={row.label} style={styles.diagRow}>
                             <Ionicons
@@ -295,7 +296,7 @@ export default function SettingsTab() {
                         secureTextEntry
                         maxLength={4}
                     />
-                    <TouchableOpacity
+                    <TvTouchable
                         style={[styles.parentalBtn, parentalOn && styles.parentalBtnOff]}
                         onPress={() => {
                             void (async () => {
@@ -309,7 +310,7 @@ export default function SettingsTab() {
                         }}
                     >
                         <Text style={styles.parentalBtnText}>{parentalOn ? t('disable') : t('enable')}</Text>
-                    </TouchableOpacity>
+                    </TvTouchable>
                 </View>
                 {pinError ? <Text style={styles.pinError}>{pinError}</Text> : null}
             </View>
@@ -328,7 +329,7 @@ export default function SettingsTab() {
                         secureTextEntry
                         maxLength={4}
                     />
-                    <TouchableOpacity
+                    <TvTouchable
                         style={[styles.parentalBtn, lockOn && styles.parentalBtnOff]}
                         onPress={() => {
                             void (async () => {
@@ -342,7 +343,7 @@ export default function SettingsTab() {
                         }}
                     >
                         <Text style={styles.parentalBtnText}>{lockOn ? t('disable') : t('enable')}</Text>
-                    </TouchableOpacity>
+                    </TvTouchable>
                 </View>
                 {lockError ? <Text style={styles.pinError}>{lockError}</Text> : null}
             </View>
@@ -374,7 +375,7 @@ export default function SettingsTab() {
                     <InfoRow key={`s${entry.title}`} label={`${index + 1}. ${entry.title}`} value={formatMinutes(entry.minutes)} />
                 ))}
                 <View style={{ paddingVertical: spacing.md, gap: spacing.sm }}>
-                    <TouchableOpacity
+                    <TvTouchable
                         style={styles.backupBtn}
                         onPress={() => {
                             void (async () => {
@@ -387,8 +388,8 @@ export default function SettingsTab() {
                     >
                         <Ionicons name="image-outline" size={16} color="#fff" />
                         <Text style={styles.backupBtnText}>{t('shareImageBtn')}</Text>
-                    </TouchableOpacity>
-                    <TouchableOpacity
+                    </TvTouchable>
+                    <TvTouchable
                         style={styles.backupBtn}
                         onPress={() => {
                             void Share.share({
@@ -403,7 +404,7 @@ export default function SettingsTab() {
                     >
                         <Ionicons name="share-social-outline" size={16} color="#fff" />
                         <Text style={styles.backupBtnText}>{t('shareUsageBtn')}</Text>
-                    </TouchableOpacity>
+                    </TvTouchable>
                 </View>
             </View>
 
@@ -412,7 +413,7 @@ export default function SettingsTab() {
                 <Text style={styles.parentalHint}>{t('storageHint')}</Text>
                 <View style={styles.limitRow}>
                     {[0, 1, 2, 5].map(gb => (
-                        <TouchableOpacity
+                        <TvTouchable
                             key={gb}
                             style={[styles.limitChip, dlLimit === gb && styles.limitChipOn]}
                             onPress={() => {
@@ -423,11 +424,11 @@ export default function SettingsTab() {
                             <Text style={[styles.limitChipText, dlLimit === gb && styles.limitChipTextOn]}>
                                 {gb === 0 ? t('noLimit') : `${gb} GB`}
                             </Text>
-                        </TouchableOpacity>
+                        </TvTouchable>
                     ))}
                 </View>
                 <Text style={styles.parentalHint}>{tf('usedSpace', { mb: Math.round(dlBytes / 1048576) })}</Text>
-                <TouchableOpacity
+                <TvTouchable
                     style={styles.saverRow}
                     onPress={() => {
                         const next = !dataSaver
@@ -444,7 +445,7 @@ export default function SettingsTab() {
                         <Text style={styles.saverTitle}>{t('dataSaverTitle')}</Text>
                         <Text style={styles.parentalHint}>{t('dataSaverHint')}</Text>
                     </View>
-                </TouchableOpacity>
+                </TvTouchable>
             </View>
 
             <Text style={styles.section}>{t('remindersSection')}</Text>
@@ -457,7 +458,7 @@ export default function SettingsTab() {
                         <Text style={styles.diagLabel} numberOfLines={1}>
                             {reminder.title} · {new Date(reminder.atMs).toLocaleTimeString().slice(0, 5)}
                         </Text>
-                        <TouchableOpacity
+                        <TvTouchable
                             accessibilityLabel={t('cancel')}
                             onPress={() => {
                                 void cancelScheduled(reminder.id)
@@ -466,7 +467,7 @@ export default function SettingsTab() {
                             }}
                         >
                             <Ionicons name="close-circle-outline" size={18} color={colors.danger} />
-                        </TouchableOpacity>
+                        </TvTouchable>
                     </View>
                 ))}
             </View>
@@ -479,7 +480,7 @@ export default function SettingsTab() {
                     <View key={channel.id} style={styles.diagRow}>
                         <Ionicons name="eye-off-outline" size={16} color={colors.textDim} />
                         <Text style={styles.diagLabel} numberOfLines={1}>{channel.name}</Text>
-                        <TouchableOpacity
+                        <TvTouchable
                             onPress={() => {
                                 void unhideChannel(channel.id)
                                     .then(listHiddenChannels)
@@ -487,7 +488,7 @@ export default function SettingsTab() {
                             }}
                         >
                             <Text style={styles.unhideText}>{t('unhide')}</Text>
-                        </TouchableOpacity>
+                        </TvTouchable>
                     </View>
                 ))}
             </View>
@@ -495,11 +496,11 @@ export default function SettingsTab() {
             <Text style={styles.section}>{t('secHistory')}</Text>
             <View style={[styles.card, { paddingVertical: spacing.md, gap: spacing.md }]}>
                 <Text style={styles.parentalHint}>{t('historyHint')}</Text>
-                <TouchableOpacity style={styles.backupBtn} onPress={() => router.push('/history')}>
+                <TvTouchable style={styles.backupBtn} onPress={() => router.push('/history')}>
                     <Ionicons name="time-outline" size={16} color="#fff" />
                     <Text style={styles.backupBtnText}>{t('viewHistory')}</Text>
-                </TouchableOpacity>
-                <TouchableOpacity
+                </TvTouchable>
+                <TvTouchable
                     style={[styles.backupBtn, styles.restoreBtn]}
                     onPress={() => {
                         Alert.alert(t('clearHistoryTitle'), t('clearHistoryMsg'), [
@@ -510,13 +511,13 @@ export default function SettingsTab() {
                 >
                     <Ionicons name="trash-outline" size={16} color="#fff" />
                     <Text style={styles.backupBtnText}>{t('clearHistoryBtn')}</Text>
-                </TouchableOpacity>
+                </TvTouchable>
             </View>
 
             <Text style={styles.section}>{t('secBackup')}</Text>
             <View style={[styles.card, { paddingVertical: spacing.md, gap: spacing.md }]}>
                 <Text style={styles.parentalHint}>{t('backupHint')}</Text>
-                <TouchableOpacity
+                <TvTouchable
                     style={styles.backupBtn}
                     onPress={() => {
                         void (async () => {
@@ -527,8 +528,8 @@ export default function SettingsTab() {
                 >
                     <Ionicons name="share-outline" size={16} color="#fff" />
                     <Text style={styles.backupBtnText}>{t('exportBtn')}</Text>
-                </TouchableOpacity>
-                <TouchableOpacity
+                </TvTouchable>
+                <TvTouchable
                     style={styles.ghRow}
                     onPress={() => {
                         void (async () => {
@@ -547,8 +548,8 @@ export default function SettingsTab() {
                 >
                     <Ionicons name="folder-open-outline" size={16} color={colors.textDim} />
                     <Text style={styles.ghText}>{t('openBackupFile')}</Text>
-                </TouchableOpacity>
-                <TouchableOpacity
+                </TvTouchable>
+                <TvTouchable
                     style={styles.backupBtn}
                     onPress={() => {
                         void (async () => {
@@ -568,7 +569,7 @@ export default function SettingsTab() {
                 >
                     <Ionicons name="save-outline" size={16} color="#fff" />
                     <Text style={styles.backupBtnText}>{t('saveBackupFile')}</Text>
-                </TouchableOpacity>
+                </TvTouchable>
                 <TextInput
                     style={styles.importInput}
                     value={importText}
@@ -580,7 +581,7 @@ export default function SettingsTab() {
                     autoCorrect={false}
                     autoCapitalize="none"
                 />
-                <TouchableOpacity
+                <TvTouchable
                     style={[styles.backupBtn, styles.restoreBtn, !importText.trim() && { opacity: 0.5 }]}
                     disabled={!importText.trim()}
                     onPress={() => {
@@ -610,13 +611,13 @@ export default function SettingsTab() {
                 >
                     <Ionicons name="download-outline" size={16} color="#fff" />
                     <Text style={styles.backupBtnText}>{t('restoreBtn')}</Text>
-                </TouchableOpacity>
+                </TvTouchable>
                 {backupMsg ? <Text style={styles.pinError}>{backupMsg}</Text> : null}
                 <Text style={styles.parentalHint}>
                     {autoCopies.length > 0 ? t('autoCopies') : t('autoCopiesNone')}
                 </Text>
                 {autoCopies.map(copy => (
-                    <TouchableOpacity
+                    <TvTouchable
                         key={copy.name}
                         style={styles.ghRow}
                         onPress={() => {
@@ -627,7 +628,7 @@ export default function SettingsTab() {
                     >
                         <Ionicons name="archive-outline" size={14} color={colors.textDim} />
                         <Text style={styles.ghText}>{copy.name.replace('auto-', '').replace('.json', '')}</Text>
-                    </TouchableOpacity>
+                    </TvTouchable>
                 ))}
             </View>
 
@@ -635,7 +636,7 @@ export default function SettingsTab() {
             <Text style={styles.section}>{t('secAbout')}</Text>
             <View style={[styles.card, { paddingVertical: spacing.md, gap: spacing.md }]}>
                 <InfoRow label={t('versionRow')} value={`v${Constants.expoConfig?.version ?? '?'}`} />
-                <TouchableOpacity
+                <TvTouchable
                     style={styles.backupBtn}
                     disabled={updateMsg === 'checking'}
                     onPress={() => {
@@ -647,28 +648,28 @@ export default function SettingsTab() {
                 >
                     <Ionicons name="refresh-outline" size={16} color="#fff" />
                     <Text style={styles.backupBtnText}>{updateMsg === 'checking' ? t('testing') : t('checkUpdateBtn')}</Text>
-                </TouchableOpacity>
+                </TvTouchable>
                 {updateMsg && updateMsg !== 'checking' ? <Text style={styles.parentalHint}>{updateMsg}</Text> : null}
                 <Text style={styles.parentalHint}>
                     {errorList.length === 0 ? t('errorsNone') : t('lastErrors')}
                 </Text>
                 {errorList.map(entry => (
-                    <TouchableOpacity
+                    <TvTouchable
                         key={entry.at}
                         onPress={() => void Share.share({ message: `${new Date(entry.at).toISOString()} — ${entry.message}` }).catch(() => undefined)}
                     >
                         <Text style={styles.errorLine} numberOfLines={2}>
                             {new Date(entry.at).toLocaleString()} — {entry.message}
                         </Text>
-                    </TouchableOpacity>
+                    </TvTouchable>
                 ))}
-                <TouchableOpacity
+                <TvTouchable
                     style={styles.ghRow}
                     onPress={() => void Linking.openURL('https://github.com/Rakjsu/NeoStream-Mobile/releases')}
                 >
                     <Ionicons name="logo-github" size={16} color={colors.textDim} />
                     <Text style={styles.ghText}>{t('openGitHub')}</Text>
-                </TouchableOpacity>
+                </TvTouchable>
             </View>
 
             <Text style={styles.version}>

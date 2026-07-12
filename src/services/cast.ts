@@ -12,7 +12,10 @@ interface CastMediaInfo {
 }
 
 interface CastClient {
-    loadMedia(request: { mediaInfo: CastMediaInfo }): Promise<unknown>
+    loadMedia(request: { mediaInfo: CastMediaInfo; startTime?: number }): Promise<unknown>
+    play(): Promise<unknown>
+    pause(): Promise<unknown>
+    onMediaProgressUpdated(handler: (progress: number) => void, interval?: number): { remove(): void }
 }
 
 interface CastSession {
@@ -22,6 +25,7 @@ interface CastSession {
 interface SessionManager {
     getCurrentCastSession(): Promise<CastSession | null>
     onSessionStarted(handler: (session: CastSession) => void): { remove(): void }
+    endCurrentSession(stopCasting?: boolean): Promise<unknown>
 }
 
 interface GoogleCastApi {
@@ -63,15 +67,53 @@ function mediaFor(url: string, title: string, cover: string, live: boolean): { m
     }
 }
 
-/** Manda a mídia pra sessão de cast ativa (false se não há sessão). */
-export async function castToCurrentSession(url: string, title: string, cover: string, live: boolean): Promise<boolean> {
+/** Controles da transmissão em andamento (o player usa sem tocar no nativo). */
+export interface CastControls {
+    play(): void
+    pause(): void
+    /** Encerra a sessão (a TV para de tocar). */
+    stop(): void
+    /** Progresso do receiver em segundos, a cada ~5s — alimenta o histórico. */
+    onProgress(handler: (positionSec: number) => void): () => void
+}
+
+function controlsFor(session: CastSession): CastControls {
+    return {
+        play: () => { void session.client.play().catch(() => undefined) },
+        pause: () => { void session.client.pause().catch(() => undefined) },
+        stop: () => { void api?.getSessionManager().endCurrentSession(true).catch(() => undefined) },
+        onProgress: handler => {
+            try {
+                const sub = session.client.onMediaProgressUpdated(progress => handler(progress), 5)
+                return () => sub.remove()
+            } catch {
+                return () => undefined
+            }
+        },
+    }
+}
+
+/**
+ * Manda a mídia pra sessão de cast ativa, retomando do ponto dado (segundos),
+ * e devolve os controles — null se não há sessão.
+ */
+export async function castToCurrentSession(
+    url: string,
+    title: string,
+    cover: string,
+    live: boolean,
+    startTimeSec = 0,
+): Promise<CastControls | null> {
     try {
         const session = await api?.getSessionManager().getCurrentCastSession()
-        if (!session) return false
-        await session.client.loadMedia(mediaFor(url, title, cover, live))
-        return true
+        if (!session) return null
+        await session.client.loadMedia({
+            ...mediaFor(url, title, cover, live),
+            startTime: !live && startTimeSec > 0 ? Math.floor(startTimeSec) : undefined,
+        })
+        return controlsFor(session)
     } catch {
-        return false
+        return null
     }
 }
 

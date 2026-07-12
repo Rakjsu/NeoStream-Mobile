@@ -7,7 +7,7 @@ import { useEffect, useRef, useState } from 'react'
 import { StyleSheet, Text, TouchableOpacity, View } from 'react-native'
 import { useSafeAreaInsets } from 'react-native-safe-area-context'
 import { getDownload } from '../services/downloads'
-import { castAvailable, castToCurrentSession, onCastSessionStarted, showCastPicker } from '../services/cast'
+import { castAvailable, castToCurrentSession, onCastSessionStarted, showCastPicker, type CastControls } from '../services/cast'
 import { nextEpisodeAfter, type QueuedEpisode } from '../services/episodeQueue'
 import { getEntry, resumePosition, saveSample, type ProgressKind } from '../services/progress'
 import { cachedFetch, getClient } from '../services/session'
@@ -163,25 +163,65 @@ export default function Player() {
     }
 
 
-    // Chromecast: 📺 abre o seletor; conectou → manda a mídia atual e pausa
-    // o player local (a TV assume). Sem o módulo nativo (Expo Go), some.
+    // Chromecast: 📺 abre o seletor; conectou → manda a mídia atual (retomando
+    // do ponto em que o usuário estava) e pausa o local — a TV assume. O
+    // progresso do receiver volta pro "continuar assistindo" a cada ~5s.
     const canCast = castAvailable()
+    const [casting, setCasting] = useState<CastControls | null>(null)
+    const [castPaused, setCastPaused] = useState(false)
+    const castingRef = useRef(false)
+    const lastCastSaveRef = useRef(0)
+
     useEffect(() => {
         if (!canCast) return
         return onCastSessionStarted(() => {
+            let startAt = 0
+            try { startAt = player.currentTime || 0 } catch { /* player já liberado */ }
             void castToCurrentSession(
                 source,
                 live === '1' ? liveTitle : String(title ?? ''),
                 String(cover ?? ''),
                 live === '1',
-            ).then(sent => {
-                if (!sent) return
+                startAt,
+            ).then(controls => {
+                if (!controls) return
+                castingRef.current = true
+                setCasting(controls)
+                setCastPaused(false)
                 try { player.pause() } catch { /* player já liberado */ }
                 showTrackToast('📺 Chromecast')
             })
         })
         // eslint-disable-next-line react-hooks/exhaustive-deps
     }, [canCast, source, liveTitle])
+
+    useEffect(() => {
+        if (!casting || !trackable) return
+        return casting.onProgress(positionSec => {
+            const now = Date.now()
+            if (now - lastCastSaveRef.current < 5000) return
+            lastCastSaveRef.current = now
+            lastSample.current = { position: positionSec, duration: lastSample.current.duration }
+            void saveSample({
+                id: String(pid),
+                kind: (kind === 'episode' ? 'episode' : 'movie') as ProgressKind,
+                streamId: String(sid),
+                container: String(container || 'mp4'),
+                title: String(title ?? ''),
+                cover: String(cover ?? ''),
+                position: positionSec,
+                duration: lastSample.current.duration,
+                updatedAt: now,
+            })
+        })
+        // eslint-disable-next-line react-hooks/exhaustive-deps
+    }, [casting, trackable])
+
+    const stopCasting = () => {
+        casting?.stop()
+        castingRef.current = false
+        setCasting(null)
+    }
 
     // Autoplay: fim do episódio → overlay "A seguir" com contagem regressiva.
     // A fila vem da tela da série (episodeQueue); trocar de episódio é um
@@ -269,6 +309,7 @@ export default function Player() {
             })
         }
         const timer = setInterval(() => {
+            if (castingRef.current) return // a TV é a fonte do progresso agora
             try {
                 lastSample.current = { position: player.currentTime || 0, duration: player.duration || 0 }
             } catch { return } // player já liberado
@@ -355,6 +396,26 @@ export default function Player() {
                 </View>
             ) : null}
 
+            {casting ? (
+                <View style={styles.castBar}>
+                    <Ionicons name="tv" size={18} color={colors.accent} />
+                    <Text style={styles.castText}>{t('castingOnTv')}</Text>
+                    <TouchableOpacity
+                        style={styles.castBtn}
+                        onPress={() => {
+                            if (castPaused) casting.play()
+                            else casting.pause()
+                            setCastPaused(!castPaused)
+                        }}
+                    >
+                        <Ionicons name={castPaused ? 'play' : 'pause'} size={18} color={colors.text} />
+                    </TouchableOpacity>
+                    <TouchableOpacity style={styles.castBtn} onPress={stopCasting}>
+                        <Text style={styles.castStopText}>{t('stopCast')}</Text>
+                    </TouchableOpacity>
+                </View>
+            ) : null}
+
             {upNext ? (
                 <View style={styles.upNext}>
                     <Text style={styles.upNextLabel}>{t('upNextTitle')} {tf('autoplayIn', { s: countdown })}</Text>
@@ -434,6 +495,23 @@ const styles = StyleSheet.create({
         alignItems: 'center',
         justifyContent: 'center',
     },
+    castBar: {
+        position: 'absolute',
+        bottom: 32,
+        alignSelf: 'center',
+        flexDirection: 'row',
+        alignItems: 'center',
+        gap: spacing.md,
+        backgroundColor: 'rgba(22,22,31,0.95)',
+        borderColor: colors.border,
+        borderWidth: 1,
+        borderRadius: 24,
+        paddingHorizontal: spacing.lg,
+        paddingVertical: 8,
+    },
+    castText: { color: colors.text, fontSize: 14, fontWeight: '600' },
+    castBtn: { padding: spacing.xs },
+    castStopText: { color: colors.danger, fontSize: 13, fontWeight: '600' },
     upNext: {
         position: 'absolute',
         right: spacing.lg,

@@ -10,11 +10,11 @@ Player IPTV pra celular (Android primeiro) — o irmão mobile do [NeoStream des
 - **Início**: continuar assistindo, favoritos, canais favoritos, filmes/séries recém-adicionados
 - **TV ao vivo**: categorias, EPG agora/a seguir (Xtream e XMLTV das listas M3U), zapping por gesto e **gaveta de canais com filtro** dentro do player, canais recentes no Início
 - **Filmes/Séries**: ficha com sinopse/elenco/trailer, temporadas e episódios, episódios vistos (✓), ordenação (recentes · A-Z · nota), grade adaptável a tablet/paisagem
-- **Player** (ExoPlayer via expo-video): retomar do ponto, faixas 🎧💬, **autoplay do próximo episódio**, sleep timer 🌙, PiP automático e **Chromecast** (retoma do ponto; a fila de episódios segue na TV)
-- **Downloads offline**: filme, episódio ou **temporada inteira** (fila sequencial), com teto de armazenamento (LRU), notificação ao concluir, recuperação de interrompidos e player local
+- **Player** (ExoPlayer via expo-video): retomar do ponto, faixas 🎧💬, **autoplay do próximo episódio**, velocidade 1x–2x, tela cheia imersiva, sleep timer 🌙, "parar após este episódio", **áudio em segundo plano** com notificação de mídia, PiP automático e **Chromecast** (das fichas ou do player, retomando do ponto; a fila de episódios segue na TV)
+- **Downloads offline**: filme, episódio ou **temporada inteira** (fila sequencial), tela agrupada por série, teto de armazenamento (LRU), notificação ao concluir, recuperação de interrompidos e player local
 - **Busca global**: canais + filmes + séries numa consulta só
 - **Proteções**: controle parental (PIN), bloqueio do app com PIN + FLAG_SECURE (sem screenshot/preview) e ErrorBoundary global
-- **Extras**: onboarding na 1ª abertura, atalhos no ícone do app, economia de dados em rede móvel, "Seu uso" (tempo assistido), diagnóstico da conta e buscas recentes
+- **Extras**: onboarding, atalhos no ícone, economia de dados, "Seu uso" com mais assistidos e **retrospectiva em imagem**, episódios novos das favoritas (rail + notificação), diagnóstico da conta em 4 passos, buscas recentes, gaveta de canais com favoritos/recentes no topo e toques hápticos
 - **Backup**: exporta/importa contas, favoritos, progresso e ajustes como texto
 - **Idiomas**: português, inglês e espanhol (segue o idioma do sistema)
 - **Aviso de atualização**: banner no Início quando sai release nova no GitHub
@@ -24,7 +24,7 @@ Player IPTV pra celular (Android primeiro) — o irmão mobile do [NeoStream des
 - **Expo SDK 57** + React Native 0.86 + TypeScript (expo-router, tabs)
 - **expo-video** (ExoPlayer no Android) — toca `.m3u8` ao vivo e VOD direto do provedor
 - Tudo fica no aparelho (AsyncStorage); nenhum dado sai pra terceiros
-- Lógica pura em `src/services/` testada com **vitest** (63 testes)
+- Lógica pura em `src/services/` testada com **vitest** (120+ testes)
 
 ## Rodar em desenvolvimento
 

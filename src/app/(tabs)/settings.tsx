@@ -12,6 +12,7 @@ import {
     accountLabel, listAccounts, loadAccount, removeAccount, renameAccount, switchAccount,
     type StoredAccount,
 } from '../../services/session'
+import { dayKey, formatMinutes, loadUsage, summarize, type UsageSummary } from '../../services/usage'
 import { parseExpiry } from '../../services/xtream'
 import { colors, spacing } from '../../ui/theme'
 import { t, tf } from '../../i18n/strings'
@@ -37,6 +38,7 @@ export default function SettingsTab() {
     const [editingId, setEditingId] = useState<string | null>(null)
     const [dlLimit, setDlLimit] = useState(0)
     const [dlBytes, setDlBytes] = useState(0)
+    const [usage, setUsage] = useState<UsageSummary>({ totals: { live: 0, movie: 0, episode: 0 }, totalMinutes: 0 })
     const [aliasDraft, setAliasDraft] = useState('')
     const [importText, setImportText] = useState('')
     const [backupMsg, setBackupMsg] = useState('')
@@ -52,6 +54,7 @@ export default function SettingsTab() {
         void loadAppLock().then(state => setLockOn(state.enabled))
         void getDownloadLimitGb().then(setDlLimit)
         refreshStorage()
+        void loadUsage().then(map => setUsage(summarize(map, dayKey(Date.now()))))
     }, [refreshStorage])
 
     useFocusEffect(useCallback(() => { queueMicrotask(refresh) }, [refresh]))
@@ -227,6 +230,15 @@ export default function SettingsTab() {
                     </TouchableOpacity>
                 </View>
                 {lockError ? <Text style={styles.pinError}>{lockError}</Text> : null}
+            </View>
+
+            <Text style={styles.section}>{t('secUsage')}</Text>
+            <View style={styles.card}>
+                <InfoRow label={t('usageWeek')} value="" />
+                <InfoRow label={t('tabLive')} value={formatMinutes(usage.totals.live)} />
+                <InfoRow label={t('tabMovies')} value={formatMinutes(usage.totals.movie)} />
+                <InfoRow label={t('tabSeries')} value={formatMinutes(usage.totals.episode)} />
+                <InfoRow label={t('usageTotal')} value={formatMinutes(usage.totalMinutes)} />
             </View>
 
             <Text style={styles.section}>{t('secStorage')}</Text>

@@ -12,6 +12,7 @@ import { nextEpisodeAfter, type QueuedEpisode } from '../services/episodeQueue'
 import { getEntry, resumePosition, saveSample, type ProgressKind } from '../services/progress'
 import { recordRecentChannel } from '../services/recents'
 import { cachedFetch, getClient } from '../services/session'
+import { recordWatchMinute } from '../services/usage'
 import { hasZapContext, zapBy } from '../services/zap'
 import { colors, spacing } from '../ui/theme'
 import { t, tf } from '../i18n/strings'
@@ -325,6 +326,20 @@ export default function Player() {
         // player é estável pra um mesmo source — pid/source são o que importa.
         // eslint-disable-next-line react-hooks/exhaustive-deps
     }, [pid, trackable, source])
+
+    // Tempo assistido: 1 minuto contabilizado por minuto tocando (local ou TV).
+    useEffect(() => {
+        const usageKind = live === '1' ? 'live' : kind === 'episode' ? 'episode' : 'movie'
+        const timer = setInterval(() => {
+            let playing = castingRef.current && !castPaused
+            if (!playing) {
+                try { playing = player.playing } catch { return } // player já liberado
+            }
+            if (playing) void recordWatchMinute(usageKind)
+        }, 60_000)
+        return () => clearInterval(timer)
+        // eslint-disable-next-line react-hooks/exhaustive-deps
+    }, [live, kind, castPaused])
 
     // Amostra a posição a cada 5s + gravação final ao sair da tela.
     useEffect(() => {

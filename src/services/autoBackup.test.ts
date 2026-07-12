@@ -1,5 +1,22 @@
-import { describe, it, expect } from 'vitest'
+import { describe, it, expect, vi } from 'vitest'
 import { pruneList } from './autoBackup'
+
+// Hoisted pelo vitest — o autoBackup puxa storage/fs/backup no import.
+vi.mock('@react-native-async-storage/async-storage', () => ({
+    default: { getItem: vi.fn(), setItem: vi.fn() },
+}))
+vi.mock('expo-file-system/legacy', () => ({
+    documentDirectory: 'file:///doc/',
+    makeDirectoryAsync: vi.fn(),
+    writeAsStringAsync: vi.fn(),
+    readAsStringAsync: vi.fn(),
+    readDirectoryAsync: vi.fn(async () => []),
+    deleteAsync: vi.fn(),
+}))
+vi.mock('./backup', () => ({
+    collectBackup: vi.fn(async () => ({})),
+    serializeBackup: vi.fn(() => '{}'),
+}))
 
 describe('pruneList', () => {
     it('apaga as mais antigas até sobrar o teto (nome tem a data)', () => {

@@ -8,7 +8,7 @@ import { applyBackup, collectBackup, parseBackup, serializeBackup } from '../../
 import { disableParental, enableParental, isValidPin, loadParental } from '../../services/parental'
 import { clearHistory } from '../../services/progress'
 import {
-    accountLabel, listAccounts, loadAccount, removeAccount, switchAccount,
+    accountLabel, listAccounts, loadAccount, removeAccount, renameAccount, switchAccount,
     type StoredAccount,
 } from '../../services/session'
 import { parseExpiry } from '../../services/xtream'
@@ -33,6 +33,8 @@ export default function SettingsTab() {
     const [lockOn, setLockOn] = useState(false)
     const [lockPin, setLockPin] = useState('')
     const [lockError, setLockError] = useState('')
+    const [editingId, setEditingId] = useState<string | null>(null)
+    const [aliasDraft, setAliasDraft] = useState('')
     const [importText, setImportText] = useState('')
     const [backupMsg, setBackupMsg] = useState('')
 
@@ -78,6 +80,32 @@ export default function SettingsTab() {
             <View style={styles.card}>
                 {accounts.map(account => {
                     const isActive = account.id === active?.id
+                    if (editingId === account.id) {
+                        return (
+                            <View key={account.id} style={styles.accountRow}>
+                                <TextInput
+                                    style={styles.aliasInput}
+                                    value={aliasDraft}
+                                    onChangeText={setAliasDraft}
+                                    placeholder={t('aliasPh')}
+                                    placeholderTextColor={colors.textDim}
+                                    autoFocus
+                                    maxLength={24}
+                                />
+                                <TouchableOpacity
+                                    style={styles.trash}
+                                    onPress={() => {
+                                        void renameAccount(account.id, aliasDraft).then(() => {
+                                            setEditingId(null)
+                                            refresh()
+                                        })
+                                    }}
+                                >
+                                    <Ionicons name="checkmark" size={20} color={colors.accent} />
+                                </TouchableOpacity>
+                            </View>
+                        )
+                    }
                     return (
                         <View key={account.id} style={styles.accountRow}>
                             <TouchableOpacity style={styles.accountMain} onPress={() => activate(account)}>
@@ -89,6 +117,12 @@ export default function SettingsTab() {
                                 <Text style={[styles.accountName, isActive && styles.accountNameActive]} numberOfLines={1}>
                                     {accountLabel(account)}
                                 </Text>
+                            </TouchableOpacity>
+                            <TouchableOpacity
+                                style={styles.trash}
+                                onPress={() => { setEditingId(account.id); setAliasDraft(account.alias ?? '') }}
+                            >
+                                <Ionicons name="pencil-outline" size={16} color={colors.textDim} />
                             </TouchableOpacity>
                             <TouchableOpacity style={styles.trash} onPress={() => confirmRemove(account)}>
                                 <Ionicons name="trash-outline" size={18} color={colors.danger} />
@@ -289,6 +323,18 @@ const styles = StyleSheet.create({
     accountNameActive: { color: colors.text, fontWeight: '600' },
     trash: { padding: spacing.sm },
     addRow: { flexDirection: 'row', alignItems: 'center', gap: spacing.md, paddingVertical: 12 },
+    aliasInput: {
+        flex: 1,
+        backgroundColor: colors.bg,
+        borderColor: colors.border,
+        borderWidth: 1,
+        borderRadius: 8,
+        color: colors.text,
+        paddingHorizontal: spacing.md,
+        paddingVertical: 8,
+        fontSize: 14,
+        marginVertical: 6,
+    },
     addText: { color: colors.accent, fontSize: 14, fontWeight: '600' },
     infoRow: {
         flexDirection: 'row',

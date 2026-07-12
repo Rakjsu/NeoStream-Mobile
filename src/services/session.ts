@@ -10,6 +10,8 @@ import { XtreamClient, normalizeBaseUrl, type CatalogClient, type UserInfo, type
 export interface StoredAccount extends XtreamAccount {
     id: string
     userInfo?: UserInfo
+    /** Apelido dado pelo usuário ("Casa", "Do irmão"…) — vence o label cru. */
+    alias?: string
 }
 
 const ACCOUNTS_KEY = 'neostream_accounts'
@@ -24,8 +26,9 @@ export function accountId(account: XtreamAccount): string {
     return `${user}@${normalizeBaseUrl(account.url)}`
 }
 
-/** Nome de exibição: usuário@host (M3U mostra o host da lista). */
-export function accountLabel(account: XtreamAccount): string {
+/** Nome de exibição: apelido se houver; senão usuário@host (M3U mostra o host). */
+export function accountLabel(account: XtreamAccount & { alias?: string }): string {
+    if (account.alias?.trim()) return account.alias.trim()
     try {
         const host = new URL(normalizeBaseUrl(account.url)).host
         return account.type === 'm3u' ? `M3U · ${host}` : `${account.username}@${host}`
@@ -46,6 +49,9 @@ export function upsertAccount(
     userInfo?: UserInfo,
 ): { accounts: StoredAccount[]; entry: StoredAccount } {
     const entry: StoredAccount = { ...account, id: accountId(account), userInfo }
+    // Relogin não pode apagar o apelido que o usuário deu.
+    const previous = accounts.find(a => a.id === entry.id)
+    if (previous?.alias && !entry.alias) entry.alias = previous.alias
     const rest = accounts.filter(a => a.id !== entry.id)
     return { accounts: [...rest, entry], entry }
 }
@@ -160,6 +166,13 @@ export async function removeAccount(id: string): Promise<StoredAccount | null> {
     const active = accountsCache.find(a => a.id === activeIdCache) ?? null
     if (active && !client) client = buildClient(active)
     return active
+}
+
+/** Dá (ou limpa, com '') o apelido de uma conta. */
+export async function renameAccount(id: string, alias: string): Promise<void> {
+    const { accounts } = await loadState()
+    accountsCache = accounts.map(a => (a.id === id ? { ...a, alias: alias.trim() || undefined } : a))
+    await persist()
 }
 
 /** Client da conta ativa (null quando deslogado). */

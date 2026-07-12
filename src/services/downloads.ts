@@ -7,6 +7,7 @@
 import AsyncStorage from '@react-native-async-storage/async-storage'
 import * as FileSystem from 'expo-file-system/legacy'
 import { notifyDownloadDone } from './notify'
+import { loadWatched } from './progress'
 
 export interface DownloadItem {
     /** Mesmo id do progresso: "movie:<id>" | "episode:<id>". */
@@ -28,7 +29,57 @@ export interface DownloadRequest {
 }
 
 const STORAGE_KEY = 'neostream_downloads'
+const LIMIT_KEY = 'neostream_dl_limit_gb'
 const DIR = `${FileSystem.documentDirectory}downloads/`
+
+/**
+ * Quem sai quando o teto estoura (PURO): assistidos primeiro, depois os mais
+ * antigos, até caber. Devolve [] quando não há teto ou já cabe.
+ */
+export function pickEvictions(items: DownloadItem[], watched: Set<string>, limitBytes: number): DownloadItem[] {
+    let total = items.reduce((sum, item) => sum + item.sizeBytes, 0)
+    if (limitBytes <= 0 || total <= limitBytes) return []
+    const order = [...items].sort((a, b) => {
+        const aWatched = watched.has(a.id) ? 0 : 1
+        const bWatched = watched.has(b.id) ? 0 : 1
+        if (aWatched !== bWatched) return aWatched - bWatched
+        return a.downloadedAt - b.downloadedAt
+    })
+    const evictions: DownloadItem[] = []
+    for (const item of order) {
+        if (total <= limitBytes) break
+        evictions.push(item)
+        total -= item.sizeBytes
+    }
+    return evictions
+}
+
+/** Teto em GB (0 = sem teto). */
+export async function getDownloadLimitGb(): Promise<number> {
+    try {
+        const raw = await AsyncStorage.getItem(LIMIT_KEY)
+        const value = raw ? Number(raw) : 0
+        return Number.isFinite(value) && value > 0 ? value : 0
+    } catch {
+        return 0
+    }
+}
+
+export async function setDownloadLimitGb(gb: number): Promise<void> {
+    try {
+        await AsyncStorage.setItem(LIMIT_KEY, String(gb))
+    } catch { /* best-effort */ }
+    await enforceDownloadLimit()
+}
+
+/** Aplica o teto: remove o que o pickEvictions mandar. */
+export async function enforceDownloadLimit(): Promise<void> {
+    const limitGb = await getDownloadLimitGb()
+    if (!limitGb) return
+    const watched = await loadWatched().catch(() => new Set<string>())
+    const evictions = pickEvictions(await listDownloads(), watched, limitGb * 1024 ** 3)
+    for (const item of evictions) await removeDownload(item.id)
+}
 
 /** "movie:123" + "mkv" → "movie_123.mkv" (PURO, testável). */
 export function safeFileName(id: string, container: string): string {
@@ -123,6 +174,7 @@ export async function startDownload(request: DownloadRequest): Promise<void> {
         registry = map
         await persistRegistry()
         void notifyDownloadDone(request.title)
+        void enforceDownloadLimit()
     } catch (error) {
         await FileSystem.deleteAsync(fileUri, { idempotent: true }).catch(() => undefined)
         throw error

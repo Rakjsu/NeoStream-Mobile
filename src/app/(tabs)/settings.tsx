@@ -4,6 +4,7 @@ import { router, useFocusEffect } from 'expo-router'
 import { useCallback, useState } from 'react'
 import { Alert, ScrollView, Share, StyleSheet, Text, TextInput, TouchableOpacity, View } from 'react-native'
 import { disableAppLock, enableAppLock, loadAppLock } from '../../services/appLock'
+import { getDownloadLimitGb, listDownloads, setDownloadLimitGb } from '../../services/downloads'
 import { applyBackup, collectBackup, parseBackup, serializeBackup } from '../../services/backup'
 import { disableParental, enableParental, isValidPin, loadParental } from '../../services/parental'
 import { clearHistory } from '../../services/progress'
@@ -34,16 +35,24 @@ export default function SettingsTab() {
     const [lockPin, setLockPin] = useState('')
     const [lockError, setLockError] = useState('')
     const [editingId, setEditingId] = useState<string | null>(null)
+    const [dlLimit, setDlLimit] = useState(0)
+    const [dlBytes, setDlBytes] = useState(0)
     const [aliasDraft, setAliasDraft] = useState('')
     const [importText, setImportText] = useState('')
     const [backupMsg, setBackupMsg] = useState('')
+
+    const refreshStorage = useCallback(() => {
+        void listDownloads().then(items => setDlBytes(items.reduce((sum, item) => sum + item.sizeBytes, 0)))
+    }, [])
 
     const refresh = useCallback(() => {
         void listAccounts().then(setAccounts)
         void loadAccount().then(setActive)
         void loadParental().then(state => setParentalOn(state.enabled))
         void loadAppLock().then(state => setLockOn(state.enabled))
-    }, [])
+        void getDownloadLimitGb().then(setDlLimit)
+        refreshStorage()
+    }, [refreshStorage])
 
     useFocusEffect(useCallback(() => { queueMicrotask(refresh) }, [refresh]))
 
@@ -220,6 +229,28 @@ export default function SettingsTab() {
                 {lockError ? <Text style={styles.pinError}>{lockError}</Text> : null}
             </View>
 
+            <Text style={styles.section}>{t('secStorage')}</Text>
+            <View style={[styles.card, { paddingVertical: spacing.md, gap: spacing.md }]}>
+                <Text style={styles.parentalHint}>{t('storageHint')}</Text>
+                <View style={styles.limitRow}>
+                    {[0, 1, 2, 5].map(gb => (
+                        <TouchableOpacity
+                            key={gb}
+                            style={[styles.limitChip, dlLimit === gb && styles.limitChipOn]}
+                            onPress={() => {
+                                setDlLimit(gb)
+                                void setDownloadLimitGb(gb).then(refreshStorage)
+                            }}
+                        >
+                            <Text style={[styles.limitChipText, dlLimit === gb && styles.limitChipTextOn]}>
+                                {gb === 0 ? t('noLimit') : `${gb} GB`}
+                            </Text>
+                        </TouchableOpacity>
+                    ))}
+                </View>
+                <Text style={styles.parentalHint}>{tf('usedSpace', { mb: Math.round(dlBytes / 1048576) })}</Text>
+            </View>
+
             <Text style={styles.section}>{t('secHistory')}</Text>
             <View style={[styles.card, { paddingVertical: spacing.md, gap: spacing.md }]}>
                 <Text style={styles.parentalHint}>{t('historyHint')}</Text>
@@ -372,6 +403,17 @@ const styles = StyleSheet.create({
     parentalBtnOff: { backgroundColor: colors.danger },
     parentalBtnText: { color: '#fff', fontSize: 14, fontWeight: '600' },
     pinError: { color: colors.danger, fontSize: 13 },
+    limitRow: { flexDirection: 'row', flexWrap: 'wrap', gap: spacing.sm },
+    limitChip: {
+        borderColor: colors.border,
+        borderWidth: 1,
+        borderRadius: 16,
+        paddingHorizontal: spacing.md,
+        paddingVertical: 6,
+    },
+    limitChipOn: { backgroundColor: colors.accentSoft, borderColor: colors.accent },
+    limitChipText: { color: colors.textDim, fontSize: 13, fontWeight: '600' },
+    limitChipTextOn: { color: colors.accent },
     backupBtn: {
         flexDirection: 'row',
         alignItems: 'center',

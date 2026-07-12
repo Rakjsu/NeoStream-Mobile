@@ -4,9 +4,10 @@ import { useKeepAwake } from 'expo-keep-awake'
 import { router, useLocalSearchParams } from 'expo-router'
 import { useVideoPlayer, VideoView, type AudioTrack, type SubtitleTrack } from 'expo-video'
 import { useEffect, useRef, useState } from 'react'
-import { FlatList, Platform, StyleSheet, Text, TextInput, View } from 'react-native'
+import { FlatList, PanResponder, Platform, StyleSheet, Text, TextInput, View } from 'react-native'
 import { useSafeAreaInsets } from 'react-native-safe-area-context'
 import { StatusBar } from 'expo-status-bar'
+import * as Brightness from 'expo-brightness'
 import * as NavigationBar from 'expo-navigation-bar'
 import { getDownload } from '../services/downloads'
 import { castAvailable, castToCurrentSession, onCastSessionStarted, showCastPicker, type CastControls } from '../services/cast'
@@ -42,6 +43,63 @@ function applyBackgroundMode(
 ) {
     target.staysActiveInBackground = enabled
     target.showNowPlayingNotification = enabled
+}
+function applyVolume(target: { volume: number }, volume: number) {
+    target.volume = volume
+}
+function applySeek(target: { currentTime: number }, deltaSec: number) {
+    target.currentTime = Math.max(0, target.currentTime + deltaSec)
+}
+
+const clamp01 = (value: number) => Math.min(1, Math.max(0, value))
+
+interface GestureRefs {
+    player: React.MutableRefObject<{ volume: number; currentTime: number }>
+    live: React.MutableRefObject<boolean>
+    toast: React.MutableRefObject<(text: string) => void>
+}
+
+/**
+ * Gestos estilo MX Player nas faixas laterais: arrasto vertical ajusta brilho
+ * (esquerda) ou volume (direita); toque duplo pula ±10s no VOD. Criado uma
+ * única vez — tudo que muda entre renders chega via refs.
+ */
+function createGesturePan(side: 'left' | 'right', refs: GestureRefs) {
+    let startValue = -1
+    let lastTapAt = 0
+    return PanResponder.create({
+        onStartShouldSetPanResponder: () => true,
+        onPanResponderGrant: () => {
+            if (side === 'right') {
+                try { startValue = refs.player.current.volume } catch { startValue = 1 }
+            } else {
+                startValue = -1
+                void Brightness.getBrightnessAsync()
+                    .then(value => { startValue = value })
+                    .catch(() => { startValue = 0.5 })
+            }
+        },
+        onPanResponderMove: (_event, gesture) => {
+            if (Math.abs(gesture.dy) < 12 || startValue < 0) return
+            const next = clamp01(startValue - gesture.dy / 250)
+            if (side === 'right') {
+                try { applyVolume(refs.player.current, next) } catch { return }
+                refs.toast.current(`🔊 ${Math.round(next * 100)}%`)
+            } else {
+                void Brightness.setBrightnessAsync(next).catch(() => undefined)
+                refs.toast.current(`☀️ ${Math.round(next * 100)}%`)
+            }
+        },
+        onPanResponderRelease: (_event, gesture) => {
+            if (Math.abs(gesture.dx) > 10 || Math.abs(gesture.dy) > 10) return // foi arrasto
+            const now = Date.now()
+            const doubleTap = now - lastTapAt < 300
+            lastTapAt = doubleTap ? 0 : now
+            if (!doubleTap || refs.live.current) return
+            try { applySeek(refs.player.current, side === 'left' ? -10 : 10) } catch { return }
+            refs.toast.current(side === 'left' ? '⏪ -10s' : '⏩ +10s')
+        },
+    })
 }
 
 export default function Player() {
@@ -168,6 +226,23 @@ export default function Player() {
         return () => clearTimeout(timer)
         // eslint-disable-next-line react-hooks/exhaustive-deps
     }, [sleepMin])
+
+    // Gestos laterais (brilho/volume/±10s): o PanResponder nasce uma vez;
+    // player/live/toast atuais chegam por refs sincronizadas a cada render.
+    const gesturePlayerRef = useRef<{ volume: number; currentTime: number }>(player)
+    const gestureLiveRef = useRef(live === '1')
+    const gestureToastRef = useRef<(text: string) => void>(() => undefined)
+    useEffect(() => {
+        gesturePlayerRef.current = player
+        gestureLiveRef.current = live === '1'
+        gestureToastRef.current = showTrackToast
+    })
+    // A fábrica só GUARDA as refs — nenhum .current é lido aqui no render.
+    // eslint-disable-next-line react-hooks/refs
+    const [pans] = useState(() => ({
+        left: createGesturePan('left', { player: gesturePlayerRef, live: gestureLiveRef, toast: gestureToastRef }),
+        right: createGesturePan('right', { player: gesturePlayerRef, live: gestureLiveRef, toast: gestureToastRef }),
+    }))
 
     // A barra do topo (e o zap) some após 5s sem toque; um toque no topo traz de volta.
     const [chrome, setChrome] = useState(true)
@@ -502,6 +577,9 @@ export default function Player() {
                 startsPictureInPictureAutomatically
             />
 
+            <View style={[styles.gestureZone, styles.gestureLeft]} {...pans.left.panHandlers} />
+            <View style={[styles.gestureZone, styles.gestureRight]} {...pans.right.panHandlers} />
+
             {!chrome ? (
                 <TvTouchable
                     style={[styles.chromeStrip, { height: insets.top + 56 }]}
@@ -719,6 +797,14 @@ const styles = StyleSheet.create({
         paddingVertical: 8,
     },
     trackToastText: { color: colors.text, fontSize: 14, fontWeight: '600' },
+    gestureZone: {
+        position: 'absolute',
+        top: 130,
+        bottom: 130,
+        width: '22%',
+    },
+    gestureLeft: { left: 0 },
+    gestureRight: { right: 0 },
     chromeStrip: {
         position: 'absolute',
         top: 0,

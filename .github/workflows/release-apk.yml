@@ -1,0 +1,48 @@
+name: Release APK
+
+# Tag v* → gera o APK Android (expo prebuild + Gradle, sem EAS) e anexa numa
+# GitHub Release. O APK sai assinado com a keystore de debug do template RN —
+# suficiente pra instalar direto (sideload); loja fica pra depois.
+on:
+  push:
+    tags: ['v*']
+
+permissions:
+  contents: write
+
+jobs:
+  apk:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v5
+
+      - uses: actions/setup-node@v5
+        with:
+          node-version: 24
+          cache: npm
+
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: 17
+
+      - name: Instalar dependências
+        run: npm ci
+
+      - name: Gerar projeto Android (expo prebuild)
+        run: npx expo prebuild --platform android --no-install
+
+      - name: Compilar APK (release)
+        run: ./gradlew assembleRelease --no-daemon
+        working-directory: android
+        env:
+          GRADLE_OPTS: -Xmx4g
+
+      - name: Renomear APK com a versão
+        run: cp android/app/build/outputs/apk/release/app-release.apk "NeoStream-Mobile-${GITHUB_REF_NAME}.apk"
+
+      - name: Publicar release com o APK
+        uses: softprops/action-gh-release@v2
+        with:
+          files: NeoStream-Mobile-*.apk
+          generate_release_notes: true

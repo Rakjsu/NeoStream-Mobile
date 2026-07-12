@@ -1,7 +1,7 @@
 import { describe, it, expect } from 'vitest'
 import {
     cmdToUrl, normalizeMac, normalizePortalUrl, parseHandshakeToken,
-    parseStalkerChannels, parseStalkerGenres,
+    parseStalkerChannels, parseStalkerEpg, parseStalkerGenres, parseStalkerVodPage,
 } from './stalker'
 
 describe('normalizePortalUrl / normalizeMac', () => {
@@ -49,5 +49,40 @@ describe('parsers do portal', () => {
         expect(cmdToUrl('auto https://srv/x.m3u8')).toBe('https://srv/x.m3u8')
         expect(cmdToUrl('http://direto/1.ts')).toBe('http://direto/1.ts')
         expect(cmdToUrl('localchannel 5')).toBe('')
+    })
+})
+
+describe('fase 2: VOD + EPG do portal', () => {
+    it('página de VOD: itens válidos + total (pra paginação parar)', () => {
+        const page = parseStalkerVodPage({
+            js: {
+                total_items: 40,
+                data: [
+                    { id: 9, name: 'Matrix', screenshot_uri: 'http://c/m.jpg', category_id: 2, cmd: 'auto http://v/9.mp4', description: 'Pílulas.' },
+                    { id: 10 }, // sem nome → fora
+                ],
+            },
+        })
+        expect(page.totalItems).toBe(40)
+        expect(page.items).toHaveLength(1)
+        expect(page.items[0]).toMatchObject({ id: '9', name: 'Matrix', categoryId: '2', plot: 'Pílulas.' })
+    })
+
+    it('EPG: escolhe o agora pelo relógio e o próximo mais cedo', () => {
+        const NOW = 1_000_000 * 1000
+        const epg = parseStalkerEpg({
+            js: [
+                { name: 'Agora', start_timestamp: 999_000, stop_timestamp: 1_001_000 },
+                { name: 'Depois2', start_timestamp: 1_003_000, stop_timestamp: 1_004_000 },
+                { name: 'Depois1', start_timestamp: 1_001_000, stop_timestamp: 1_003_000 },
+                { name: 'Quebrado' },
+            ],
+        }, NOW)
+        expect(epg.now?.title).toBe('Agora')
+        expect(epg.next?.title).toBe('Depois1')
+    })
+
+    it('EPG vazio devolve nulls', () => {
+        expect(parseStalkerEpg({ js: [] }, 0)).toEqual({ now: null, next: null })
     })
 })

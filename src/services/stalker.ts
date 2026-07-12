@@ -9,7 +9,7 @@
  */
 import { withRetry } from './net'
 import type {
-    CatalogClient, Category, LiveChannel, NowNext, SeriesInfo,
+    CatalogClient, Category, EpgProgram, LiveChannel, NowNext, SeriesInfo,
     SeriesItem, UserInfo, VodDetails, VodMovie,
 } from './xtream'
 
@@ -84,6 +84,56 @@ export function parseStalkerGenres(data: unknown): Category[] {
     })
 }
 
+export interface StalkerVod {
+    id: string
+    name: string
+    cover: string
+    categoryId: string
+    cmd: string
+    plot: string
+}
+
+/** Página do get_ordered_list de VOD: itens + total (pra saber quando parar). */
+export function parseStalkerVodPage(data: unknown): { items: StalkerVod[]; totalItems: number } {
+    const js = parseJs<{ total_items?: unknown; data?: unknown[] }>(data)
+    const rows = Array.isArray(js?.data) ? js.data : []
+    const items = rows.flatMap(row => {
+        const item = row as {
+            id?: unknown; name?: unknown; screenshot_uri?: unknown
+            category_id?: unknown; cmd?: unknown; description?: unknown
+        }
+        if (item?.id === undefined || typeof item.name !== 'string' || !item.name) return []
+        return [{
+            id: String(item.id),
+            name: item.name,
+            cover: typeof item.screenshot_uri === 'string' ? item.screenshot_uri : '',
+            categoryId: item.category_id === undefined ? '' : String(item.category_id),
+            cmd: typeof item.cmd === 'string' ? item.cmd : '',
+            plot: typeof item.description === 'string' ? item.description : '',
+        }]
+    })
+    const total = Number((js as { total_items?: unknown })?.total_items)
+    return { items, totalItems: Number.isFinite(total) ? total : items.length }
+}
+
+/** get_short_epg → agora/a seguir (timestamps em segundos). */
+export function parseStalkerEpg(data: unknown, nowMs: number): NowNext {
+    const js = parseJs<unknown[]>(data)
+    const rows = Array.isArray(js) ? js : []
+    const programs: EpgProgram[] = rows.flatMap(row => {
+        const item = row as { name?: unknown; start_timestamp?: unknown; stop_timestamp?: unknown }
+        const start = Number(item?.start_timestamp) * 1000
+        const stop = Number(item?.stop_timestamp) * 1000
+        if (typeof item?.name !== 'string' || !item.name || !Number.isFinite(start) || !Number.isFinite(stop)) return []
+        return [{ title: item.name, startMs: start, endMs: stop }]
+    })
+    const now = programs.find(p => p.startMs <= nowMs && nowMs < p.endMs) ?? null
+    const next = programs
+        .filter(p => p.startMs > nowMs)
+        .sort((a, b) => a.startMs - b.startMs)[0] ?? null
+    return { now, next }
+}
+
 // ---------------------------------------------------------------- client --
 
 export class StalkerClient implements CatalogClient {
@@ -92,6 +142,9 @@ export class StalkerClient implements CatalogClient {
     private token = ''
     private channels: StalkerChannel[] | null = null
     private urlById = new Map<string, string>()
+    private vod: StalkerVod[] | null = null
+    private vodUrlById = new Map<string, string>()
+    private vodPlotById = new Map<string, string>()
 
     constructor(portalUrl: string, mac: string) {
         this.baseUrl = normalizePortalUrl(portalUrl)
@@ -173,20 +226,63 @@ export class StalkerClient implements CatalogClient {
         return parseStalkerGenres(await this.request({ type: 'itv', action: 'get_genres' }))
     }
 
-    /** Fase 2: VOD/séries do portal. */
-    async getVodMovies(): Promise<VodMovie[]> { return [] }
-    async getVodCategories(): Promise<Category[]> { return [] }
+    /** VOD paginado com teto — portal não gosta de rajada. */
+    private async loadVod(): Promise<StalkerVod[]> {
+        if (this.vod) return this.vod
+        await this.ensureToken()
+        const MAX_PAGES = 25
+        const all: StalkerVod[] = []
+        for (let page = 1; page <= MAX_PAGES; page++) {
+            const { items, totalItems } = parseStalkerVodPage(
+                await this.request({ type: 'vod', action: 'get_ordered_list', p: String(page) }))
+            all.push(...items)
+            if (items.length === 0 || all.length >= totalItems) break
+        }
+        for (const movie of all) {
+            const url = cmdToUrl(movie.cmd)
+            if (url) this.vodUrlById.set(movie.id, url)
+            if (movie.plot) this.vodPlotById.set(movie.id, movie.plot)
+        }
+        this.vod = all
+        return all
+    }
+
+    async getVodMovies(): Promise<VodMovie[]> {
+        return (await this.loadVod()).map(movie => ({
+            stream_id: movie.id,
+            name: movie.name,
+            stream_icon: movie.cover,
+            category_id: movie.categoryId,
+            container_extension: 'mp4',
+        }))
+    }
+
+    async getVodCategories(): Promise<Category[]> {
+        await this.ensureToken()
+        return parseStalkerGenres(await this.request({ type: 'vod', action: 'get_categories' }))
+    }
+
+    /** Séries do portal ficam pra fase 3. */
     async getSeries(): Promise<SeriesItem[]> { return [] }
     async getSeriesCategories(): Promise<Category[]> { return [] }
     async getSeriesInfo(): Promise<SeriesInfo> { return {} }
-    async getVodDetails(): Promise<VodDetails> {
-        return { plot: '', genre: '', releaseDate: '', rating: '', duration: '', cover: '', trailer: '', cast: '', director: '' }
+
+    async getVodDetails(vodId?: string | number): Promise<VodDetails> {
+        const plot = vodId === undefined ? '' : this.vodPlotById.get(String(vodId)) ?? ''
+        return { plot, genre: '', releaseDate: '', rating: '', duration: '', cover: '', trailer: '', cast: '', director: '' }
     }
-    async getShortEpg(): Promise<NowNext> { return { now: null, next: null } }
+
+    async getShortEpg(streamId: number | string): Promise<NowNext> {
+        await this.ensureToken()
+        const data = await this.request({ type: 'itv', action: 'get_short_epg', ch_id: String(streamId) })
+        return parseStalkerEpg(data, Date.now())
+    }
 
     liveStreamUrl(streamId: number | string): string {
         return this.urlById.get(String(streamId)) ?? ''
     }
-    vodStreamUrl(): string { return '' }
+    vodStreamUrl(streamId: number | string): string {
+        return this.vodUrlById.get(String(streamId)) ?? ''
+    }
     seriesStreamUrl(): string { return '' }
 }

@@ -4,7 +4,7 @@ import { useKeepAwake } from 'expo-keep-awake'
 import { router, useLocalSearchParams } from 'expo-router'
 import { useVideoPlayer, VideoView, type AudioTrack, type SubtitleTrack } from 'expo-video'
 import { useEffect, useRef, useState } from 'react'
-import { StyleSheet, Text, TouchableOpacity, View } from 'react-native'
+import { FlatList, StyleSheet, Text, TextInput, TouchableOpacity, View } from 'react-native'
 import { useSafeAreaInsets } from 'react-native-safe-area-context'
 import { getDownload } from '../services/downloads'
 import { castAvailable, castToCurrentSession, onCastSessionStarted, showCastPicker, type CastControls } from '../services/cast'
@@ -13,7 +13,7 @@ import { getEntry, resumePosition, saveSample, type ProgressKind } from '../serv
 import { recordRecentChannel } from '../services/recents'
 import { cachedFetch, getClient } from '../services/session'
 import { recordWatchMinute } from '../services/usage'
-import { hasZapContext, zapBy } from '../services/zap'
+import { hasZapContext, zapBy, zapList, zapTo, type ZapChannel } from '../services/zap'
 import { colors, spacing } from '../ui/theme'
 import { t, tf } from '../i18n/strings'
 
@@ -150,9 +150,7 @@ export default function Player() {
         })()
     }
 
-    const zap = (delta: number) => {
-        const channel = zapBy(delta)
-        if (!channel) return
+    const switchChannel = (channel: ZapChannel) => {
         void (async () => {
             const client = await getClient()
             if (!client) return
@@ -164,6 +162,18 @@ export default function Player() {
             showEpg(channel.id)
         })()
     }
+
+    const zap = (delta: number) => {
+        const channel = zapBy(delta)
+        if (channel) switchChannel(channel)
+    }
+
+    // Gaveta de canais: lista do contexto de zap com filtro; toque troca direto.
+    const [channelsOpen, setChannelsOpen] = useState(false)
+    const [channelFilter, setChannelFilter] = useState('')
+    const drawerChannels = channelsOpen
+        ? zapList().filter(channel => channel.name.toLowerCase().includes(channelFilter.trim().toLowerCase()))
+        : []
 
 
     // Chromecast: 📺 abre o seletor; conectou → manda a mídia atual (retomando
@@ -439,12 +449,66 @@ export default function Player() {
 
             {chrome && zappable ? (
                 <View style={styles.zapCol}>
+                    <TouchableOpacity
+                        style={styles.zapBtn}
+                        accessibilityLabel={t('a11yChannels')}
+                        onPress={() => { setChannelFilter(''); setChannelsOpen(true) }}
+                    >
+                        <Ionicons name="list" size={24} color={colors.text} />
+                    </TouchableOpacity>
                     <TouchableOpacity style={styles.zapBtn} accessibilityLabel={t('a11yZapNext')} onPress={() => zap(1)}>
                         <Ionicons name="chevron-up" size={26} color={colors.text} />
                     </TouchableOpacity>
                     <TouchableOpacity style={styles.zapBtn} accessibilityLabel={t('a11yZapPrev')} onPress={() => zap(-1)}>
                         <Ionicons name="chevron-down" size={26} color={colors.text} />
                     </TouchableOpacity>
+                </View>
+            ) : null}
+
+            {channelsOpen ? (
+                <View style={styles.drawer}>
+                    <View style={styles.drawerHeader}>
+                        <TextInput
+                            style={styles.drawerFilter}
+                            value={channelFilter}
+                            onChangeText={setChannelFilter}
+                            placeholder={t('chFilterPh')}
+                            placeholderTextColor={colors.textDim}
+                            autoCorrect={false}
+                        />
+                        <TouchableOpacity
+                            style={styles.drawerClose}
+                            accessibilityLabel={t('cancel')}
+                            onPress={() => setChannelsOpen(false)}
+                        >
+                            <Ionicons name="close" size={22} color={colors.text} />
+                        </TouchableOpacity>
+                    </View>
+                    <FlatList
+                        data={drawerChannels}
+                        keyExtractor={channel => channel.id}
+                        keyboardShouldPersistTaps="handled"
+                        renderItem={({ item }) => (
+                            <TouchableOpacity
+                                style={styles.drawerRow}
+                                onPress={() => {
+                                    const channel = zapTo(item.id)
+                                    if (channel) switchChannel(channel)
+                                    setChannelsOpen(false)
+                                }}
+                            >
+                                <Text
+                                    style={[styles.drawerName, item.name === liveTitle && styles.drawerNameOn]}
+                                    numberOfLines={1}
+                                >
+                                    {item.name}
+                                </Text>
+                                {item.name === liveTitle ? (
+                                    <Ionicons name="play" size={14} color={colors.accent} />
+                                ) : null}
+                            </TouchableOpacity>
+                        )}
+                    />
                 </View>
             ) : null}
 
@@ -548,6 +612,48 @@ const styles = StyleSheet.create({
         alignItems: 'center',
         justifyContent: 'center',
     },
+    drawer: {
+        position: 'absolute',
+        top: 0,
+        right: 0,
+        bottom: 0,
+        width: 300,
+        maxWidth: '80%',
+        backgroundColor: 'rgba(11,11,16,0.97)',
+        borderLeftColor: colors.border,
+        borderLeftWidth: 1,
+        paddingTop: 48,
+    },
+    drawerHeader: {
+        flexDirection: 'row',
+        alignItems: 'center',
+        gap: spacing.sm,
+        paddingHorizontal: spacing.md,
+        paddingBottom: spacing.sm,
+    },
+    drawerFilter: {
+        flex: 1,
+        backgroundColor: colors.card,
+        borderColor: colors.border,
+        borderWidth: 1,
+        borderRadius: 8,
+        color: colors.text,
+        paddingHorizontal: spacing.md,
+        paddingVertical: 6,
+        fontSize: 14,
+    },
+    drawerClose: { padding: spacing.xs },
+    drawerRow: {
+        flexDirection: 'row',
+        alignItems: 'center',
+        gap: spacing.sm,
+        paddingHorizontal: spacing.lg,
+        paddingVertical: 10,
+        borderBottomColor: colors.border,
+        borderBottomWidth: StyleSheet.hairlineWidth,
+    },
+    drawerName: { flex: 1, color: colors.text, fontSize: 14 },
+    drawerNameOn: { color: colors.accent, fontWeight: '700' },
     castBar: {
         position: 'absolute',
         bottom: 32,

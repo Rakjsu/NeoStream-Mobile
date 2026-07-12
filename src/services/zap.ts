@@ -35,6 +35,19 @@ export function zapBy(delta: number): ZapChannel | null {
     return list[index] ?? null
 }
 
+/** A lista inteira do contexto (gaveta de canais do player). */
+export function zapList(): ZapChannel[] {
+    return list
+}
+
+/** Pula direto pra um canal da lista (gaveta) e devolve ele. */
+export function zapTo(id: string): ZapChannel | null {
+    const target = list.findIndex(c => c.id === id)
+    if (target < 0) return null
+    index = target
+    return list[target] ?? null
+}
+
 export function clearZapContext(): void {
     list = []
     index = -1

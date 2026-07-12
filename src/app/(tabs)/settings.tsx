@@ -5,6 +5,7 @@ import { useCallback, useState } from 'react'
 import { Alert, Linking, ScrollView, Share, StyleSheet, Text, TextInput, TouchableOpacity, View } from 'react-native'
 import { disableAppLock, enableAppLock, loadAppLock } from '../../services/appLock'
 import { applyCapturePolicy } from '../../services/privacy'
+import { isDataSaverEnabled, setDataSaver } from '../../services/dataSaver'
 import { getDownloadLimitGb, listDownloads, setDownloadLimitGb } from '../../services/downloads'
 import { applyBackup, collectBackup, parseBackup, serializeBackup } from '../../services/backup'
 import { disableParental, enableParental, isValidPin, loadParental } from '../../services/parental'
@@ -40,6 +41,7 @@ export default function SettingsTab() {
     const [editingId, setEditingId] = useState<string | null>(null)
     const [dlLimit, setDlLimit] = useState(0)
     const [dlBytes, setDlBytes] = useState(0)
+    const [dataSaver, setDataSaverState] = useState(false)
     const [updateMsg, setUpdateMsg] = useState('')
     const [usage, setUsage] = useState<UsageSummary>({ totals: { live: 0, movie: 0, episode: 0 }, totalMinutes: 0 })
     const [usageDays, setUsageDays] = useState<{ day: string; minutes: number }[]>([])
@@ -57,6 +59,7 @@ export default function SettingsTab() {
         void loadParental().then(state => setParentalOn(state.enabled))
         void loadAppLock().then(state => setLockOn(state.enabled))
         void getDownloadLimitGb().then(setDlLimit)
+        void isDataSaverEnabled().then(setDataSaverState)
         refreshStorage()
         void loadUsage().then(map => {
             const today = dayKey(Date.now())
@@ -354,6 +357,24 @@ export default function SettingsTab() {
                     ))}
                 </View>
                 <Text style={styles.parentalHint}>{tf('usedSpace', { mb: Math.round(dlBytes / 1048576) })}</Text>
+                <TouchableOpacity
+                    style={styles.saverRow}
+                    onPress={() => {
+                        const next = !dataSaver
+                        setDataSaverState(next)
+                        void setDataSaver(next)
+                    }}
+                >
+                    <Ionicons
+                        name={dataSaver ? 'checkbox' : 'square-outline'}
+                        size={20}
+                        color={dataSaver ? colors.accent : colors.textDim}
+                    />
+                    <View style={{ flex: 1 }}>
+                        <Text style={styles.saverTitle}>{t('dataSaverTitle')}</Text>
+                        <Text style={styles.parentalHint}>{t('dataSaverHint')}</Text>
+                    </View>
+                </TouchableOpacity>
             </View>
 
             <Text style={styles.section}>{t('secHistory')}</Text>
@@ -536,6 +557,8 @@ const styles = StyleSheet.create({
     parentalBtnText: { color: '#fff', fontSize: 14, fontWeight: '600' },
     pinError: { color: colors.danger, fontSize: 13 },
     limitRow: { flexDirection: 'row', flexWrap: 'wrap', gap: spacing.sm },
+    saverRow: { flexDirection: 'row', alignItems: 'flex-start', gap: spacing.md, paddingTop: 4, paddingBottom: spacing.sm },
+    saverTitle: { color: colors.text, fontSize: 14, fontWeight: '600' },
     diagRow: { flexDirection: 'row', alignItems: 'center', gap: spacing.sm },
     usageBars: {
         flexDirection: 'row',

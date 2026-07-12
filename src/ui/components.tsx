@@ -7,6 +7,7 @@ import type { ProgressEntry } from '../services/progress'
 import { progressPct } from '../services/progress'
 import type { Category } from '../services/xtream'
 import { t } from '../i18n/strings'
+import { skipImages } from '../services/dataSaver'
 import { colors, spacing } from './theme'
 
 export function SearchBar({ value, onChange, placeholder }: {
@@ -56,7 +57,7 @@ export function EmptyState({ icon, label }: { icon: keyof typeof Ionicons.glyphM
 export function PosterCard({ name, cover, fav }: { name: string; cover?: string; fav?: boolean }) {
     return (
         <View style={styles.poster}>
-            {cover ? (
+            {cover && !skipImages() ? (
                 <Image source={{ uri: cover }} style={styles.posterImg} resizeMode="cover" />
             ) : (
                 <View style={[styles.posterImg, styles.posterFallback]}>
@@ -136,7 +137,7 @@ export function ContinueRail({ entries, onPlay, onRemove }: {
                         onLongPress={onRemove ? () => onRemove(item) : undefined}
                         delayLongPress={350}
                     >
-                        {item.cover ? (
+                        {item.cover && !skipImages() ? (
                             <Image source={{ uri: item.cover }} style={styles.railImg} resizeMode="cover" />
                         ) : (
                             <View style={[styles.railImg, styles.posterFallback]}>
@@ -183,7 +184,7 @@ export function PosterRail({ title, items, onPress }: {
                 contentContainerStyle={{ paddingHorizontal: spacing.md }}
                 renderItem={({ item }) => (
                     <TouchableOpacity style={styles.posterRailCard} onPress={() => onPress(item)}>
-                        {item.cover ? (
+                        {item.cover && !skipImages() ? (
                             <Image source={{ uri: item.cover }} style={styles.posterRailImg} resizeMode="cover" />
                         ) : (
                             <View style={[styles.posterRailImg, styles.posterFallback]}>
@@ -216,7 +217,7 @@ export function ChannelRail({ title, items, onPress }: {
                 contentContainerStyle={{ paddingHorizontal: spacing.md }}
                 renderItem={({ item }) => (
                     <TouchableOpacity style={styles.chRailCard} onPress={() => onPress(item)}>
-                        {item.logo ? (
+                        {item.logo && !skipImages() ? (
                             <Image source={{ uri: item.logo }} style={styles.chRailLogo} resizeMode="contain" />
                         ) : (
                             <View style={[styles.chRailLogo, styles.posterFallback]}>

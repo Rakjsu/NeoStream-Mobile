@@ -13,7 +13,7 @@ import {
     accountLabel, getClient, listAccounts, loadAccount, removeAccount, renameAccount, switchAccount,
     type StoredAccount,
 } from '../../services/session'
-import { dayKey, formatMinutes, loadUsage, summarize, type UsageSummary } from '../../services/usage'
+import { dayKey, formatMinutes, lastDays, loadUsage, summarize, type UsageSummary } from '../../services/usage'
 import { parseExpiry } from '../../services/xtream'
 import { colors, spacing } from '../../ui/theme'
 import { t, tf } from '../../i18n/strings'
@@ -41,6 +41,7 @@ export default function SettingsTab() {
     const [dlBytes, setDlBytes] = useState(0)
     const [updateMsg, setUpdateMsg] = useState('')
     const [usage, setUsage] = useState<UsageSummary>({ totals: { live: 0, movie: 0, episode: 0 }, totalMinutes: 0 })
+    const [usageDays, setUsageDays] = useState<{ day: string; minutes: number }[]>([])
     const [aliasDraft, setAliasDraft] = useState('')
     const [importText, setImportText] = useState('')
     const [backupMsg, setBackupMsg] = useState('')
@@ -56,7 +57,11 @@ export default function SettingsTab() {
         void loadAppLock().then(state => setLockOn(state.enabled))
         void getDownloadLimitGb().then(setDlLimit)
         refreshStorage()
-        void loadUsage().then(map => setUsage(summarize(map, dayKey(Date.now()))))
+        void loadUsage().then(map => {
+            const today = dayKey(Date.now())
+            setUsage(summarize(map, today))
+            setUsageDays(lastDays(map, today))
+        })
     }, [refreshStorage])
 
     useFocusEffect(useCallback(() => { queueMicrotask(refresh) }, [refresh]))
@@ -292,10 +297,39 @@ export default function SettingsTab() {
             <Text style={styles.section}>{t('secUsage')}</Text>
             <View style={styles.card}>
                 <InfoRow label={t('usageWeek')} value="" />
+                <View style={styles.usageBars}>
+                    {usageDays.map(entry => {
+                        const peak = Math.max(1, ...usageDays.map(d => d.minutes))
+                        return (
+                            <View key={entry.day} style={styles.usageBarSlot}>
+                                <View style={[styles.usageBar, { height: Math.max(3, Math.round((entry.minutes / peak) * 44)) }]} />
+                                <Text style={styles.usageBarLabel}>{entry.day.slice(8)}</Text>
+                            </View>
+                        )
+                    })}
+                </View>
                 <InfoRow label={t('tabLive')} value={formatMinutes(usage.totals.live)} />
                 <InfoRow label={t('tabMovies')} value={formatMinutes(usage.totals.movie)} />
                 <InfoRow label={t('tabSeries')} value={formatMinutes(usage.totals.episode)} />
                 <InfoRow label={t('usageTotal')} value={formatMinutes(usage.totalMinutes)} />
+                <View style={{ paddingVertical: spacing.md }}>
+                    <TouchableOpacity
+                        style={styles.backupBtn}
+                        onPress={() => {
+                            void Share.share({
+                                message: tf('usageShare', {
+                                    total: formatMinutes(usage.totalMinutes),
+                                    live: formatMinutes(usage.totals.live),
+                                    movie: formatMinutes(usage.totals.movie),
+                                    episode: formatMinutes(usage.totals.episode),
+                                }),
+                            }).catch(() => undefined)
+                        }}
+                    >
+                        <Ionicons name="share-social-outline" size={16} color="#fff" />
+                        <Text style={styles.backupBtnText}>{t('shareUsageBtn')}</Text>
+                    </TouchableOpacity>
+                </View>
             </View>
 
             <Text style={styles.section}>{t('secStorage')}</Text>
@@ -501,6 +535,15 @@ const styles = StyleSheet.create({
     pinError: { color: colors.danger, fontSize: 13 },
     limitRow: { flexDirection: 'row', flexWrap: 'wrap', gap: spacing.sm },
     diagRow: { flexDirection: 'row', alignItems: 'center', gap: spacing.sm },
+    usageBars: {
+        flexDirection: 'row',
+        alignItems: 'flex-end',
+        gap: spacing.sm,
+        paddingVertical: spacing.md,
+    },
+    usageBarSlot: { flex: 1, alignItems: 'center', gap: 4 },
+    usageBar: { width: '70%', backgroundColor: colors.accent, borderRadius: 3, opacity: 0.9 },
+    usageBarLabel: { color: colors.textDim, fontSize: 10 },
     ghRow: { flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: spacing.sm, paddingVertical: 4 },
     ghText: { color: colors.textDim, fontSize: 13, fontWeight: '600' },
     diagLabel: { flex: 1, color: colors.text, fontSize: 14 },

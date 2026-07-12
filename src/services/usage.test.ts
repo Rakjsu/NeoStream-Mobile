@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest'
-import { addMinutes, dayKey, formatMinutes, summarize, type UsageMap } from './usage'
+import { addMinutes, dayKey, formatMinutes, lastDays, summarize, type UsageMap } from './usage'
 
 describe('dayKey', () => {
     it('formata YYYY-MM-DD', () => {
@@ -43,5 +43,22 @@ describe('formatMinutes', () => {
         expect(formatMinutes(205)).toBe('3h 25min')
         expect(formatMinutes(45)).toBe('45min')
         expect(formatMinutes(0)).toBe('0min')
+    })
+})
+
+describe('lastDays', () => {
+    it('devolve a janela completa (zeros incluídos), do mais antigo pra hoje', () => {
+        const map: UsageMap = { '2026-07-12': { live: 30 }, '2026-07-10': { movie: 60 } }
+        const days = lastDays(map, '2026-07-12', 3)
+        expect(days).toEqual([
+            { day: '2026-07-10', minutes: 60 },
+            { day: '2026-07-11', minutes: 0 },
+            { day: '2026-07-12', minutes: 30 },
+        ])
+    })
+
+    it('atravessa viradas de mês', () => {
+        const days = lastDays({}, '2026-08-01', 2)
+        expect(days.map(d => d.day)).toEqual(['2026-07-31', '2026-08-01'])
     })
 })

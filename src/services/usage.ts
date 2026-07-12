@@ -49,6 +49,19 @@ export function summarize(map: UsageMap, todayKey: string, windowDays = 7): Usag
     return { totals, totalMinutes: totals.live + totals.movie + totals.episode }
 }
 
+/** Os últimos `n` dias (mais antigo → hoje), com zero nos dias sem uso (PURO). */
+export function lastDays(map: UsageMap, todayKey: string, n = 7): { day: string; minutes: number }[] {
+    const [year, month, day] = todayKey.split('-').map(Number)
+    const series: { day: string; minutes: number }[] = []
+    for (let offset = n - 1; offset >= 0; offset--) {
+        const date = new Date(Date.UTC(year, month - 1, day - offset))
+        const key = `${date.getUTCFullYear()}-${String(date.getUTCMonth() + 1).padStart(2, '0')}-${String(date.getUTCDate()).padStart(2, '0')}`
+        const kinds = map[key] ?? {}
+        series.push({ day: key, minutes: (kinds.live ?? 0) + (kinds.movie ?? 0) + (kinds.episode ?? 0) })
+    }
+    return series
+}
+
 /** 205 → "3h 25min"; 45 → "45min". */
 export function formatMinutes(minutes: number): string {
     const hours = Math.floor(minutes / 60)

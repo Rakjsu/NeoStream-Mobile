@@ -3,6 +3,7 @@ import { useEffect } from 'react'
 import { StatusBar } from 'expo-status-bar'
 import { onNotificationRoute } from '../services/notify'
 import { setupShortcuts } from '../services/shortcuts'
+import { ErrorBoundary } from '../ui/ErrorBoundary'
 import { colors } from '../ui/theme'
 import { t } from '../i18n/strings'
 
@@ -14,7 +15,7 @@ export default function RootLayout() {
     useEffect(() => setupShortcuts(href => router.push(href)), [])
 
     return (
-        <>
+        <ErrorBoundary>
             <StatusBar style="light" />
             <Stack
                 screenOptions={{
@@ -33,6 +34,6 @@ export default function RootLayout() {
                 <Stack.Screen name="movie/[id]" options={{ title: '' }} />
                 <Stack.Screen name="downloads" options={{ title: t('downloadsTitle') }} />
             </Stack>
-        </>
+        </ErrorBoundary>
     )
 }

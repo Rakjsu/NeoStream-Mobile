@@ -4,6 +4,7 @@ import { router, useFocusEffect } from 'expo-router'
 import { useCallback, useState } from 'react'
 import { Alert, Linking, ScrollView, Share, StyleSheet, Text, TextInput, TouchableOpacity, View } from 'react-native'
 import { disableAppLock, enableAppLock, loadAppLock } from '../../services/appLock'
+import { applyCapturePolicy } from '../../services/privacy'
 import { getDownloadLimitGb, listDownloads, setDownloadLimitGb } from '../../services/downloads'
 import { applyBackup, collectBackup, parseBackup, serializeBackup } from '../../services/backup'
 import { disableParental, enableParental, isValidPin, loadParental } from '../../services/parental'
@@ -285,6 +286,7 @@ export default function SettingsTab() {
                                 if (!ok) { setLockError(t('pinWrong')); return }
                                 setLockPin('')
                                 setLockOn(!lockOn)
+                                void applyCapturePolicy()
                             })()
                         }}
                     >

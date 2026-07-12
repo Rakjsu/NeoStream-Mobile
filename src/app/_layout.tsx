@@ -3,6 +3,7 @@ import { useEffect } from 'react'
 import { StatusBar } from 'expo-status-bar'
 import { onNotificationRoute } from '../services/notify'
 import { setupShortcuts } from '../services/shortcuts'
+import { applyCapturePolicy } from '../services/privacy'
 import { ErrorBoundary } from '../ui/ErrorBoundary'
 import { colors } from '../ui/theme'
 import { t } from '../i18n/strings'
@@ -13,6 +14,9 @@ export default function RootLayout() {
 
     // Atalhos do ícone do app (launcher) → rota direta.
     useEffect(() => setupShortcuts(href => router.push(href)), [])
+
+    // Bloqueio do app ligado → sem screenshot nem preview no multitarefa.
+    useEffect(() => { void applyCapturePolicy() }, [])
 
     return (
         <ErrorBoundary>

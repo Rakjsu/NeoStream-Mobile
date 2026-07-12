@@ -4,6 +4,7 @@ import { router, useFocusEffect } from 'expo-router'
 import { useCallback, useEffect, useState } from 'react'
 import { Alert, Linking, RefreshControl, ScrollView, StyleSheet, Text, TouchableOpacity, View } from 'react-native'
 import { loadFavorites } from '../../services/favorites'
+import { listRecentChannels, recordRecentChannel } from '../../services/recents'
 import { allowedCategoryIds, loadParental } from '../../services/parental'
 import { listContinue, loadProgress, removeEntry, type ProgressEntry } from '../../services/progress'
 import { cachedFetch, getClient } from '../../services/session'
@@ -29,6 +30,7 @@ export default function HomeTab() {
     const [continueList, setContinueList] = useState<ProgressEntry[]>([])
     const [favPosters, setFavPosters] = useState<RailItem[]>([])
     const [favChannels, setFavChannels] = useState<{ id: string; name: string; logo: string }[]>([])
+    const [recentChannels, setRecentChannels] = useState<{ id: string; name: string; logo: string }[]>([])
     const [newMovies, setNewMovies] = useState<RailItem[]>([])
     const [newSeries, setNewSeries] = useState<RailItem[]>([])
     const [update, setUpdate] = useState<UpdateInfo | null>(null)
@@ -37,7 +39,7 @@ export default function HomeTab() {
         try {
             const client = await getClient()
             if (!client) { router.replace('/login'); return }
-            const [live, vod, shows, liveCats, vodCats, seriesCats, favorites, parental, progress] = await Promise.all([
+            const [live, vod, shows, liveCats, vodCats, seriesCats, favorites, parental, progress, recents] = await Promise.all([
                 cachedFetch('live', () => client.getLiveChannels(), force),
                 cachedFetch('vod', () => client.getVodMovies(), force),
                 cachedFetch('series', () => client.getSeries(), force),
@@ -47,6 +49,7 @@ export default function HomeTab() {
                 loadFavorites(),
                 loadParental(),
                 loadProgress(),
+                listRecentChannels(),
             ])
 
             const allowedLive = allowedCategoryIds(liveCats, parental.enabled)
@@ -78,6 +81,14 @@ export default function HomeTab() {
                     .slice(0, RAIL_MAX)
                     .map(c => ({ id: String(c.stream_id), name: c.name, logo: c.stream_icon || '' })),
             )
+
+            // Recentes: nome/logo atualizados pela lista viva + filtro parental.
+            const liveById = new Map(live.map(c => [String(c.stream_id), c]))
+            setRecentChannels(recents.flatMap(recent => {
+                const channel = liveById.get(recent.id)
+                if (!channel || !pass(allowedLive, channel.category_id)) return []
+                return [{ id: recent.id, name: channel.name, logo: channel.stream_icon || recent.logo }]
+            }).slice(0, RAIL_MAX))
 
             setNewMovies([...visibleVod].sort((a, b) => epoch(b.added) - epoch(a.added)).slice(0, RAIL_MAX).map(movieRail))
             setNewSeries([...visibleShows].sort((a, b) => epoch(b.last_modified) - epoch(a.last_modified)).slice(0, RAIL_MAX).map(seriesRail))
@@ -128,10 +139,11 @@ export default function HomeTab() {
         })
     }
 
-    const playChannel = async (channel: { id: string; name: string }) => {
+    const playChannel = async (channel: { id: string; name: string; logo?: string }, context: { id: string; name: string }[]) => {
         const client = await getClient()
         if (!client) return
-        setZapContext(favChannels.map(c => ({ id: c.id, name: c.name })), channel.id)
+        setZapContext(context.map(c => ({ id: c.id, name: c.name })), channel.id)
+        void recordRecentChannel({ id: channel.id, name: channel.name, logo: channel.logo ?? '' })
         router.push({
             pathname: '/player',
             params: { url: client.liveStreamUrl(channel.id), title: channel.name, live: '1' },
@@ -155,7 +167,7 @@ export default function HomeTab() {
 
     if (!ready) return <Loading label={t('loadingHome')} />
 
-    const empty = continueList.length === 0 && favPosters.length === 0 && favChannels.length === 0
+    const empty = continueList.length === 0 && favPosters.length === 0 && favChannels.length === 0 && recentChannels.length === 0
         && newMovies.length === 0 && newSeries.length === 0
 
     return (
@@ -186,7 +198,8 @@ export default function HomeTab() {
                 <View style={{ gap: spacing.md }}>
                     <ContinueRail entries={continueList} onPlay={entry => void resume(entry)} onRemove={confirmRemoveContinue} />
                     <PosterRail title={t('favRail')} items={favPosters} onPress={openRailItem} />
-                    <ChannelRail title={t('favChannelsRail')} items={favChannels} onPress={item => void playChannel(item)} />
+                    <ChannelRail title={t('recentChannelsRail')} items={recentChannels} onPress={item => void playChannel(item, recentChannels)} />
+                    <ChannelRail title={t('favChannelsRail')} items={favChannels} onPress={item => void playChannel(item, favChannels)} />
                     <PosterRail title={t('newMoviesRail')} items={newMovies} onPress={openRailItem} />
                     <PosterRail title={t('newSeriesRail')} items={newSeries} onPress={openRailItem} />
                 </View>

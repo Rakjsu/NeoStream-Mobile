@@ -3,6 +3,7 @@ import { router } from 'expo-router'
 import { useCallback, useEffect, useMemo, useState } from 'react'
 import { Image, ScrollView, StyleSheet, Text, TouchableOpacity, View } from 'react-native'
 import { allowedCategoryIds, loadParental } from '../../services/parental'
+import { recordRecentChannel } from '../../services/recents'
 import { cachedFetch, getClient } from '../../services/session'
 import type { Category, LiveChannel, SeriesItem, VodMovie } from '../../services/xtream'
 import { setZapContext } from '../../services/zap'
@@ -75,6 +76,7 @@ export default function SearchTab() {
         const client = await getClient()
         if (!client) return
         setZapContext(results.channels.map(c => ({ id: String(c.stream_id), name: c.name })), String(channel.stream_id))
+        void recordRecentChannel({ id: String(channel.stream_id), name: channel.name, logo: channel.stream_icon || '' })
         router.push({
             pathname: '/player',
             params: { url: client.liveStreamUrl(channel.stream_id), title: channel.name, live: '1' },

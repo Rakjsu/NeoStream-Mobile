@@ -4,6 +4,7 @@ import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { FlatList, Image, RefreshControl, StyleSheet, Text, TouchableOpacity, View, type ViewToken } from 'react-native'
 import { emptyFavorites, isFavorite, persistToggle, loadFavorites, type Favorites } from '../../services/favorites'
 import { allowedCategoryIds, loadParental } from '../../services/parental'
+import { recordRecentChannel } from '../../services/recents'
 import { cachedFetch, getClient } from '../../services/session'
 import type { Category, LiveChannel, NowNext } from '../../services/xtream'
 import { setZapContext } from '../../services/zap'
@@ -64,6 +65,7 @@ export default function LiveTab() {
         if (!client) return
         // A lista FILTRADA vira o contexto de zapping (⏮/⏭ no player).
         setZapContext(filtered.map(c => ({ id: String(c.stream_id), name: c.name })), String(channel.stream_id))
+        void recordRecentChannel({ id: String(channel.stream_id), name: channel.name, logo: channel.stream_icon || '' })
         router.push({
             pathname: '/player',
             params: { url: client.liveStreamUrl(channel.stream_id), title: channel.name, live: '1' },

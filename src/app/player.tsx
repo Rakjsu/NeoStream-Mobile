@@ -10,6 +10,7 @@ import { getDownload } from '../services/downloads'
 import { castAvailable, castToCurrentSession, onCastSessionStarted, showCastPicker, type CastControls } from '../services/cast'
 import { nextEpisodeAfter, type QueuedEpisode } from '../services/episodeQueue'
 import { getEntry, resumePosition, saveSample, type ProgressKind } from '../services/progress'
+import { recordRecentChannel } from '../services/recents'
 import { cachedFetch, getClient } from '../services/session'
 import { hasZapContext, zapBy } from '../services/zap'
 import { colors, spacing } from '../ui/theme'
@@ -158,6 +159,7 @@ export default function Player() {
             player.play()
             setLiveTitle(channel.name)
             setLiveEpg('')
+            void recordRecentChannel({ id: channel.id, name: channel.name, logo: '' })
             showEpg(channel.id)
         })()
     }

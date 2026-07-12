@@ -12,10 +12,11 @@ import { getDownload } from '../services/downloads'
 import { castAvailable, castToCurrentSession, onCastSessionStarted, showCastPicker, type CastControls } from '../services/cast'
 import { nextEpisodeAfter, type QueuedEpisode } from '../services/episodeQueue'
 import { getEntry, resumePosition, saveSample, type ProgressKind } from '../services/progress'
-import { recordRecentChannel } from '../services/recents'
+import { listRecentChannels, recordRecentChannel } from '../services/recents'
+import { loadFavorites } from '../services/favorites'
 import { cachedFetch, getClient } from '../services/session'
 import { recordWatchMinute } from '../services/usage'
-import { hasZapContext, zapBy, zapList, zapTo, type ZapChannel } from '../services/zap'
+import { hasZapContext, rankChannels, zapBy, zapList, zapTo, type ZapChannel } from '../services/zap'
 import { colors, spacing } from '../ui/theme'
 import { t, tf } from '../i18n/strings'
 
@@ -193,10 +194,25 @@ export default function Player() {
     }
 
     // Gaveta de canais: lista do contexto de zap com filtro; toque troca direto.
+    // Favoritos e recentes sobem pro topo (carregados ao abrir a gaveta).
     const [channelsOpen, setChannelsOpen] = useState(false)
     const [channelFilter, setChannelFilter] = useState('')
+    const [drawerFavs, setDrawerFavs] = useState<Set<string>>(new Set())
+    const [drawerRecents, setDrawerRecents] = useState<string[]>([])
+
+    const openDrawer = () => {
+        setChannelFilter('')
+        setChannelsOpen(true)
+        void loadFavorites().then(favorites => setDrawerFavs(new Set(favorites.live)))
+        void listRecentChannels().then(recents => setDrawerRecents(recents.map(channel => channel.id)))
+    }
+
     const drawerChannels = channelsOpen
-        ? zapList().filter(channel => channel.name.toLowerCase().includes(channelFilter.trim().toLowerCase()))
+        ? rankChannels(
+            zapList().filter(channel => channel.name.toLowerCase().includes(channelFilter.trim().toLowerCase())),
+            drawerFavs,
+            drawerRecents,
+        )
         : []
 
 
@@ -482,7 +498,7 @@ export default function Player() {
                     <TouchableOpacity
                         style={styles.zapBtn}
                         accessibilityLabel={t('a11yChannels')}
-                        onPress={() => { setChannelFilter(''); setChannelsOpen(true) }}
+                        onPress={openDrawer}
                     >
                         <Ionicons name="list" size={24} color={colors.text} />
                     </TouchableOpacity>

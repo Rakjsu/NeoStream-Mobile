@@ -35,6 +35,22 @@ export function zapBy(delta: number): ZapChannel | null {
     return list[index] ?? null
 }
 
+/**
+ * Ordena a gaveta: favoritos primeiro, depois recentes (na ordem de uso),
+ * resto na ordem original (sort estável) — PURO.
+ */
+export function rankChannels(channels: ZapChannel[], favorites: Set<string>, recents: string[]): ZapChannel[] {
+    const recentRank = new Map(recents.map((id, position) => [id, position]))
+    return [...channels].sort((a, b) => {
+        const aFav = favorites.has(a.id) ? 0 : 1
+        const bFav = favorites.has(b.id) ? 0 : 1
+        if (aFav !== bFav) return aFav - bFav
+        const aRecent = recentRank.get(a.id) ?? Number.POSITIVE_INFINITY
+        const bRecent = recentRank.get(b.id) ?? Number.POSITIVE_INFINITY
+        return aRecent - bRecent
+    })
+}
+
 /** A lista inteira do contexto (gaveta de canais do player). */
 export function zapList(): ZapChannel[] {
     return list

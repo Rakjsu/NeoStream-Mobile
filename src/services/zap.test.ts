@@ -1,5 +1,5 @@
 import { describe, it, expect, beforeEach } from 'vitest'
-import { clearZapContext, hasZapContext, setZapContext, wrapIndex, zapBy } from './zap'
+import { clearZapContext, hasZapContext, setZapContext, wrapIndex, zapBy, rankChannels } from './zap'
 
 describe('wrapIndex (vizinho com volta)', () => {
     it('anda pra frente e pra trás com wrap', () => {
@@ -38,5 +38,20 @@ describe('contexto de zapping', () => {
         setZapContext(canais, '1')
         clearZapContext()
         expect(zapBy(1)).toBeNull()
+    })
+})
+
+describe('rankChannels (gaveta esperta)', () => {
+    const ch = (id: string) => ({ id, name: `Canal ${id}` })
+
+    it('favoritos primeiro, recentes em ordem de uso, resto na ordem original', () => {
+        const list = [ch('1'), ch('2'), ch('3'), ch('4'), ch('5')]
+        const ranked = rankChannels(list, new Set(['4']), ['3', '5'])
+        expect(ranked.map(c => c.id)).toEqual(['4', '3', '5', '1', '2'])
+    })
+
+    it('sem favoritos nem recentes, mantém a ordem', () => {
+        const list = [ch('a'), ch('b')]
+        expect(rankChannels(list, new Set(), []).map(c => c.id)).toEqual(['a', 'b'])
     })
 })

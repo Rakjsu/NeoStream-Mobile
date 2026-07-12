@@ -12,6 +12,8 @@ import { getDownloadLimitGb, listDownloads, setDownloadLimitGb } from '../../ser
 import { captureRef } from 'react-native-view-shot'
 import * as Sharing from 'expo-sharing'
 import { listAutoBackups, readAutoBackup, type AutoBackupFile } from '../../services/autoBackup'
+import { listErrors, type LoggedError } from '../../services/errorLog'
+import { listHiddenChannels, unhideChannel, type HiddenChannel } from '../../services/hidden'
 import { applyBackup, collectBackup, parseBackup, serializeBackup } from '../../services/backup'
 import { disableParental, enableParental, isValidPin, loadParental } from '../../services/parental'
 import { clearHistory } from '../../services/progress'
@@ -57,6 +59,8 @@ export default function SettingsTab() {
     const [importText, setImportText] = useState('')
     const [backupMsg, setBackupMsg] = useState('')
     const [autoCopies, setAutoCopies] = useState<AutoBackupFile[]>([])
+    const [hiddenList, setHiddenList] = useState<HiddenChannel[]>([])
+    const [errorList, setErrorList] = useState<LoggedError[]>([])
 
     const refreshStorage = useCallback(() => {
         void listDownloads().then(items => setDlBytes(items.reduce((sum, item) => sum + item.sizeBytes, 0)))
@@ -68,6 +72,8 @@ export default function SettingsTab() {
         void loadParental().then(state => setParentalOn(state.enabled))
         void loadAppLock().then(state => setLockOn(state.enabled))
         void listAutoBackups().then(setAutoCopies)
+        void listHiddenChannels().then(setHiddenList)
+        void listErrors().then(setErrorList)
         void getDownloadLimitGb().then(setDlLimit)
         void isDataSaverEnabled().then(setDataSaverState)
         refreshStorage()
@@ -426,6 +432,27 @@ export default function SettingsTab() {
                 </TouchableOpacity>
             </View>
 
+            <Text style={styles.section}>{t('hiddenSection')}</Text>
+            <View style={[styles.card, { paddingVertical: spacing.md, gap: spacing.sm }]}>
+                {hiddenList.length === 0 ? (
+                    <Text style={styles.parentalHint}>{t('hiddenNone')}</Text>
+                ) : hiddenList.map(channel => (
+                    <View key={channel.id} style={styles.diagRow}>
+                        <Ionicons name="eye-off-outline" size={16} color={colors.textDim} />
+                        <Text style={styles.diagLabel} numberOfLines={1}>{channel.name}</Text>
+                        <TouchableOpacity
+                            onPress={() => {
+                                void unhideChannel(channel.id)
+                                    .then(listHiddenChannels)
+                                    .then(setHiddenList)
+                            }}
+                        >
+                            <Text style={styles.unhideText}>{t('unhide')}</Text>
+                        </TouchableOpacity>
+                    </View>
+                ))}
+            </View>
+
             <Text style={styles.section}>{t('secHistory')}</Text>
             <View style={[styles.card, { paddingVertical: spacing.md, gap: spacing.md }]}>
                 <Text style={styles.parentalHint}>{t('historyHint')}</Text>
@@ -583,6 +610,19 @@ export default function SettingsTab() {
                     <Text style={styles.backupBtnText}>{updateMsg === 'checking' ? t('testing') : t('checkUpdateBtn')}</Text>
                 </TouchableOpacity>
                 {updateMsg && updateMsg !== 'checking' ? <Text style={styles.parentalHint}>{updateMsg}</Text> : null}
+                <Text style={styles.parentalHint}>
+                    {errorList.length === 0 ? t('errorsNone') : t('lastErrors')}
+                </Text>
+                {errorList.map(entry => (
+                    <TouchableOpacity
+                        key={entry.at}
+                        onPress={() => void Share.share({ message: `${new Date(entry.at).toISOString()} — ${entry.message}` }).catch(() => undefined)}
+                    >
+                        <Text style={styles.errorLine} numberOfLines={2}>
+                            {new Date(entry.at).toLocaleString()} — {entry.message}
+                        </Text>
+                    </TouchableOpacity>
+                ))}
                 <TouchableOpacity
                     style={styles.ghRow}
                     onPress={() => void Linking.openURL('https://github.com/Rakjsu/NeoStream-Mobile/releases')}
@@ -671,6 +711,8 @@ const styles = StyleSheet.create({
     saverRow: { flexDirection: 'row', alignItems: 'flex-start', gap: spacing.md, paddingTop: 4, paddingBottom: spacing.sm },
     saverTitle: { color: colors.text, fontSize: 14, fontWeight: '600' },
     diagRow: { flexDirection: 'row', alignItems: 'center', gap: spacing.sm },
+    unhideText: { color: colors.accent, fontSize: 13, fontWeight: '600' },
+    errorLine: { color: colors.textDim, fontSize: 11, fontFamily: 'monospace' },
     usageBars: {
         flexDirection: 'row',
         alignItems: 'flex-end',

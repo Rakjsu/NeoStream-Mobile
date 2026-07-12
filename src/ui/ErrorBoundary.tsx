@@ -6,6 +6,7 @@
 import { Ionicons } from '@expo/vector-icons'
 import { Component, type ReactNode } from 'react'
 import { ScrollView, StyleSheet, Text, TouchableOpacity, View } from 'react-native'
+import { recordError } from '../services/errorLog'
 import { t } from '../i18n/strings'
 import { colors, spacing } from './theme'
 
@@ -24,6 +25,10 @@ export class ErrorBoundary extends Component<Props, State> {
 
     static getDerivedStateFromError(error: Error): Partial<State> {
         return { error }
+    }
+
+    componentDidCatch(error: Error): void {
+        void recordError(error.message || String(error))
     }
 
     private reload = () => {

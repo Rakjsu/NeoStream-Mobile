@@ -1,16 +1,17 @@
 import { Ionicons } from '@expo/vector-icons'
 import { router } from 'expo-router'
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
-import { FlatList, Image, RefreshControl, StyleSheet, Text, TouchableOpacity, View, type ViewToken } from 'react-native'
+import { Alert, FlatList, Image, RefreshControl, StyleSheet, Text, TouchableOpacity, View, type ViewToken } from 'react-native'
 import { emptyFavorites, isFavorite, persistToggle, loadFavorites, type Favorites } from '../../services/favorites'
 import { allowedCategoryIds, loadParental } from '../../services/parental'
+import { hiddenIdSet, hideChannel } from '../../services/hidden'
 import { recordRecentChannel } from '../../services/recents'
 import { cachedFetch, getClient } from '../../services/session'
 import type { Category, LiveChannel, NowNext } from '../../services/xtream'
 import { setZapContext } from '../../services/zap'
 import { CategoryChips, EmptyState, Loading, SearchBar } from '../../ui/components'
 import { colors, spacing } from '../../ui/theme'
-import { t } from '../../i18n/strings'
+import { t, tf } from '../../i18n/strings'
 
 const VIEWABILITY = { itemVisiblePercentThreshold: 30 }
 
@@ -23,6 +24,7 @@ export default function LiveTab() {
     const [refreshing, setRefreshing] = useState(false)
     const [error, setError] = useState('')
     const [allowed, setAllowed] = useState<Set<string> | null>(null)
+    const [hidden, setHidden] = useState<Set<string>>(new Set())
     // EPG por canal, buscado quando a linha entra na tela (nunca em massa).
     const [epgMap, setEpgMap] = useState<Record<string, NowNext>>({})
     const epgInFlight = useRef(new Set<string>())
@@ -31,12 +33,14 @@ export default function LiveTab() {
         try {
             const client = await getClient()
             if (!client) { router.replace('/login'); return }
-            const [list, cats, favs, parental] = await Promise.all([
+            const [list, cats, favs, parental, hiddenIds] = await Promise.all([
                 cachedFetch('live', () => client.getLiveChannels(), force),
                 cachedFetch('live-cats', () => client.getLiveCategories(), force).catch(() => [] as Category[]),
                 loadFavorites(),
                 loadParental(),
+                hiddenIdSet(),
             ])
+            setHidden(hiddenIds)
             setChannels(list)
             setCategories(cats)
             setFavorites(favs)
@@ -57,8 +61,9 @@ export default function LiveTab() {
         if (category === 'fav') list = list.filter(c => isFavorite(favorites, 'live', String(c.stream_id)))
         else if (category !== 'all') list = list.filter(c => c.category_id === category)
         if (allowed) list = list.filter(item => !item.category_id || allowed.has(item.category_id))
+        if (hidden.size > 0) list = list.filter(item => !hidden.has(String(item.stream_id)))
         return q ? list.filter(c => c.name.toLowerCase().includes(q)) : list
-    }, [channels, query, category, favorites, allowed])
+    }, [channels, query, category, favorites, allowed, hidden])
 
     const play = async (channel: LiveChannel) => {
         const client = await getClient()
@@ -133,7 +138,25 @@ export default function LiveTab() {
                             ? `${t('nextUp')}${epg.next.title}`
                             : ''
                     return (
-                        <TouchableOpacity style={styles.row} onPress={() => void play(item)}>
+                        <TouchableOpacity
+                            style={styles.row}
+                            onPress={() => void play(item)}
+                            onLongPress={() => {
+                                Alert.alert(t('hideChannelTitle'), tf('hideChannelMsg', { name: item.name }), [
+                                    { text: t('cancel'), style: 'cancel' },
+                                    {
+                                        text: t('hide'),
+                                        style: 'destructive',
+                                        onPress: () => {
+                                            void hideChannel({ id: String(item.stream_id), name: item.name })
+                                                .then(hiddenIdSet)
+                                                .then(setHidden)
+                                        },
+                                    },
+                                ])
+                            }}
+                            delayLongPress={350}
+                        >
                             {item.stream_icon ? (
                                 <Image source={{ uri: item.stream_icon }} style={styles.logo} resizeMode="contain" />
                             ) : (

@@ -12,6 +12,7 @@ export type UsageMap = Record<string, Partial<Record<UsageKind, number>>>
 
 const STORAGE_KEY = 'neostream_usage'
 const TITLES_KEY = 'neostream_usage_titles'
+const MONTHS_KEY = 'neostream_usage_months'
 const KEEP_DAYS = 30
 
 /** Epoch ms → "YYYY-MM-DD" no fuso local. */
@@ -48,6 +49,44 @@ export function summarize(map: UsageMap, todayKey: string, windowDays = 7): Usag
         totals.episode += kinds.episode ?? 0
     }
     return { totals, totalMinutes: totals.live + totals.movie + totals.episode }
+}
+
+/** mês "YYYY-MM" → minutos por tipo (base do Wrapped anual). */
+export type MonthUsageMap = Record<string, Partial<Record<UsageKind, number>>>
+
+/** Epoch ms → "YYYY-MM" no fuso local. */
+export function monthKey(ms: number): string {
+    const date = new Date(ms)
+    return `${date.getFullYear()}-${String(date.getMonth() + 1).padStart(2, '0')}`
+}
+
+/** Soma 1 minuto num mês/tipo, sem mutar; mantém 24 meses (PURO). */
+export function addMonthMinute(map: MonthUsageMap, month: string, kind: UsageKind, keepMonths = 24): MonthUsageMap {
+    const next: MonthUsageMap = { ...map, [month]: { ...map[month], [kind]: (map[month]?.[kind] ?? 0) + 1 } }
+    const months = Object.keys(next).sort()
+    for (const stale of months.slice(0, Math.max(0, months.length - keepMonths))) delete next[stale]
+    return next
+}
+
+export interface YearSummary {
+    totals: Record<UsageKind, number>
+    totalMinutes: number
+    topMonth: { month: string; minutes: number } | null
+}
+
+/** Totais de um ano + mês mais assistido (PURO). */
+export function yearSummary(map: MonthUsageMap, year: number): YearSummary {
+    const totals: Record<UsageKind, number> = { live: 0, movie: 0, episode: 0 }
+    let topMonth: { month: string; minutes: number } | null = null
+    for (const [month, kinds] of Object.entries(map)) {
+        if (!month.startsWith(`${year}-`)) continue
+        const monthTotal = (kinds.live ?? 0) + (kinds.movie ?? 0) + (kinds.episode ?? 0)
+        totals.live += kinds.live ?? 0
+        totals.movie += kinds.movie ?? 0
+        totals.episode += kinds.episode ?? 0
+        if (!topMonth || monthTotal > topMonth.minutes) topMonth = { month, minutes: monthTotal }
+    }
+    return { totals, totalMinutes: totals.live + totals.movie + totals.episode, topMonth }
 }
 
 /** dia → "kind|título" → minutos (o que exatamente tocou). */
@@ -119,6 +158,16 @@ export async function loadUsage(): Promise<UsageMap> {
     }
 }
 
+export async function loadMonthUsage(): Promise<MonthUsageMap> {
+    try {
+        const raw = await AsyncStorage.getItem(MONTHS_KEY)
+        const parsed = raw ? (JSON.parse(raw) as MonthUsageMap) : {}
+        return parsed && typeof parsed === 'object' ? parsed : {}
+    } catch {
+        return {}
+    }
+}
+
 export async function loadTitleUsage(): Promise<TitleUsageMap> {
     try {
         const raw = await AsyncStorage.getItem(TITLES_KEY)
@@ -138,5 +187,7 @@ export async function recordWatchMinute(kind: UsageKind, nowMs = Date.now(), tit
             const titles = addTitleMinute(await loadTitleUsage(), dayKey(nowMs), kind, title)
             await AsyncStorage.setItem(TITLES_KEY, JSON.stringify(titles))
         }
+        const months = addMonthMinute(await loadMonthUsage(), monthKey(nowMs), kind)
+        await AsyncStorage.setItem(MONTHS_KEY, JSON.stringify(months))
     } catch { /* best-effort */ }
 }

@@ -170,6 +170,9 @@ export default function Player() {
     // progresso do receiver volta pro "continuar assistindo" a cada ~5s.
     const canCast = castAvailable()
     const [casting, setCasting] = useState<CastControls | null>(null)
+    // Episódio que a TV está tocando quando a fila avança (os params da rota
+    // ficam no episódio original; os efeitos usam castEp ?? params).
+    const [castEp, setCastEp] = useState<QueuedEpisode | null>(null)
     const [castPaused, setCastPaused] = useState(false)
     const castingRef = useRef(false)
     const lastCastSaveRef = useRef(0)
@@ -205,24 +208,55 @@ export default function Player() {
             lastCastSaveRef.current = now
             lastSample.current = { position: positionSec, duration: lastSample.current.duration }
             void saveSample({
-                id: String(pid),
+                id: castEp?.pid ?? String(pid),
                 kind: (kind === 'episode' ? 'episode' : 'movie') as ProgressKind,
-                streamId: String(sid),
-                container: String(container || 'mp4'),
-                title: String(title ?? ''),
-                cover: String(cover ?? ''),
+                streamId: castEp?.sid ?? String(sid),
+                container: castEp?.container ?? String(container || 'mp4'),
+                title: castEp?.title ?? String(title ?? ''),
+                cover: castEp?.cover ?? String(cover ?? ''),
                 position: positionSec,
-                duration: lastSample.current.duration,
+                duration: castEp ? 0 : lastSample.current.duration,
                 updatedAt: now,
             })
         })
         // eslint-disable-next-line react-hooks/exhaustive-deps
-    }, [casting, trackable])
+    }, [casting, trackable, castEp])
+
+    // Fila na TV: episódio acabou no receiver → emenda o próximo da série.
+    const lastAdvanceRef = useRef(0)
+    useEffect(() => {
+        if (!casting || kind !== 'episode') return
+        return casting.onEnded(() => {
+            const now = Date.now()
+            if (now - lastAdvanceRef.current < 3000) return // status duplicado
+            lastAdvanceRef.current = now
+            const next = nextEpisodeAfter(castEp?.pid ?? String(pid))
+            if (!next) return
+            void (async () => {
+                const client = await getClient()
+                if (!client) return
+                const controls = await castToCurrentSession(
+                    client.seriesStreamUrl(next.sid, next.container),
+                    next.title,
+                    next.cover,
+                    false,
+                )
+                if (!controls) return
+                lastCastSaveRef.current = 0
+                setCasting(controls)
+                setCastEp(next)
+                setCastPaused(false)
+                showTrackToast(`📺 ${next.title}`)
+            })()
+        })
+        // eslint-disable-next-line react-hooks/exhaustive-deps
+    }, [casting, castEp])
 
     const stopCasting = () => {
         casting?.stop()
         castingRef.current = false
         setCasting(null)
+        setCastEp(null)
     }
 
     // Autoplay: fim do episódio → overlay "A seguir" com contagem regressiva.

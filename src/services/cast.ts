@@ -11,11 +11,17 @@ interface CastMediaInfo {
     metadata?: { type: 'movie' | 'generic'; title?: string; images?: { url: string }[] }
 }
 
+interface CastMediaStatus {
+    playerState?: string
+    idleReason?: string
+}
+
 interface CastClient {
     loadMedia(request: { mediaInfo: CastMediaInfo; startTime?: number }): Promise<unknown>
     play(): Promise<unknown>
     pause(): Promise<unknown>
     onMediaProgressUpdated(handler: (progress: number) => void, interval?: number): { remove(): void }
+    onMediaStatusUpdated(handler: (status: CastMediaStatus | null) => void): { remove(): void }
 }
 
 interface CastSession {
@@ -75,6 +81,8 @@ export interface CastControls {
     stop(): void
     /** Progresso do receiver em segundos, a cada ~5s — alimenta o histórico. */
     onProgress(handler: (positionSec: number) => void): () => void
+    /** A mídia terminou na TV (idle/finished) — hora de emendar a próxima. */
+    onEnded(handler: () => void): () => void
 }
 
 function controlsFor(session: CastSession): CastControls {
@@ -85,6 +93,18 @@ function controlsFor(session: CastSession): CastControls {
         onProgress: handler => {
             try {
                 const sub = session.client.onMediaProgressUpdated(progress => handler(progress), 5)
+                return () => sub.remove()
+            } catch {
+                return () => undefined
+            }
+        },
+        onEnded: handler => {
+            try {
+                const sub = session.client.onMediaStatusUpdated(status => {
+                    const state = status?.playerState?.toLowerCase() ?? ''
+                    const reason = status?.idleReason?.toLowerCase() ?? ''
+                    if (state === 'idle' && reason === 'finished') handler()
+                })
                 return () => sub.remove()
             } catch {
                 return () => undefined

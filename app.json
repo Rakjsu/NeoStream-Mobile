@@ -51,7 +51,8 @@
         }
       ],
       "expo-localization",
-      "react-native-google-cast"
+      "react-native-google-cast",
+      "expo-quick-actions"
     ],
     "experiments": {
       "typedRoutes": true,

@@ -150,6 +150,7 @@ export async function switchAccount(id: string): Promise<StoredAccount | null> {
 export async function removeAccount(id: string): Promise<StoredAccount | null> {
     const { accounts, activeId } = await loadState()
     accountsCache = accounts.filter(a => a.id !== id)
+    void dropPersistedCatalog(id)
     if (activeId === id) {
         activeIdCache = accountsCache[0]?.id ?? null
         client = null
@@ -188,18 +189,89 @@ export function resetSessionCache(): void {
     invalidateCatalog()
 }
 
-// ---------------------------------------------------------- catálogo (memo) --
+// ----------------------------------------------------------- catálogo (SWR) --
 
 const catalog = new Map<string, unknown>()
+
+/** Só as listas grandes valem disco — EPG e afins ficam na sessão. */
+const PERSISTABLE_KEYS = new Set(['live', 'vod', 'series', 'live-cats', 'vod-cats', 'series-cats'])
+/** Cache mais novo que isso vai pra tela na hora (a rede atualiza por trás). */
+const FRESH_MS = 24 * 3600_000
+/** Entrada gigante estoura o AsyncStorage do Android — melhor não persistir. */
+const MAX_PERSIST_CHARS = 1_500_000
+
+interface PersistedCatalog {
+    t: number
+    data: unknown
+}
+
+function catalogStorageKey(id: string, key: string): string {
+    return `neostream_catalog_${id}_${key}`
+}
+
+async function readPersisted(storageKey: string): Promise<PersistedCatalog | null> {
+    try {
+        const raw = await AsyncStorage.getItem(storageKey)
+        const parsed = raw ? (JSON.parse(raw) as PersistedCatalog) : null
+        return parsed && typeof parsed.t === 'number' && 'data' in parsed ? parsed : null
+    } catch {
+        return null
+    }
+}
+
+async function writePersisted(storageKey: string, data: unknown): Promise<void> {
+    try {
+        const json = JSON.stringify({ t: Date.now(), data })
+        if (json.length > MAX_PERSIST_CHARS) return
+        await AsyncStorage.setItem(storageKey, json)
+    } catch { /* best-effort */ }
+}
+
+/** Remove o catálogo persistido de uma conta (chamado ao removê-la). */
+async function dropPersistedCatalog(id: string): Promise<void> {
+    try {
+        await AsyncStorage.multiRemove([...PERSISTABLE_KEYS].map(key => catalogStorageKey(id, key)))
+    } catch { /* best-effort */ }
+}
 
 export function invalidateCatalog(): void {
     catalog.clear()
 }
 
-/** Uma busca por chave por sessão; `force` refaz (pull-to-refresh). */
+/**
+ * Cache em três camadas: memória (sessão) → disco (SWR, por conta) → rede.
+ * Cache fresco em disco abre o app na hora e atualiza em background; se a
+ * rede falhar, catálogo velho vale mais que tela de erro (modo offline).
+ * `force` (pull-to-refresh) fura as duas camadas.
+ */
 export async function cachedFetch<T>(key: string, fetcher: () => Promise<T>, force = false): Promise<T> {
     if (!force && catalog.has(key)) return catalog.get(key) as T
-    const data = await fetcher()
-    catalog.set(key, data)
-    return data
+
+    const { activeId } = await loadState()
+    const storageKey = activeId && PERSISTABLE_KEYS.has(key) ? catalogStorageKey(activeId, key) : null
+    const persisted = storageKey && !force ? await readPersisted(storageKey) : null
+
+    if (persisted && Date.now() - persisted.t < FRESH_MS) {
+        catalog.set(key, persisted.data)
+        void fetcher()
+            .then(fresh => {
+                catalog.set(key, fresh)
+                if (storageKey) void writePersisted(storageKey, fresh)
+            })
+            .catch(() => undefined)
+        return persisted.data as T
+    }
+
+    try {
+        const data = await fetcher()
+        catalog.set(key, data)
+        if (storageKey) void writePersisted(storageKey, data)
+        return data
+    } catch (error) {
+        if (persisted) {
+            catalog.set(key, persisted.data)
+            return persisted.data as T
+        }
+        throw error
+    }
 }

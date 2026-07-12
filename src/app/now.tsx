@@ -154,7 +154,16 @@ export default function NowOnTv() {
 
     return (
         <View style={styles.root}>
-            <Stack.Screen options={{ title: t('nowTitle') }} />
+            <Stack.Screen
+                options={{
+                    title: t('nowTitle'),
+                    headerRight: () => (
+                        <TouchableOpacity accessibilityLabel={t('guideTitle')} onPress={() => router.push('/guide')}>
+                            <Ionicons name="grid-outline" size={20} color={colors.text} />
+                        </TouchableOpacity>
+                    ),
+                }}
+            />
             {schedule ? (
                 <View style={styles.scheduleOverlay}>
                     <View style={styles.scheduleBox}>

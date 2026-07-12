@@ -11,7 +11,7 @@ export interface XtreamAccount {
     username: string
     password: string
     /** 'xtream' (padrão, ausente nas contas antigas) ou lista M3U por URL. */
-    type?: 'xtream' | 'm3u'
+    type?: 'xtream' | 'm3u' | 'stalker'
 }
 
 /**

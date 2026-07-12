@@ -1,14 +1,14 @@
 import { Ionicons } from '@expo/vector-icons'
 import { Stack, router } from 'expo-router'
 import { useCallback, useEffect, useRef, useState } from 'react'
-import { Alert, FlatList, Image, StyleSheet, Text, View, type ViewToken } from 'react-native'
+import { Alert, FlatList, Image, StyleSheet, Text, TouchableOpacity, View, type ViewToken } from 'react-native'
 import { loadFavorites } from '../services/favorites'
 import { hiddenIdSet } from '../services/hidden'
 import { allowedCategoryIds, loadParental } from '../services/parental'
 import { listRecentChannels, recordRecentChannel } from '../services/recents'
 import { notifyAt } from '../services/notify'
 import { cachedFetch, getClient } from '../services/session'
-import type { Category, LiveChannel, NowNext } from '../services/xtream'
+import type { Category, EpgProgram, LiveChannel, NowNext } from '../services/xtream'
 import { rankChannels, setZapContext } from '../services/zap'
 import { EmptyState, Loading, TvTouchable } from '../ui/components'
 import { colors, spacing } from '../ui/theme'
@@ -31,6 +31,7 @@ function nowPct(nowNext: NowNext | undefined, nowMs: number): number {
 export default function NowOnTv() {
     const [channels, setChannels] = useState<LiveChannel[] | null>(null)
     const [epgMap, setEpgMap] = useState<Record<string, NowNext>>({})
+    const [schedule, setSchedule] = useState<{ name: string; programs: EpgProgram[] } | null>(null)
     const epgInFlight = useRef(new Set<string>())
 
     useEffect(() => {
@@ -77,6 +78,16 @@ export default function NowOnTv() {
         }
     }, [])
 
+    /** Toque no EPG: grade do dia do canal (quando a conta suporta). */
+    const openSchedule = (channel: LiveChannel) => {
+        void (async () => {
+            const client = await getClient()
+            if (!client?.getDaySchedule) return
+            const programs = await client.getDaySchedule(String(channel.stream_id)).catch(() => [] as EpgProgram[])
+            setSchedule({ name: channel.name, programs })
+        })()
+    }
+
     /** Long-press: notificação quando o PRÓXIMO programa do canal começar. */
     const remind = (channel: LiveChannel) => {
         const next = epgMap[String(channel.stream_id)]?.next
@@ -121,6 +132,46 @@ export default function NowOnTv() {
     return (
         <View style={styles.root}>
             <Stack.Screen options={{ title: t('nowTitle') }} />
+            {schedule ? (
+                <View style={styles.scheduleOverlay}>
+                    <View style={styles.scheduleBox}>
+                        <View style={styles.scheduleHeader}>
+                            <Text style={styles.scheduleTitle} numberOfLines={1}>{schedule.name}</Text>
+                            <TouchableOpacity accessibilityLabel={t('cancel')} onPress={() => setSchedule(null)}>
+                                <Ionicons name="close" size={22} color={colors.text} />
+                            </TouchableOpacity>
+                        </View>
+                        <FlatList
+                            data={schedule.programs}
+                            keyExtractor={program => String(program.startMs)}
+                            ListEmptyComponent={<Text style={styles.scheduleEmpty}>{t('scheduleEmpty')}</Text>}
+                            renderItem={({ item: program }) => {
+                                const live = program.startMs <= nowMs && nowMs < program.endMs
+                                const hh = (ms: number) => {
+                                    const date = new Date(ms)
+                                    return `${String(date.getHours()).padStart(2, '0')}:${String(date.getMinutes()).padStart(2, '0')}`
+                                }
+                                return (
+                                    <TouchableOpacity
+                                        style={styles.scheduleRow}
+                                        onLongPress={() => {
+                                            void notifyAt(tf('remindNotif', { title: program.title }), schedule.name, '/now', program.startMs)
+                                                .then(ok => { if (ok) Alert.alert(t('remindSet')) })
+                                        }}
+                                        delayLongPress={350}
+                                    >
+                                        <Text style={[styles.scheduleTime, live && styles.scheduleLive]}>{hh(program.startMs)}</Text>
+                                        <Text style={[styles.scheduleName, live && styles.scheduleLive]} numberOfLines={1}>
+                                            {program.title}
+                                        </Text>
+                                        {live ? <Ionicons name="radio-outline" size={14} color={colors.accent} /> : null}
+                                    </TouchableOpacity>
+                                )
+                            }}
+                        />
+                    </View>
+                </View>
+            ) : null}
             <FlatList
                 data={channels}
                 keyExtractor={item => String(item.stream_id)}
@@ -146,7 +197,7 @@ export default function NowOnTv() {
                                     <Ionicons name="tv-outline" size={16} color={colors.textDim} />
                                 </View>
                             )}
-                            <View style={styles.info}>
+                            <TouchableOpacity style={styles.info} onPress={() => openSchedule(item)}>
                                 <Text style={styles.name} numberOfLines={1}>{item.name}</Text>
                                 <Text style={styles.program} numberOfLines={1}>
                                     {nowNext?.now?.title ?? '—'}
@@ -159,7 +210,7 @@ export default function NowOnTv() {
                                 {nowNext?.next ? (
                                     <Text style={styles.next} numberOfLines={1}>▸ {nowNext.next.title}</Text>
                                 ) : null}
-                            </View>
+                            </TouchableOpacity>
                             <Ionicons name="play" size={18} color={colors.accent} />
                         </TvTouchable>
                     )
@@ -188,4 +239,43 @@ const styles = StyleSheet.create({
     track: { height: 3, backgroundColor: colors.border, borderRadius: 2 },
     fill: { height: 3, backgroundColor: colors.accent, borderRadius: 2 },
     next: { color: colors.textDim, fontSize: 11 },
+    scheduleOverlay: {
+        position: 'absolute',
+        top: 0,
+        left: 0,
+        right: 0,
+        bottom: 0,
+        zIndex: 10,
+        backgroundColor: 'rgba(0,0,0,0.6)',
+        justifyContent: 'center',
+        padding: spacing.lg,
+    },
+    scheduleBox: {
+        maxHeight: '75%',
+        backgroundColor: colors.card,
+        borderColor: colors.border,
+        borderWidth: 1,
+        borderRadius: 14,
+        padding: spacing.md,
+    },
+    scheduleHeader: {
+        flexDirection: 'row',
+        alignItems: 'center',
+        justifyContent: 'space-between',
+        paddingBottom: spacing.sm,
+        gap: spacing.md,
+    },
+    scheduleTitle: { flex: 1, color: colors.text, fontSize: 16, fontWeight: '700' },
+    scheduleEmpty: { color: colors.textDim, fontSize: 13, padding: spacing.md },
+    scheduleRow: {
+        flexDirection: 'row',
+        alignItems: 'center',
+        gap: spacing.md,
+        paddingVertical: 8,
+        borderBottomColor: colors.border,
+        borderBottomWidth: 1,
+    },
+    scheduleTime: { color: colors.textDim, fontSize: 13, width: 44 },
+    scheduleName: { flex: 1, color: colors.text, fontSize: 14 },
+    scheduleLive: { color: colors.accent, fontWeight: '700' },
 })

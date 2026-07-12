@@ -1,7 +1,7 @@
 import { Ionicons } from '@expo/vector-icons'
 import { Stack, router, useLocalSearchParams } from 'expo-router'
 import { useEffect, useRef, useState } from 'react'
-import { Alert, Image, Linking, ScrollView, StyleSheet, Text, TouchableOpacity, View } from 'react-native'
+import { Alert, Image, Linking, ScrollView, Share, StyleSheet, Text, TouchableOpacity, View } from 'react-native'
 import { castAvailable, castToCurrentSession, onCastSessionStarted, showCastPicker } from '../../services/cast'
 import { activeProgress, getDownload, removeDownload, startDownload, subscribeDownloads } from '../../services/downloads'
 import { tapLight } from '../../services/haptics'
@@ -138,6 +138,16 @@ export default function MovieDetail() {
                         <Ionicons name="tv-outline" size={20} color={colors.text} />
                     </TouchableOpacity>
                 ) : null}
+                <TouchableOpacity
+                    style={styles.favBtn}
+                    accessibilityLabel={t('a11yShare')}
+                    onPress={() => {
+                        const link = `neostream://movie/${id}?name=${encodeURIComponent(name ?? '')}&container=${encodeURIComponent(String(container || 'mp4'))}`
+                        void Share.share({ message: `${tf('shareContent', { name: name ?? '' })}\n${link}` }).catch(() => undefined)
+                    }}
+                >
+                    <Ionicons name="share-social-outline" size={20} color={colors.text} />
+                </TouchableOpacity>
                 <TouchableOpacity
                     style={[styles.favBtn, fav && styles.favBtnOn]}
                     accessibilityLabel={t('a11yFav')}

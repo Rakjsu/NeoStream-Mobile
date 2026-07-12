@@ -208,6 +208,23 @@ export function parseAuthResponse(data: unknown): UserInfo {
 }
 
 /** exp_date do Xtream é epoch em segundos (string); null/ausente = sem expiração. */
+/** Dias inteiros até a data (0 = hoje; negativo = venceu; null = sem data). */
+export function daysUntil(date: Date | null, nowMs: number): number | null {
+    if (!date) return null
+    return Math.floor((date.getTime() - nowMs) / 86_400_000)
+}
+
+/**
+ * Formato alternativo do stream ao vivo Xtream: .m3u8 ↔ .ts. Provedor que só
+ * serve um dos dois quebra o outro — o player tenta o irmão antes de desistir.
+ */
+export function alternateLiveUrl(url: string): string | null {
+    if (!/\/live\//.test(url)) return null
+    if (url.endsWith('.m3u8')) return url.slice(0, -5) + '.ts'
+    if (url.endsWith('.ts')) return url.slice(0, -3) + '.m3u8'
+    return null
+}
+
 export function parseExpiry(expDate: string | null | undefined): Date | null {
     if (!expDate) return null
     const seconds = Number(expDate)

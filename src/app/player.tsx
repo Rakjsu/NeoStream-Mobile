@@ -16,6 +16,7 @@ import { listRecentChannels, recordRecentChannel } from '../services/recents'
 import { loadFavorites } from '../services/favorites'
 import { cachedFetch, getClient, resolvePlayableUrl } from '../services/session'
 import { tapLight } from '../services/haptics'
+import { alternateLiveUrl } from '../services/xtream'
 import { recordWatchMinute } from '../services/usage'
 import { hasZapContext, rankChannels, zapBy, zapList, zapTo, type ZapChannel } from '../services/zap'
 import { colors, spacing } from '../ui/theme'
@@ -71,6 +72,17 @@ export default function Player() {
     })
 
     const trackable = live !== '1' && !!pid && !!sid
+
+    // Resgate ao vivo: erro num canal Xtream → tenta .ts↔.m3u8 UMA vez.
+    const rescueTriedRef = useRef(false)
+    useEffect(() => {
+        if (status !== 'error' || live !== '1' || rescueTriedRef.current) return
+        const alternate = alternateLiveUrl(source)
+        if (!alternate) return
+        rescueTriedRef.current = true
+        queueMicrotask(() => setSource(alternate))
+        // eslint-disable-next-line react-hooks/exhaustive-deps
+    }, [status])
 
     // Faixas de áudio/legenda embutidas (ExoPlayer). 🎧 cicla dublado/legendado;
     // 💬 cicla desligada → cada legenda → desligada. Toast confirma a escolha.

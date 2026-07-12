@@ -8,6 +8,7 @@ import AsyncStorage from '@react-native-async-storage/async-storage'
 import * as FileSystem from 'expo-file-system/legacy'
 import { notifyDownloadDone } from './notify'
 import { loadWatched } from './progress'
+import { resolvePlayableUrl } from './session'
 
 export interface DownloadItem {
     /** Mesmo id do progresso: "movie:<id>" | "episode:<id>". */
@@ -203,8 +204,10 @@ export async function startDownload(request: DownloadRequest): Promise<void> {
 
     await FileSystem.makeDirectoryAsync(DIR, { intermediates: true }).catch(() => undefined)
     const fileUri = DIR + safeFileName(request.id, request.container)
+    // URL adiada de portal resolve agora (create_link é de uso único).
+    const downloadUrl = await resolvePlayableUrl(request.url).catch(() => request.url)
 
-    const task = FileSystem.createDownloadResumable(request.url, fileUri, {}, progress => {
+    const task = FileSystem.createDownloadResumable(downloadUrl || request.url, fileUri, {}, progress => {
         const entry = active.get(request.id)
         if (entry && progress.totalBytesExpectedToWrite > 0) {
             entry.progress = progress.totalBytesWritten / progress.totalBytesExpectedToWrite

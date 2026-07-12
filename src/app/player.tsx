@@ -14,7 +14,7 @@ import { nextEpisodeAfter, type QueuedEpisode } from '../services/episodeQueue'
 import { getEntry, resumePosition, saveSample, type ProgressKind } from '../services/progress'
 import { listRecentChannels, recordRecentChannel } from '../services/recents'
 import { loadFavorites } from '../services/favorites'
-import { cachedFetch, getClient } from '../services/session'
+import { cachedFetch, getClient, resolvePlayableUrl } from '../services/session'
 import { recordWatchMinute } from '../services/usage'
 import { hasZapContext, rankChannels, zapBy, zapList, zapTo, type ZapChannel } from '../services/zap'
 import { colors, spacing } from '../ui/theme'
@@ -51,7 +51,9 @@ export default function Player() {
 
     // Item baixado troca a fonte pro arquivo local — mudar o `source` faz o
     // useVideoPlayer recriar o player (jeito permitido pela regra de hooks).
-    const [source, setSource] = useState(String(url ?? ''))
+    // URL adiada (stalker://) começa vazia — o effect resolve e preenche.
+    const initialUrl = String(url ?? '')
+    const [source, setSource] = useState(initialUrl.startsWith('stalker://') ? '' : initialUrl)
     const player = useVideoPlayer(source, p => {
         p.play()
     })
@@ -287,7 +289,7 @@ export default function Player() {
                 const client = await getClient()
                 if (!client) return
                 const controls = await castToCurrentSession(
-                    client.seriesStreamUrl(next.sid, next.container),
+                    await resolvePlayableUrl(client.seriesStreamUrl(next.sid, next.container)),
                     next.title,
                     next.cover,
                     false,
@@ -348,8 +350,12 @@ export default function Player() {
 
     // O autoplay troca os params deste mesmo screen (replace) — segue a URL nova.
     useEffect(() => {
-        queueMicrotask(() => setSource(String(url ?? '')))
-         
+        queueMicrotask(() => {
+            const raw = String(url ?? '')
+            void resolvePlayableUrl(raw)
+                .then(resolved => setSource(resolved || raw))
+                .catch(() => setSource(raw))
+        })
     }, [url])
 
     // Item baixado → aponta a fonte pro arquivo local.

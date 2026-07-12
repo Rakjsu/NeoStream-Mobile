@@ -53,7 +53,8 @@
       "expo-localization",
       "react-native-google-cast",
       "expo-quick-actions",
-      "expo-sharing"
+      "expo-sharing",
+      "./plugins/withAndroidTV.js"
     ],
     "experiments": {
       "typedRoutes": true,

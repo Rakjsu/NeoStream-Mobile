@@ -128,6 +128,35 @@ export default function SeriesDetail() {
         })
     }
 
+    // Long-press no cabeçalho: marca/desmarca a temporada inteira como vista.
+    const toggleSeasonSeen = (season: Season) => {
+        const pids = season.data.map(episode => buildProgressId('episode', episode.id))
+        const allSeen = pids.length > 0 && pids.every(pid => watched.has(pid))
+        Alert.alert(
+            tf('seasonSeenTitle', { s: season.seasonNum }),
+            tf(allSeen ? 'seasonUnseenMsg' : 'seasonSeenMsg', { n: pids.length }),
+            [
+                { text: t('cancel'), style: 'cancel' },
+                {
+                    text: allSeen ? t('unmark') : t('mark'),
+                    onPress: () => {
+                        void (async () => {
+                            for (const pid of pids) {
+                                if (allSeen) await unmarkWatched(pid)
+                                else {
+                                    await markWatched(pid)
+                                    await removeEntry(pid)
+                                }
+                            }
+                            setWatched(new Set(await loadWatched()))
+                            setProgress({ ...(await loadProgress()) })
+                        })()
+                    },
+                },
+            ],
+        )
+    }
+
     const downloadSeason = (season: Season) => {
         void (async () => {
             const client = await getClient()
@@ -207,7 +236,12 @@ export default function SeriesDetail() {
                     contentContainerStyle={seasons.length === 0 ? { flexGrow: 1 } : undefined}
                     renderSectionHeader={({ section }) => (
                         <View style={styles.seasonRow}>
-                            <Text style={styles.season}>{section.title}</Text>
+                            <Text
+                                style={styles.season}
+                                onLongPress={() => toggleSeasonSeen(section)}
+                            >
+                                {section.title}
+                            </Text>
                             <TouchableOpacity
                                 style={styles.seasonDl}
                                 accessibilityLabel={t('a11yDlSeason')}

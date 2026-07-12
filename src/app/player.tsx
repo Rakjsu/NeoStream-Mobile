@@ -4,8 +4,10 @@ import { useKeepAwake } from 'expo-keep-awake'
 import { router, useLocalSearchParams } from 'expo-router'
 import { useVideoPlayer, VideoView, type AudioTrack, type SubtitleTrack } from 'expo-video'
 import { useEffect, useRef, useState } from 'react'
-import { FlatList, StyleSheet, Text, TextInput, TouchableOpacity, View } from 'react-native'
+import { FlatList, Platform, StyleSheet, Text, TextInput, TouchableOpacity, View } from 'react-native'
 import { useSafeAreaInsets } from 'react-native-safe-area-context'
+import { StatusBar } from 'expo-status-bar'
+import * as NavigationBar from 'expo-navigation-bar'
 import { getDownload } from '../services/downloads'
 import { castAvailable, castToCurrentSession, onCastSessionStarted, showCastPicker, type CastControls } from '../services/cast'
 import { nextEpisodeAfter, type QueuedEpisode } from '../services/episodeQueue'
@@ -26,6 +28,9 @@ function applyAudioTrack(target: TrackPlayer, track: AudioTrack) {
 }
 function applySubtitleTrack(target: TrackPlayer, track: SubtitleTrack | null) {
     target.subtitleTrack = track
+}
+function applyPlaybackRate(target: { playbackRate: number }, rate: number) {
+    target.playbackRate = rate
 }
 
 export default function Player() {
@@ -78,6 +83,25 @@ export default function Player() {
         setTrackToast(text)
         if (toastTimer.current) clearTimeout(toastTimer.current)
         toastTimer.current = setTimeout(() => setTrackToast(''), 2000)
+    }
+
+    // Tela cheia de verdade: barra de navegação some enquanto o player vive.
+    useEffect(() => {
+        if (Platform.OS !== 'android') return
+        void NavigationBar.setVisibilityAsync('hidden').catch(() => undefined)
+        return () => {
+            void NavigationBar.setVisibilityAsync('visible').catch(() => undefined)
+        }
+    }, [])
+
+    // Velocidade de reprodução (VOD): 1x → 1.25x → 1.5x → 2x.
+    const RATES = [1, 1.25, 1.5, 2]
+    const [rate, setRate] = useState(1)
+    const cycleRate = () => {
+        const next = RATES[(RATES.indexOf(rate) + 1) % RATES.length]
+        setRate(next)
+        try { applyPlaybackRate(player, next) } catch { /* player já liberado */ }
+        showTrackToast(`⏩ ${next}x`)
     }
 
     // Sleep timer: 🌙 cicla 30 → 60 → 90 min → desligado; ao zerar, pausa.
@@ -388,6 +412,7 @@ export default function Player() {
 
     return (
         <View style={styles.root}>
+            <StatusBar hidden />
             <VideoView
                 player={player}
                 style={styles.video}
@@ -419,6 +444,11 @@ export default function Player() {
                 {canCast ? (
                     <TouchableOpacity style={styles.trackBtn} accessibilityLabel={t('a11yCast')} onPress={() => void showCastPicker()}>
                         <Ionicons name="tv-outline" size={20} color={colors.text} />
+                    </TouchableOpacity>
+                ) : null}
+                {live !== '1' ? (
+                    <TouchableOpacity style={styles.trackBtn} accessibilityLabel={t('a11yRate')} onPress={cycleRate}>
+                        <Text style={styles.rateText}>{rate}x</Text>
                     </TouchableOpacity>
                 ) : null}
                 <TouchableOpacity style={styles.trackBtn} accessibilityLabel={t('a11ySleep')} onPress={cycleSleep}>
@@ -582,6 +612,7 @@ const styles = StyleSheet.create({
     title: { color: colors.text, fontSize: 16, fontWeight: '600' },
     epg: { color: 'rgba(244,244,248,0.7)', fontSize: 12 },
     trackBtn: { padding: spacing.sm },
+    rateText: { color: colors.text, fontSize: 13, fontWeight: '700', minWidth: 30, textAlign: 'center' },
     trackToast: {
         position: 'absolute',
         bottom: 96,

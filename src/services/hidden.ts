@@ -15,6 +15,24 @@ function storageKey(accountId: string): string {
     return `neostream_hidden_${accountId}`
 }
 
+export async function listHiddenFor(accountId: string): Promise<HiddenChannel[]> {
+    try {
+        const raw = await AsyncStorage.getItem(storageKey(accountId))
+        const parsed = raw ? (JSON.parse(raw) as unknown) : []
+        return Array.isArray(parsed)
+            ? parsed.filter((c): c is HiddenChannel => !!c && typeof (c as HiddenChannel).id === 'string')
+            : []
+    } catch {
+        return []
+    }
+}
+
+export async function restoreHiddenFor(accountId: string, list: HiddenChannel[]): Promise<void> {
+    try {
+        await AsyncStorage.setItem(storageKey(accountId), JSON.stringify(list))
+    } catch { /* best-effort */ }
+}
+
 export async function listHiddenChannels(): Promise<HiddenChannel[]> {
     const accountId = await getActiveAccountId()
     if (!accountId) return []

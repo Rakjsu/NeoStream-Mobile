@@ -2,7 +2,7 @@ import { Ionicons } from '@expo/vector-icons'
 import { Stack, router, useFocusEffect, useLocalSearchParams } from 'expo-router'
 import { useCallback, useEffect, useState } from 'react'
 import { Alert, Image, SectionList, StyleSheet, Text, TouchableOpacity, View } from 'react-native'
-import { activeProgress, listActiveDownloads, listDownloads, removeDownload, startDownload, subscribeDownloads } from '../../services/downloads'
+import { activeProgress, enqueueDownloads, listActiveDownloads, listDownloads, listQueuedIds, removeDownload, startDownload, subscribeDownloads, type DownloadRequest } from '../../services/downloads'
 import { setEpisodeQueue } from '../../services/episodeQueue'
 import { emptyFavorites, isFavorite, loadFavorites, persistToggle, type Favorites } from '../../services/favorites'
 import {
@@ -33,6 +33,8 @@ export default function SeriesDetail() {
     // pids baixados/baixando (re-renderiza a cada tick de progresso).
     const [downloaded, setDownloaded] = useState<Set<string>>(new Set())
     const [activeDl, setActiveDl] = useState<Record<string, number>>({})
+    const [queued, setQueued] = useState<Set<string>>(new Set())
+    const [hideSeen, setHideSeen] = useState(false)
 
     useEffect(() => {
         let alive = true
@@ -66,6 +68,7 @@ export default function SeriesDetail() {
             const activeMap: Record<string, number> = {}
             for (const item of listActiveDownloads()) activeMap[item.id] = Math.round(item.progress * 100)
             setActiveDl(activeMap)
+            setQueued(new Set(listQueuedIds()))
             void listDownloads().then(done => setDownloaded(new Set(done.map(d => d.id))))
         }
         queueMicrotask(refreshDl)
@@ -125,6 +128,21 @@ export default function SeriesDetail() {
         })
     }
 
+    const downloadSeason = (season: Season) => {
+        void (async () => {
+            const client = await getClient()
+            if (!client) return
+            const requests: DownloadRequest[] = season.data.map(episode => ({
+                id: buildProgressId('episode', episode.id),
+                url: client.seriesStreamUrl(episode.id, episode.container_extension || 'mp4'),
+                title: `${name ?? ''} · ${episode.title || `T${season.seasonNum}E${episode.episode_num}`}`,
+                cover: infoCover || cover || '',
+                container: episode.container_extension || 'mp4',
+            }))
+            await enqueueDownloads(requests)
+        })()
+    }
+
     // Próximo a assistir, na ordem das temporadas (em andamento ganha).
     const flat = (seasons ?? []).flatMap(season => season.data.map(ep => ({ id: ep.id, ep, seasonNum: season.seasonNum })))
     const next = pickNextEpisode(flat, watched, progress)
@@ -145,13 +163,19 @@ export default function SeriesDetail() {
                 <View style={styles.heroInfo}>
                     <Text style={styles.seriesName}>{name ?? ''}</Text>
                     {plot ? <Text style={styles.plot} numberOfLines={5}>{plot}</Text> : null}
-                    <TouchableOpacity
-                        style={[styles.favBtn, fav && styles.favBtnOn]}
-                        onPress={() => void persistToggle('series', String(id)).then(setFavorites)}
-                    >
-                        <Ionicons name={fav ? 'heart' : 'heart-outline'} size={16} color={fav ? '#fff' : colors.danger} />
-                        <Text style={[styles.favText, fav && styles.favTextOn]}>{fav ? t('favOn') : t('favBtn')}</Text>
-                    </TouchableOpacity>
+                    <View style={styles.headerBtns}>
+                        <TouchableOpacity
+                            style={[styles.favBtn, fav && styles.favBtnOn]}
+                            onPress={() => void persistToggle('series', String(id)).then(setFavorites)}
+                        >
+                            <Ionicons name={fav ? 'heart' : 'heart-outline'} size={16} color={fav ? '#fff' : colors.danger} />
+                            <Text style={[styles.favText, fav && styles.favTextOn]}>{fav ? t('favOn') : t('favBtn')}</Text>
+                        </TouchableOpacity>
+                        <TouchableOpacity style={styles.seenBtn} onPress={() => setHideSeen(current => !current)}>
+                            <Ionicons name={hideSeen ? 'eye-off' : 'eye-outline'} size={16} color={colors.textDim} />
+                            <Text style={styles.seenText}>{hideSeen ? t('showSeen') : t('hideSeen')}</Text>
+                        </TouchableOpacity>
+                    </View>
                 </View>
             </View>
             {next ? (
@@ -172,13 +196,26 @@ export default function SeriesDetail() {
                 <Loading label={t('loadingEpisodes')} />
             ) : (
                 <SectionList
-                    sections={seasons}
+                    sections={hideSeen
+                        ? seasons
+                            .map(season => ({ ...season, data: season.data.filter(ep => !watched.has(buildProgressId('episode', ep.id))) }))
+                            .filter(season => season.data.length > 0)
+                        : seasons}
                     keyExtractor={item => String(item.id)}
                     ListHeaderComponent={header}
                     ListEmptyComponent={<EmptyState icon="albums-outline" label={error || t('noEpisodes')} />}
                     contentContainerStyle={seasons.length === 0 ? { flexGrow: 1 } : undefined}
                     renderSectionHeader={({ section }) => (
-                        <Text style={styles.season}>{section.title}</Text>
+                        <View style={styles.seasonRow}>
+                            <Text style={styles.season}>{section.title}</Text>
+                            <TouchableOpacity
+                                style={styles.seasonDl}
+                                accessibilityLabel={t('a11yDlSeason')}
+                                onPress={() => downloadSeason(section)}
+                            >
+                                <Ionicons name="cloud-download-outline" size={16} color={colors.accent} />
+                            </TouchableOpacity>
+                        </View>
                     )}
                     renderItem={({ item, section }) => {
                         const pid = buildProgressId('episode', item.id)
@@ -235,6 +272,8 @@ export default function SeriesDetail() {
                                         <Ionicons name="cloud-done" size={16} color={colors.live} />
                                     ) : activeDl[pid] !== undefined ? (
                                         <Text style={styles.dlPct}>{activeDl[pid]}%</Text>
+                                    ) : queued.has(pid) ? (
+                                        <Ionicons name="hourglass-outline" size={16} color={colors.accent} />
                                     ) : (
                                         <Ionicons name="cloud-download-outline" size={16} color={colors.textDim} />
                                     )}
@@ -287,13 +326,31 @@ const styles = StyleSheet.create({
     },
     nextText: { color: '#fff', fontSize: 15, fontWeight: '600' },
     season: {
+        flex: 1,
         color: colors.textDim,
         fontSize: 13,
         textTransform: 'uppercase',
-        backgroundColor: colors.bg,
-        paddingHorizontal: spacing.lg,
         paddingVertical: spacing.sm,
     },
+    seasonRow: {
+        flexDirection: 'row',
+        alignItems: 'center',
+        backgroundColor: colors.bg,
+        paddingHorizontal: spacing.lg,
+    },
+    seasonDl: { padding: spacing.sm },
+    headerBtns: { flexDirection: 'row', alignItems: 'center', gap: spacing.sm, flexWrap: 'wrap' },
+    seenBtn: {
+        flexDirection: 'row',
+        alignItems: 'center',
+        gap: 6,
+        borderColor: colors.border,
+        borderWidth: 1,
+        borderRadius: 8,
+        paddingHorizontal: spacing.md,
+        paddingVertical: 6,
+    },
+    seenText: { color: colors.textDim, fontSize: 13, fontWeight: '600' },
     row: {
         flexDirection: 'row',
         alignItems: 'center',

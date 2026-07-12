@@ -2,12 +2,13 @@ import { Ionicons } from '@expo/vector-icons'
 import Constants from 'expo-constants'
 import { router, useFocusEffect } from 'expo-router'
 import { useCallback, useState } from 'react'
-import { Alert, ScrollView, Share, StyleSheet, Text, TextInput, TouchableOpacity, View } from 'react-native'
+import { Alert, Linking, ScrollView, Share, StyleSheet, Text, TextInput, TouchableOpacity, View } from 'react-native'
 import { disableAppLock, enableAppLock, loadAppLock } from '../../services/appLock'
 import { getDownloadLimitGb, listDownloads, setDownloadLimitGb } from '../../services/downloads'
 import { applyBackup, collectBackup, parseBackup, serializeBackup } from '../../services/backup'
 import { disableParental, enableParental, isValidPin, loadParental } from '../../services/parental'
 import { clearHistory } from '../../services/progress'
+import { checkForUpdate } from '../../services/updates'
 import {
     accountLabel, getClient, listAccounts, loadAccount, removeAccount, renameAccount, switchAccount,
     type StoredAccount,
@@ -38,6 +39,7 @@ export default function SettingsTab() {
     const [editingId, setEditingId] = useState<string | null>(null)
     const [dlLimit, setDlLimit] = useState(0)
     const [dlBytes, setDlBytes] = useState(0)
+    const [updateMsg, setUpdateMsg] = useState('')
     const [usage, setUsage] = useState<UsageSummary>({ totals: { live: 0, movie: 0, episode: 0 }, totalMinutes: 0 })
     const [aliasDraft, setAliasDraft] = useState('')
     const [importText, setImportText] = useState('')
@@ -395,6 +397,33 @@ export default function SettingsTab() {
                 {backupMsg ? <Text style={styles.pinError}>{backupMsg}</Text> : null}
             </View>
 
+
+            <Text style={styles.section}>{t('secAbout')}</Text>
+            <View style={[styles.card, { paddingVertical: spacing.md, gap: spacing.md }]}>
+                <InfoRow label={t('versionRow')} value={`v${Constants.expoConfig?.version ?? '?'}`} />
+                <TouchableOpacity
+                    style={styles.backupBtn}
+                    disabled={updateMsg === 'checking'}
+                    onPress={() => {
+                        setUpdateMsg('checking')
+                        void checkForUpdate(Constants.expoConfig?.version ?? '0.0.0', Date.now(), true)
+                            .then(info => setUpdateMsg(info ? tf('updateFound', { version: info.version }) : t('upToDate')))
+                            .catch(() => setUpdateMsg(t('upToDate')))
+                    }}
+                >
+                    <Ionicons name="refresh-outline" size={16} color="#fff" />
+                    <Text style={styles.backupBtnText}>{updateMsg === 'checking' ? t('testing') : t('checkUpdateBtn')}</Text>
+                </TouchableOpacity>
+                {updateMsg && updateMsg !== 'checking' ? <Text style={styles.parentalHint}>{updateMsg}</Text> : null}
+                <TouchableOpacity
+                    style={styles.ghRow}
+                    onPress={() => void Linking.openURL('https://github.com/Rakjsu/NeoStream-Mobile/releases')}
+                >
+                    <Ionicons name="logo-github" size={16} color={colors.textDim} />
+                    <Text style={styles.ghText}>{t('openGitHub')}</Text>
+                </TouchableOpacity>
+            </View>
+
             <Text style={styles.version}>
                 NeoStream Mobile v{Constants.expoConfig?.version ?? '?'}
             </Text>
@@ -472,6 +501,8 @@ const styles = StyleSheet.create({
     pinError: { color: colors.danger, fontSize: 13 },
     limitRow: { flexDirection: 'row', flexWrap: 'wrap', gap: spacing.sm },
     diagRow: { flexDirection: 'row', alignItems: 'center', gap: spacing.sm },
+    ghRow: { flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: spacing.sm, paddingVertical: 4 },
+    ghText: { color: colors.textDim, fontSize: 13, fontWeight: '600' },
     diagLabel: { flex: 1, color: colors.text, fontSize: 14 },
     diagMeta: { color: colors.textDim, fontSize: 13 },
     limitChip: {

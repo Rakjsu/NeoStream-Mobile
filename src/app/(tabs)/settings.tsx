@@ -3,6 +3,8 @@ import Constants from 'expo-constants'
 import { router, useFocusEffect } from 'expo-router'
 import { useCallback, useState } from 'react'
 import { Alert, Linking, ScrollView, Share, StyleSheet, Text, TextInput, TouchableOpacity, View } from 'react-native'
+import * as DocumentPicker from 'expo-document-picker'
+import * as FileSystem from 'expo-file-system/legacy'
 import { disableAppLock, enableAppLock, loadAppLock } from '../../services/appLock'
 import { applyCapturePolicy } from '../../services/privacy'
 import { isDataSaverEnabled, setDataSaver } from '../../services/dataSaver'
@@ -408,6 +410,26 @@ export default function SettingsTab() {
                 >
                     <Ionicons name="share-outline" size={16} color="#fff" />
                     <Text style={styles.backupBtnText}>{t('exportBtn')}</Text>
+                </TouchableOpacity>
+                <TouchableOpacity
+                    style={styles.ghRow}
+                    onPress={() => {
+                        void (async () => {
+                            try {
+                                const picked = await DocumentPicker.getDocumentAsync({ copyToCacheDirectory: true })
+                                const asset = picked.assets?.[0]
+                                if (!asset?.uri) return
+                                const content = await FileSystem.readAsStringAsync(asset.uri)
+                                setImportText(content)
+                                setBackupMsg('')
+                            } catch {
+                                setBackupMsg(t('fileReadFail'))
+                            }
+                        })()
+                    }}
+                >
+                    <Ionicons name="folder-open-outline" size={16} color={colors.textDim} />
+                    <Text style={styles.ghText}>{t('openBackupFile')}</Text>
                 </TouchableOpacity>
                 <TextInput
                     style={styles.importInput}

@@ -25,6 +25,11 @@ export default function SearchTab() {
     })
     const [error, setError] = useState('')
     const [history, setHistory] = useState<string[]>([])
+    // Filtros por tipo: todos ligados por padrão; um toque foca.
+    const [kinds, setKinds] = useState({ channels: true, movies: true, series: true })
+    const toggleKind = (key: keyof typeof kinds) => {
+        setKinds(current => ({ ...current, [key]: !current[key] }))
+    }
 
     const load = useCallback(async () => {
         try {
@@ -62,17 +67,17 @@ export default function SearchTab() {
         const inSet = (set: Set<string> | null, categoryId?: string) =>
             !set || !categoryId || set.has(categoryId)
         return {
-            channels: channels
+            channels: !kinds.channels ? [] : channels
                 .filter(c => c.name.toLowerCase().includes(q) && inSet(allowed.live, c.category_id))
                 .slice(0, MAX_PER_SECTION),
-            movies: movies
+            movies: !kinds.movies ? [] : movies
                 .filter(m => m.name.toLowerCase().includes(q) && inSet(allowed.vod, m.category_id))
                 .slice(0, MAX_PER_SECTION),
-            series: series
+            series: !kinds.series ? [] : series
                 .filter(s => s.name.toLowerCase().includes(q) && inSet(allowed.series, s.category_id))
                 .slice(0, MAX_PER_SECTION),
         }
-    }, [q, channels, movies, series, allowed])
+    }, [q, channels, movies, series, allowed, kinds])
 
     const remember = () => {
         void recordSearchTerm(query).then(listSearchTerms).then(setHistory)
@@ -97,6 +102,21 @@ export default function SearchTab() {
     return (
         <View style={styles.root}>
             <SearchBar value={query} onChange={setQuery} placeholder={t('searchAll')} />
+            <View style={styles.kindRow}>
+                {([
+                    ['channels', t('secChannels')],
+                    ['movies', t('secMovies')],
+                    ['series', t('secSeries')],
+                ] as const).map(([key, label]) => (
+                    <TouchableOpacity
+                        key={key}
+                        style={[styles.kindChip, kinds[key] && styles.kindChipOn]}
+                        onPress={() => toggleKind(key)}
+                    >
+                        <Text style={[styles.kindText, kinds[key] && styles.kindTextOn]}>{label}</Text>
+                    </TouchableOpacity>
+                ))}
+            </View>
             {error ? <Text style={styles.error}>{error}</Text> : null}
             <ScrollView keyboardShouldPersistTaps="handled" contentContainerStyle={total === 0 ? { flexGrow: 1 } : undefined}>
                 {!q ? (
@@ -226,6 +246,17 @@ const styles = StyleSheet.create({
     thumbFallback: { alignItems: 'center', justifyContent: 'center' },
     name: { flex: 1, color: colors.text, fontSize: 14 },
     historyBox: { paddingBottom: spacing.lg },
+    kindRow: { flexDirection: 'row', gap: spacing.sm, paddingHorizontal: spacing.lg, paddingBottom: spacing.sm },
+    kindChip: {
+        borderColor: colors.border,
+        borderWidth: 1,
+        borderRadius: 16,
+        paddingHorizontal: spacing.md,
+        paddingVertical: 5,
+    },
+    kindChipOn: { backgroundColor: colors.accentSoft, borderColor: colors.accent },
+    kindText: { color: colors.textDim, fontSize: 12, fontWeight: '600' },
+    kindTextOn: { color: colors.accent },
     historyHeader: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', paddingRight: spacing.md },
     historyClear: { padding: spacing.sm },
     historyChips: {

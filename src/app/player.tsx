@@ -7,6 +7,7 @@ import { useEffect, useRef, useState } from 'react'
 import { StyleSheet, Text, TouchableOpacity, View } from 'react-native'
 import { useSafeAreaInsets } from 'react-native-safe-area-context'
 import { getDownload } from '../services/downloads'
+import { castAvailable, castToCurrentSession, onCastSessionStarted, showCastPicker } from '../services/cast'
 import { nextEpisodeAfter, type QueuedEpisode } from '../services/episodeQueue'
 import { getEntry, resumePosition, saveSample, type ProgressKind } from '../services/progress'
 import { cachedFetch, getClient } from '../services/session'
@@ -162,6 +163,26 @@ export default function Player() {
     }
 
 
+    // Chromecast: 📺 abre o seletor; conectou → manda a mídia atual e pausa
+    // o player local (a TV assume). Sem o módulo nativo (Expo Go), some.
+    const canCast = castAvailable()
+    useEffect(() => {
+        if (!canCast) return
+        return onCastSessionStarted(() => {
+            void castToCurrentSession(
+                source,
+                live === '1' ? liveTitle : String(title ?? ''),
+                String(cover ?? ''),
+                live === '1',
+            ).then(sent => {
+                if (!sent) return
+                try { player.pause() } catch { /* player já liberado */ }
+                showTrackToast('📺 Chromecast')
+            })
+        })
+        // eslint-disable-next-line react-hooks/exhaustive-deps
+    }, [canCast, source, liveTitle])
+
     // Autoplay: fim do episódio → overlay "A seguir" com contagem regressiva.
     // A fila vem da tela da série (episodeQueue); trocar de episódio é um
     // router.replace com os params novos — o effect do `url` recria o player.
@@ -292,6 +313,11 @@ export default function Player() {
                         <Text style={styles.epg} numberOfLines={1}>{liveEpg}</Text>
                     ) : null}
                 </View>
+                {canCast ? (
+                    <TouchableOpacity style={styles.trackBtn} onPress={() => void showCastPicker()}>
+                        <Ionicons name="tv-outline" size={20} color={colors.text} />
+                    </TouchableOpacity>
+                ) : null}
                 <TouchableOpacity style={styles.trackBtn} onPress={cycleSleep}>
                     <Ionicons
                         name={sleepMin > 0 ? 'moon' : 'moon-outline'}

@@ -10,6 +10,7 @@ import type {
     CatalogClient, Category, Episode, LiveChannel, NowNext, SeriesInfo,
     SeriesItem, UserInfo, VodDetails, VodMovie,
 } from './xtream'
+import { withRetry } from './net'
 import { lookupNowNext, parseXmltv, type XmltvGuide } from './xmltv'
 
 export interface M3uChannel {
@@ -190,26 +191,28 @@ export class M3uClient implements CatalogClient {
 
     private async load(): Promise<M3uCatalog> {
         if (this.catalog) return this.catalog
-        const controller = new AbortController()
-        const timer = setTimeout(() => controller.abort(), 30000)
-        try {
-            const response = await fetch(this.playlistUrl, { signal: controller.signal })
-            if (!response.ok) throw new Error(`HTTP ${response.status}`)
-            const text = await response.text()
-            this.tvgUrl = parseTvgUrl(text)
-            const channels = parseM3u(text)
-            for (const channel of channels) this.urlById.set(channel.id, channel.url)
-            this.catalog = buildM3uCatalog(channels)
-            for (const channel of this.catalog.live) this.liveById.set(channel.id, channel)
-            return this.catalog
-        } catch (error) {
-            if (error instanceof Error && error.name === 'AbortError') {
-                throw new Error('Tempo esgotado ao baixar a lista M3U.')
+        const text = await withRetry(async () => {
+            const controller = new AbortController()
+            const timer = setTimeout(() => controller.abort(), 30000)
+            try {
+                const response = await fetch(this.playlistUrl, { signal: controller.signal })
+                if (!response.ok) throw new Error(`HTTP ${response.status}`)
+                return await response.text()
+            } catch (error) {
+                if (error instanceof Error && error.name === 'AbortError') {
+                    throw new Error('Tempo esgotado ao baixar a lista M3U.')
+                }
+                throw error
+            } finally {
+                clearTimeout(timer)
             }
-            throw error
-        } finally {
-            clearTimeout(timer)
-        }
+        })
+        this.tvgUrl = parseTvgUrl(text)
+        const channels = parseM3u(text)
+        for (const channel of channels) this.urlById.set(channel.id, channel.url)
+        this.catalog = buildM3uCatalog(channels)
+        for (const channel of this.catalog.live) this.liveById.set(channel.id, channel)
+        return this.catalog
     }
 
     async authenticate(): Promise<UserInfo> {
@@ -288,19 +291,23 @@ export class M3uClient implements CatalogClient {
         if (this.guidePromise) return this.guidePromise
         this.guidePromise = (async () => {
             if (!this.tvgUrl) return null
-            const controller = new AbortController()
-            const timer = setTimeout(() => controller.abort(), 30000)
             try {
-                const response = await fetch(this.tvgUrl, { signal: controller.signal })
-                if (!response.ok) return null
-                const xml = await response.text()
+                const xml = await withRetry(async () => {
+                    const controller = new AbortController()
+                    const timer = setTimeout(() => controller.abort(), 30000)
+                    try {
+                        const response = await fetch(this.tvgUrl, { signal: controller.signal })
+                        if (!response.ok) throw new Error(`HTTP ${response.status}`)
+                        return await response.text()
+                    } finally {
+                        clearTimeout(timer)
+                    }
+                })
                 // Guarda de tamanho: XMLTV maior que isso não cabe num celular.
                 if (xml.length > 40_000_000) return null
                 return parseXmltv(xml, Date.now())
             } catch {
                 return null
-            } finally {
-                clearTimeout(timer)
             }
         })()
         return this.guidePromise

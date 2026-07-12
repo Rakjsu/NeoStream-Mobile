@@ -4,6 +4,8 @@
  * NeoStream desktop (player_api.php + URLs /live /movie /series).
  */
 
+import { withRetry } from './net'
+
 export interface XtreamAccount {
     url: string
     username: string
@@ -281,20 +283,23 @@ export class XtreamClient implements CatalogClient {
     }
 
     private async request(action?: string, params: Record<string, string> = {}): Promise<unknown> {
-        const controller = new AbortController()
-        const timer = setTimeout(() => controller.abort(), 20000)
-        try {
-            const response = await fetch(this.apiUrl(action, params), { signal: controller.signal })
-            if (!response.ok) throw new Error(`HTTP ${response.status}`)
-            return await response.json()
-        } catch (error) {
-            if (error instanceof Error && error.name === 'AbortError') {
-                throw new Error('Tempo esgotado — o servidor demorou demais pra responder.')
+        // withRetry: 5xx/timeout ganham mais 2 tentativas; 4xx falha na hora.
+        return withRetry(async () => {
+            const controller = new AbortController()
+            const timer = setTimeout(() => controller.abort(), 20000)
+            try {
+                const response = await fetch(this.apiUrl(action, params), { signal: controller.signal })
+                if (!response.ok) throw new Error(`HTTP ${response.status}`)
+                return await response.json() as unknown
+            } catch (error) {
+                if (error instanceof Error && error.name === 'AbortError') {
+                    throw new Error('Tempo esgotado — o servidor demorou demais pra responder.')
+                }
+                throw error
+            } finally {
+                clearTimeout(timer)
             }
-            throw error
-        } finally {
-            clearTimeout(timer)
-        }
+        })
     }
 
     async authenticate(): Promise<UserInfo> {

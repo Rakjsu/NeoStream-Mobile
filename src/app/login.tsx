@@ -5,6 +5,8 @@ import {
     ActivityIndicator, KeyboardAvoidingView, Platform, ScrollView,
     StyleSheet, Text, TextInput, TouchableOpacity, View,
 } from 'react-native'
+import * as DocumentPicker from 'expo-document-picker'
+import * as FileSystem from 'expo-file-system/legacy'
 import { M3uClient } from '../services/m3u'
 import { addAccount } from '../services/session'
 import { XtreamClient, normalizeBaseUrl } from '../services/xtream'
@@ -82,6 +84,32 @@ export default function Login() {
                     keyboardType="url"
                 />
 
+                {mode === 'm3u' ? (
+                    <TouchableOpacity
+                        style={styles.fileBtn}
+                        onPress={() => {
+                            void (async () => {
+                                try {
+                                    const picked = await DocumentPicker.getDocumentAsync({ copyToCacheDirectory: true })
+                                    const asset = picked.assets?.[0]
+                                    if (!asset?.uri) return
+                                    // Cópia própria: o cache do picker pode sumir; a playlist não.
+                                    const dir = FileSystem.documentDirectory + 'playlists/'
+                                    await FileSystem.makeDirectoryAsync(dir, { intermediates: true }).catch(() => undefined)
+                                    const dest = dir + (asset.name || 'lista.m3u').replace(/[^\w.-]/g, '_')
+                                    await FileSystem.copyAsync({ from: asset.uri, to: dest })
+                                    setUrl(dest)
+                                    setError('')
+                                } catch {
+                                    setError(t('fileReadFail'))
+                                }
+                            })()
+                        }}
+                    >
+                        <Text style={styles.fileBtnText}>{t('openM3uFile')}</Text>
+                    </TouchableOpacity>
+                ) : null}
+
                 {mode === 'xtream' ? <>
                 <Text style={styles.label}>{t('userLabel')}</Text>
                 <TextInput
@@ -134,6 +162,16 @@ export default function Login() {
 }
 
 const styles = StyleSheet.create({
+    fileBtn: {
+        alignSelf: 'flex-start',
+        borderColor: colors.border,
+        borderWidth: 1,
+        borderRadius: 8,
+        paddingHorizontal: 12,
+        paddingVertical: 8,
+        marginTop: 8,
+    },
+    fileBtnText: { color: colors.text, fontSize: 13, fontWeight: '600' },
     root: { flex: 1, backgroundColor: colors.bg },
     scroll: { flexGrow: 1, justifyContent: 'center', padding: spacing.xl },
     logoWrap: { alignItems: 'center', marginBottom: spacing.xl, gap: spacing.xs },

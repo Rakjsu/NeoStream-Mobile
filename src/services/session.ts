@@ -29,6 +29,10 @@ export function accountId(account: XtreamAccount): string {
 /** Nome de exibição: apelido se houver; senão usuário@host (M3U mostra o host). */
 export function accountLabel(account: XtreamAccount & { alias?: string }): string {
     if (account.alias?.trim()) return account.alias.trim()
+    if (account.url.startsWith('file://')) {
+        const file = account.url.split('/').pop() ?? 'lista.m3u'
+        return `M3U · ${decodeURIComponent(file)}`
+    }
     try {
         const host = new URL(normalizeBaseUrl(account.url)).host
         return account.type === 'm3u' ? `M3U · ${host}` : `${account.username}@${host}`

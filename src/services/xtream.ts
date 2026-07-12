@@ -192,7 +192,8 @@ export function parseShortEpg(data: unknown, nowMs: number): NowNext {
 export function normalizeBaseUrl(raw: string): string {
     let url = raw.trim()
     if (!url) return ''
-    if (!/^https?:\/\//i.test(url)) url = `http://${url}`
+    // Lista M3U importada de arquivo local: preserva o esquema file://.
+    if (!/^(https?|file):\/\//i.test(url)) url = `http://${url}`
     while (url.endsWith('/')) url = url.slice(0, -1)
     return url
 }

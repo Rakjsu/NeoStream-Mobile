@@ -1,15 +1,32 @@
 import { Ionicons } from '@expo/vector-icons'
-import { useEvent } from 'expo'
+import { useEvent, useEventListener } from 'expo'
 import { useKeepAwake } from 'expo-keep-awake'
 import { router, useLocalSearchParams } from 'expo-router'
-import { useVideoPlayer, VideoView } from 'expo-video'
+import { useVideoPlayer, VideoView, type AudioTrack, type SubtitleTrack } from 'expo-video'
 import { useEffect, useRef, useState } from 'react'
 import { StyleSheet, Text, TouchableOpacity, View } from 'react-native'
 import { useSafeAreaInsets } from 'react-native-safe-area-context'
+import { getDownload } from '../services/downloads'
+import { castAvailable, castToCurrentSession, onCastSessionStarted, showCastPicker, type CastControls } from '../services/cast'
+import { nextEpisodeAfter, type QueuedEpisode } from '../services/episodeQueue'
 import { getEntry, resumePosition, saveSample, type ProgressKind } from '../services/progress'
+import { recordRecentChannel } from '../services/recents'
 import { cachedFetch, getClient } from '../services/session'
+import { recordWatchMinute } from '../services/usage'
 import { hasZapContext, zapBy } from '../services/zap'
 import { colors, spacing } from '../ui/theme'
+import { t, tf } from '../i18n/strings'
+
+// Atribuições de faixa ficam fora do componente: o expo-video expõe as
+// faixas como propriedades atribuíveis, o que a regra react-hooks/immutability
+// não deixa fazer direto num handler.
+type TrackPlayer = { audioTrack: AudioTrack | null; subtitleTrack: SubtitleTrack | null }
+function applyAudioTrack(target: TrackPlayer, track: AudioTrack) {
+    target.audioTrack = track
+}
+function applySubtitleTrack(target: TrackPlayer, track: SubtitleTrack | null) {
+    target.subtitleTrack = track
+}
 
 export default function Player() {
     const { url, title, live, pid, kind, sid, container, cover } = useLocalSearchParams<{
@@ -26,7 +43,10 @@ export default function Player() {
     const insets = useSafeAreaInsets()
     useKeepAwake()
 
-    const player = useVideoPlayer(String(url ?? ''), p => {
+    // Item baixado troca a fonte pro arquivo local — mudar o `source` faz o
+    // useVideoPlayer recriar o player (jeito permitido pela regra de hooks).
+    const [source, setSource] = useState(String(url ?? ''))
+    const player = useVideoPlayer(source, p => {
         p.play()
     })
     const { status, error } = useEvent(player, 'statusChange', {
@@ -35,6 +55,81 @@ export default function Player() {
     })
 
     const trackable = live !== '1' && !!pid && !!sid
+
+    // Faixas de áudio/legenda embutidas (ExoPlayer). 🎧 cicla dublado/legendado;
+    // 💬 cicla desligada → cada legenda → desligada. Toast confirma a escolha.
+    const [audioTracks, setAudioTracks] = useState<AudioTrack[]>([])
+    const [subtitleTracks, setSubtitleTracks] = useState<SubtitleTrack[]>([])
+    const [trackToast, setTrackToast] = useState('')
+    const toastTimer = useRef<ReturnType<typeof setTimeout> | null>(null)
+
+    useEffect(() => {
+        if (status !== 'readyToPlay') return
+        queueMicrotask(() => {
+            try {
+                setAudioTracks(player.availableAudioTracks ?? [])
+                setSubtitleTracks(player.availableSubtitleTracks ?? [])
+            } catch { /* player já liberado */ }
+        })
+        // eslint-disable-next-line react-hooks/exhaustive-deps
+    }, [status])
+
+    const showTrackToast = (text: string) => {
+        setTrackToast(text)
+        if (toastTimer.current) clearTimeout(toastTimer.current)
+        toastTimer.current = setTimeout(() => setTrackToast(''), 2000)
+    }
+
+    // Sleep timer: 🌙 cicla 30 → 60 → 90 min → desligado; ao zerar, pausa.
+    const SLEEP_STEPS = [0, 30, 60, 90]
+    const [sleepMin, setSleepMin] = useState(0)
+
+    const cycleSleep = () => {
+        const next = SLEEP_STEPS[(SLEEP_STEPS.indexOf(sleepMin) + 1) % SLEEP_STEPS.length]
+        setSleepMin(next)
+        showTrackToast(next === 0 ? t('sleepOff') : tf('sleepIn', { m: next }))
+    }
+
+    useEffect(() => {
+        if (sleepMin <= 0) return
+        const timer = setTimeout(() => {
+            try { player.pause() } catch { /* player já liberado */ }
+            setSleepMin(0)
+            showTrackToast(t('sleepDone'))
+        }, sleepMin * 60_000)
+        return () => clearTimeout(timer)
+        // eslint-disable-next-line react-hooks/exhaustive-deps
+    }, [sleepMin])
+
+    // A barra do topo (e o zap) some após 5s sem toque; um toque no topo traz de volta.
+    const [chrome, setChrome] = useState(true)
+    useEffect(() => {
+        if (!chrome) return
+        const timer = setTimeout(() => setChrome(false), 5000)
+        return () => clearTimeout(timer)
+    }, [chrome])
+
+    const cycleAudio = () => {
+        if (audioTracks.length < 2) return
+        const index = audioTracks.findIndex(track => track.id === player.audioTrack?.id)
+        const next = audioTracks[(index + 1) % audioTracks.length]
+        applyAudioTrack(player, next)
+        showTrackToast(`🎧 ${next.label || next.language || tf('audioN', { n: (index + 1) % audioTracks.length + 1 })}`)
+    }
+
+    const cycleSubtitle = () => {
+        if (subtitleTracks.length === 0) return
+        const index = subtitleTracks.findIndex(track => track.id === player.subtitleTrack?.id)
+        const nextIndex = player.subtitleTrack ? index + 1 : 0
+        if (nextIndex >= subtitleTracks.length) {
+            applySubtitleTrack(player, null)
+            showTrackToast(t('subtitleOff'))
+        } else {
+            const next = subtitleTracks[nextIndex]
+            applySubtitleTrack(player, next)
+            showTrackToast(`💬 ${next.label || next.language || tf('subtitleN', { n: nextIndex + 1 })}`)
+        }
+    }
     // O expo-video pode disparar release do player no unmount antes do cleanup;
     // amostras ficam aqui pra última gravação não precisar tocar o player.
     const lastSample = useRef({ position: 0, duration: 0 })
@@ -65,11 +160,161 @@ export default function Player() {
             player.play()
             setLiveTitle(channel.name)
             setLiveEpg('')
+            void recordRecentChannel({ id: channel.id, name: channel.name, logo: '' })
             showEpg(channel.id)
         })()
     }
 
-    // Retomar do ponto salvo: seek único logo que a mídia carrega.
+
+    // Chromecast: 📺 abre o seletor; conectou → manda a mídia atual (retomando
+    // do ponto em que o usuário estava) e pausa o local — a TV assume. O
+    // progresso do receiver volta pro "continuar assistindo" a cada ~5s.
+    const canCast = castAvailable()
+    const [casting, setCasting] = useState<CastControls | null>(null)
+    // Episódio que a TV está tocando quando a fila avança (os params da rota
+    // ficam no episódio original; os efeitos usam castEp ?? params).
+    const [castEp, setCastEp] = useState<QueuedEpisode | null>(null)
+    const [castPaused, setCastPaused] = useState(false)
+    const castingRef = useRef(false)
+    const lastCastSaveRef = useRef(0)
+
+    useEffect(() => {
+        if (!canCast) return
+        return onCastSessionStarted(() => {
+            let startAt = 0
+            try { startAt = player.currentTime || 0 } catch { /* player já liberado */ }
+            void castToCurrentSession(
+                source,
+                live === '1' ? liveTitle : String(title ?? ''),
+                String(cover ?? ''),
+                live === '1',
+                startAt,
+            ).then(controls => {
+                if (!controls) return
+                castingRef.current = true
+                setCasting(controls)
+                setCastPaused(false)
+                try { player.pause() } catch { /* player já liberado */ }
+                showTrackToast('📺 Chromecast')
+            })
+        })
+        // eslint-disable-next-line react-hooks/exhaustive-deps
+    }, [canCast, source, liveTitle])
+
+    useEffect(() => {
+        if (!casting || !trackable) return
+        return casting.onProgress(positionSec => {
+            const now = Date.now()
+            if (now - lastCastSaveRef.current < 5000) return
+            lastCastSaveRef.current = now
+            lastSample.current = { position: positionSec, duration: lastSample.current.duration }
+            void saveSample({
+                id: castEp?.pid ?? String(pid),
+                kind: (kind === 'episode' ? 'episode' : 'movie') as ProgressKind,
+                streamId: castEp?.sid ?? String(sid),
+                container: castEp?.container ?? String(container || 'mp4'),
+                title: castEp?.title ?? String(title ?? ''),
+                cover: castEp?.cover ?? String(cover ?? ''),
+                position: positionSec,
+                duration: castEp ? 0 : lastSample.current.duration,
+                updatedAt: now,
+            })
+        })
+        // eslint-disable-next-line react-hooks/exhaustive-deps
+    }, [casting, trackable, castEp])
+
+    // Fila na TV: episódio acabou no receiver → emenda o próximo da série.
+    const lastAdvanceRef = useRef(0)
+    useEffect(() => {
+        if (!casting || kind !== 'episode') return
+        return casting.onEnded(() => {
+            const now = Date.now()
+            if (now - lastAdvanceRef.current < 3000) return // status duplicado
+            lastAdvanceRef.current = now
+            const next = nextEpisodeAfter(castEp?.pid ?? String(pid))
+            if (!next) return
+            void (async () => {
+                const client = await getClient()
+                if (!client) return
+                const controls = await castToCurrentSession(
+                    client.seriesStreamUrl(next.sid, next.container),
+                    next.title,
+                    next.cover,
+                    false,
+                )
+                if (!controls) return
+                lastCastSaveRef.current = 0
+                setCasting(controls)
+                setCastEp(next)
+                setCastPaused(false)
+                showTrackToast(`📺 ${next.title}`)
+            })()
+        })
+        // eslint-disable-next-line react-hooks/exhaustive-deps
+    }, [casting, castEp])
+
+    const stopCasting = () => {
+        casting?.stop()
+        castingRef.current = false
+        setCasting(null)
+        setCastEp(null)
+    }
+
+    // Autoplay: fim do episódio → overlay "A seguir" com contagem regressiva.
+    // A fila vem da tela da série (episodeQueue); trocar de episódio é um
+    // router.replace com os params novos — o effect do `url` recria o player.
+    const [upNext, setUpNext] = useState<QueuedEpisode | null>(null)
+    const [countdown, setCountdown] = useState(5)
+
+    const playNext = (episode: QueuedEpisode) => {
+        void (async () => {
+            const client = await getClient()
+            if (!client) return
+            setUpNext(null)
+            router.replace({
+                pathname: '/player',
+                params: {
+                    url: client.seriesStreamUrl(episode.sid, episode.container),
+                    title: episode.title, pid: episode.pid, kind: 'episode',
+                    sid: episode.sid, container: episode.container, cover: episode.cover,
+                },
+            })
+        })()
+    }
+
+    useEventListener(player, 'playToEnd', () => {
+        if (kind !== 'episode' || !trackable) return
+        const next = nextEpisodeAfter(String(pid))
+        if (next) { setCountdown(5); setUpNext(next) }
+    })
+
+    useEffect(() => {
+        if (!upNext) return
+        if (countdown <= 0) { playNext(upNext); return }
+        const timer = setTimeout(() => setCountdown(current => current - 1), 1000)
+        return () => clearTimeout(timer)
+         
+    }, [upNext, countdown])
+
+    // O autoplay troca os params deste mesmo screen (replace) — segue a URL nova.
+    useEffect(() => {
+        queueMicrotask(() => setSource(String(url ?? '')))
+         
+    }, [url])
+
+    // Item baixado → aponta a fonte pro arquivo local.
+    useEffect(() => {
+        if (!trackable) return
+        let cancelled = false
+        void getDownload(String(pid))
+            .then(download => {
+                if (download && !cancelled) setSource(download.fileUri)
+            })
+            .catch(() => undefined)
+        return () => { cancelled = true }
+    }, [pid, trackable])
+
+    // Retomar do ponto salvo (re-executa se a fonte virar o arquivo local).
     useEffect(() => {
         if (!trackable) return
         let cancelled = false
@@ -78,9 +323,23 @@ export default function Player() {
             if (!cancelled && at > 0) player.currentTime = at
         })
         return () => { cancelled = true }
-        // player é estável entre renders (useVideoPlayer) — só o pid importa.
+        // player é estável pra um mesmo source — pid/source são o que importa.
         // eslint-disable-next-line react-hooks/exhaustive-deps
-    }, [pid, trackable])
+    }, [pid, trackable, source])
+
+    // Tempo assistido: 1 minuto contabilizado por minuto tocando (local ou TV).
+    useEffect(() => {
+        const usageKind = live === '1' ? 'live' : kind === 'episode' ? 'episode' : 'movie'
+        const timer = setInterval(() => {
+            let playing = castingRef.current && !castPaused
+            if (!playing) {
+                try { playing = player.playing } catch { return } // player já liberado
+            }
+            if (playing) void recordWatchMinute(usageKind)
+        }, 60_000)
+        return () => clearInterval(timer)
+        // eslint-disable-next-line react-hooks/exhaustive-deps
+    }, [live, kind, castPaused])
 
     // Amostra a posição a cada 5s + gravação final ao sair da tela.
     useEffect(() => {
@@ -101,6 +360,7 @@ export default function Player() {
             })
         }
         const timer = setInterval(() => {
+            if (castingRef.current) return // a TV é a fonte do progresso agora
             try {
                 lastSample.current = { position: player.currentTime || 0, duration: player.duration || 0 }
             } catch { return } // player já liberado
@@ -124,10 +384,18 @@ export default function Player() {
                 contentFit="contain"
                 nativeControls
                 allowsPictureInPicture
+                startsPictureInPictureAutomatically
             />
 
+            {!chrome ? (
+                <TouchableOpacity
+                    style={[styles.chromeStrip, { height: insets.top + 56 }]}
+                    accessibilityLabel={t('a11yShowBar')}
+                    onPress={() => setChrome(true)}
+                />
+            ) : (
             <View style={[styles.topBar, { paddingTop: insets.top + spacing.sm }]}>
-                <TouchableOpacity style={styles.back} onPress={() => router.back()}>
+                <TouchableOpacity style={styles.back} accessibilityLabel={t('a11yBack')} onPress={() => router.back()}>
                     <Ionicons name="chevron-back" size={24} color={colors.text} />
                 </TouchableOpacity>
                 <View style={styles.titleBlock}>
@@ -138,16 +406,82 @@ export default function Player() {
                         <Text style={styles.epg} numberOfLines={1}>{liveEpg}</Text>
                     ) : null}
                 </View>
+                {canCast ? (
+                    <TouchableOpacity style={styles.trackBtn} accessibilityLabel={t('a11yCast')} onPress={() => void showCastPicker()}>
+                        <Ionicons name="tv-outline" size={20} color={colors.text} />
+                    </TouchableOpacity>
+                ) : null}
+                <TouchableOpacity style={styles.trackBtn} accessibilityLabel={t('a11ySleep')} onPress={cycleSleep}>
+                    <Ionicons
+                        name={sleepMin > 0 ? 'moon' : 'moon-outline'}
+                        size={20}
+                        color={sleepMin > 0 ? colors.accent : colors.text}
+                    />
+                </TouchableOpacity>
+                {audioTracks.length > 1 ? (
+                    <TouchableOpacity style={styles.trackBtn} accessibilityLabel={t('a11yAudio')} onPress={cycleAudio}>
+                        <Ionicons name="headset" size={20} color={colors.text} />
+                    </TouchableOpacity>
+                ) : null}
+                {subtitleTracks.length > 0 ? (
+                    <TouchableOpacity style={styles.trackBtn} accessibilityLabel={t('a11ySubtitle')} onPress={cycleSubtitle}>
+                        <Ionicons name="chatbox-ellipses" size={20} color={colors.text} />
+                    </TouchableOpacity>
+                ) : null}
             </View>
+            )}
 
-            {zappable ? (
+            {trackToast ? (
+                <View style={styles.trackToast}>
+                    <Text style={styles.trackToastText}>{trackToast}</Text>
+                </View>
+            ) : null}
+
+            {chrome && zappable ? (
                 <View style={styles.zapCol}>
-                    <TouchableOpacity style={styles.zapBtn} onPress={() => zap(1)}>
+                    <TouchableOpacity style={styles.zapBtn} accessibilityLabel={t('a11yZapNext')} onPress={() => zap(1)}>
                         <Ionicons name="chevron-up" size={26} color={colors.text} />
                     </TouchableOpacity>
-                    <TouchableOpacity style={styles.zapBtn} onPress={() => zap(-1)}>
+                    <TouchableOpacity style={styles.zapBtn} accessibilityLabel={t('a11yZapPrev')} onPress={() => zap(-1)}>
                         <Ionicons name="chevron-down" size={26} color={colors.text} />
                     </TouchableOpacity>
+                </View>
+            ) : null}
+
+            {casting ? (
+                <View style={styles.castBar}>
+                    <Ionicons name="tv" size={18} color={colors.accent} />
+                    <Text style={styles.castText}>{t('castingOnTv')}</Text>
+                    <TouchableOpacity
+                        style={styles.castBtn}
+                        accessibilityLabel={castPaused ? t('a11yPlay') : t('a11yPause')}
+                        onPress={() => {
+                            if (castPaused) casting.play()
+                            else casting.pause()
+                            setCastPaused(!castPaused)
+                        }}
+                    >
+                        <Ionicons name={castPaused ? 'play' : 'pause'} size={18} color={colors.text} />
+                    </TouchableOpacity>
+                    <TouchableOpacity style={styles.castBtn} onPress={stopCasting}>
+                        <Text style={styles.castStopText}>{t('stopCast')}</Text>
+                    </TouchableOpacity>
+                </View>
+            ) : null}
+
+            {upNext ? (
+                <View style={styles.upNext}>
+                    <Text style={styles.upNextLabel}>{t('upNextTitle')} {tf('autoplayIn', { s: countdown })}</Text>
+                    <Text style={styles.upNextName} numberOfLines={1}>{upNext.title}</Text>
+                    <View style={styles.upNextRow}>
+                        <TouchableOpacity style={styles.upNextPlay} onPress={() => playNext(upNext)}>
+                            <Ionicons name="play" size={16} color="#fff" />
+                            <Text style={styles.upNextPlayText}>{t('watchNow')}</Text>
+                        </TouchableOpacity>
+                        <TouchableOpacity style={styles.upNextCancel} onPress={() => setUpNext(null)}>
+                            <Text style={styles.upNextCancelText}>{t('cancel')}</Text>
+                        </TouchableOpacity>
+                    </View>
                 </View>
             ) : null}
 
@@ -155,8 +489,8 @@ export default function Player() {
                 <View style={styles.errorBox}>
                     <Ionicons name="warning" size={28} color={colors.danger} />
                     <Text style={styles.errorText}>
-                        Não deu pra reproduzir este conteúdo.{'\n'}
-                        {error?.message ?? 'O formato pode não ser suportado ou o servidor está fora do ar.'}
+                        {t('playError')}{'\n'}
+                        {error?.message ?? t('playErrorHint')}
                     </Text>
                 </View>
             ) : null}
@@ -183,6 +517,23 @@ const styles = StyleSheet.create({
     titleBlock: { flex: 1 },
     title: { color: colors.text, fontSize: 16, fontWeight: '600' },
     epg: { color: 'rgba(244,244,248,0.7)', fontSize: 12 },
+    trackBtn: { padding: spacing.sm },
+    trackToast: {
+        position: 'absolute',
+        bottom: 96,
+        alignSelf: 'center',
+        backgroundColor: 'rgba(22,22,31,0.92)',
+        borderRadius: 20,
+        paddingHorizontal: spacing.lg,
+        paddingVertical: 8,
+    },
+    trackToastText: { color: colors.text, fontSize: 14, fontWeight: '600' },
+    chromeStrip: {
+        position: 'absolute',
+        top: 0,
+        left: 0,
+        right: 0,
+    },
     zapCol: {
         position: 'absolute',
         right: spacing.sm,
@@ -197,6 +548,50 @@ const styles = StyleSheet.create({
         alignItems: 'center',
         justifyContent: 'center',
     },
+    castBar: {
+        position: 'absolute',
+        bottom: 32,
+        alignSelf: 'center',
+        flexDirection: 'row',
+        alignItems: 'center',
+        gap: spacing.md,
+        backgroundColor: 'rgba(22,22,31,0.95)',
+        borderColor: colors.border,
+        borderWidth: 1,
+        borderRadius: 24,
+        paddingHorizontal: spacing.lg,
+        paddingVertical: 8,
+    },
+    castText: { color: colors.text, fontSize: 14, fontWeight: '600' },
+    castBtn: { padding: spacing.xs },
+    castStopText: { color: colors.danger, fontSize: 13, fontWeight: '600' },
+    upNext: {
+        position: 'absolute',
+        right: spacing.lg,
+        bottom: 96,
+        maxWidth: 320,
+        gap: spacing.sm,
+        backgroundColor: 'rgba(22,22,31,0.95)',
+        borderColor: colors.border,
+        borderWidth: 1,
+        borderRadius: 12,
+        padding: spacing.lg,
+    },
+    upNextLabel: { color: colors.textDim, fontSize: 12, textTransform: 'uppercase' },
+    upNextName: { color: colors.text, fontSize: 15, fontWeight: '600' },
+    upNextRow: { flexDirection: 'row', gap: spacing.md },
+    upNextPlay: {
+        flexDirection: 'row',
+        alignItems: 'center',
+        gap: 6,
+        backgroundColor: colors.accent,
+        borderRadius: 8,
+        paddingHorizontal: spacing.md,
+        paddingVertical: 8,
+    },
+    upNextPlayText: { color: '#fff', fontSize: 14, fontWeight: '600' },
+    upNextCancel: { justifyContent: 'center', paddingHorizontal: spacing.md },
+    upNextCancelText: { color: colors.textDim, fontSize: 14, fontWeight: '600' },
     errorBox: {
         position: 'absolute',
         left: spacing.xl,

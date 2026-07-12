@@ -3,11 +3,14 @@ import { router } from 'expo-router'
 import { useCallback, useEffect, useMemo, useState } from 'react'
 import { Image, ScrollView, StyleSheet, Text, TouchableOpacity, View } from 'react-native'
 import { allowedCategoryIds, loadParental } from '../../services/parental'
+import { recordRecentChannel } from '../../services/recents'
+import { clearSearchTerms, listSearchTerms, recordSearchTerm } from '../../services/searchHistory'
 import { cachedFetch, getClient } from '../../services/session'
 import type { Category, LiveChannel, SeriesItem, VodMovie } from '../../services/xtream'
 import { setZapContext } from '../../services/zap'
 import { EmptyState, Loading, SearchBar } from '../../ui/components'
 import { colors, spacing } from '../../ui/theme'
+import { t } from '../../i18n/strings'
 
 const MAX_PER_SECTION = 10
 
@@ -21,6 +24,7 @@ export default function SearchTab() {
         live: null, vod: null, series: null,
     })
     const [error, setError] = useState('')
+    const [history, setHistory] = useState<string[]>([])
 
     const load = useCallback(async () => {
         try {
@@ -45,12 +49,12 @@ export default function SearchTab() {
             })
             setError('')
         } catch (err) {
-            setError(err instanceof Error ? err.message : 'Falha ao carregar o catálogo.')
+            setError(err instanceof Error ? err.message : t('failCatalog'))
             setChannels([])
         }
     }, [])
 
-    useEffect(() => { queueMicrotask(() => { void load() }) }, [load])
+    useEffect(() => { queueMicrotask(() => { void load(); void listSearchTerms().then(setHistory) }) }, [load])
 
     const q = query.trim().toLowerCase()
     const results = useMemo(() => {
@@ -70,32 +74,60 @@ export default function SearchTab() {
         }
     }, [q, channels, movies, series, allowed])
 
+    const remember = () => {
+        void recordSearchTerm(query).then(listSearchTerms).then(setHistory)
+    }
+
     const playChannel = async (channel: LiveChannel) => {
         const client = await getClient()
         if (!client) return
+        remember()
         setZapContext(results.channels.map(c => ({ id: String(c.stream_id), name: c.name })), String(channel.stream_id))
+        void recordRecentChannel({ id: String(channel.stream_id), name: channel.name, logo: channel.stream_icon || '' })
         router.push({
             pathname: '/player',
             params: { url: client.liveStreamUrl(channel.stream_id), title: channel.name, live: '1' },
         })
     }
 
-    if (channels === null) return <Loading label="Carregando catálogo…" />
+    if (channels === null) return <Loading label={t('loadingCatalog')} />
 
     const total = results.channels.length + results.movies.length + results.series.length
 
     return (
         <View style={styles.root}>
-            <SearchBar value={query} onChange={setQuery} placeholder="Buscar em tudo…" />
+            <SearchBar value={query} onChange={setQuery} placeholder={t('searchAll')} />
             {error ? <Text style={styles.error}>{error}</Text> : null}
             <ScrollView keyboardShouldPersistTaps="handled" contentContainerStyle={total === 0 ? { flexGrow: 1 } : undefined}>
                 {!q ? (
-                    <EmptyState icon="search" label="Digite pra buscar em canais, filmes e séries de uma vez." />
+                    history.length > 0 ? (
+                        <View style={styles.historyBox}>
+                            <View style={styles.historyHeader}>
+                                <Text style={styles.section}>{t('recentSearches')}</Text>
+                                <TouchableOpacity
+                                    style={styles.historyClear}
+                                    accessibilityLabel={t('a11yClear')}
+                                    onPress={() => { void clearSearchTerms(); setHistory([]) }}
+                                >
+                                    <Ionicons name="close-circle-outline" size={18} color={colors.textDim} />
+                                </TouchableOpacity>
+                            </View>
+                            <View style={styles.historyChips}>
+                                {history.map(term => (
+                                    <TouchableOpacity key={term} style={styles.historyChip} onPress={() => setQuery(term)}>
+                                        <Text style={styles.historyChipText}>{term}</Text>
+                                    </TouchableOpacity>
+                                ))}
+                            </View>
+                        </View>
+                    ) : (
+                        <EmptyState icon="search" label={t('searchPrompt')} />
+                    )
                 ) : total === 0 ? (
-                    <EmptyState icon="search" label="Nada encontrado." />
+                    <EmptyState icon="search" label={t('searchNothing')} />
                 ) : (
                     <>
-                        {results.channels.length > 0 ? <Text style={styles.section}>📺 Canais</Text> : null}
+                        {results.channels.length > 0 ? <Text style={styles.section}>{t('secChannels')}</Text> : null}
                         {results.channels.map(channel => (
                             <TouchableOpacity key={`c${channel.stream_id}`} style={styles.row} onPress={() => void playChannel(channel)}>
                                 {channel.stream_icon ? (
@@ -110,18 +142,21 @@ export default function SearchTab() {
                             </TouchableOpacity>
                         ))}
 
-                        {results.movies.length > 0 ? <Text style={styles.section}>🎬 Filmes</Text> : null}
+                        {results.movies.length > 0 ? <Text style={styles.section}>{t('secMovies')}</Text> : null}
                         {results.movies.map(movie => (
                             <TouchableOpacity
                                 key={`m${movie.stream_id}`}
                                 style={styles.row}
-                                onPress={() => router.push({
+                                onPress={() => {
+                                    remember()
+                                    router.push({
                                     pathname: '/movie/[id]',
                                     params: {
                                         id: String(movie.stream_id), name: movie.name,
                                         cover: movie.stream_icon || '', container: movie.container_extension || 'mp4',
                                     },
-                                })}
+                                    })
+                                }}
                             >
                                 {movie.stream_icon ? (
                                     <Image source={{ uri: movie.stream_icon }} style={styles.poster} resizeMode="cover" />
@@ -135,15 +170,18 @@ export default function SearchTab() {
                             </TouchableOpacity>
                         ))}
 
-                        {results.series.length > 0 ? <Text style={styles.section}>🎞️ Séries</Text> : null}
+                        {results.series.length > 0 ? <Text style={styles.section}>{t('secSeries')}</Text> : null}
                         {results.series.map(show => (
                             <TouchableOpacity
                                 key={`s${show.series_id}`}
                                 style={styles.row}
-                                onPress={() => router.push({
-                                    pathname: '/series/[id]',
-                                    params: { id: String(show.series_id), name: show.name, cover: show.cover || '' },
-                                })}
+                                onPress={() => {
+                                    remember()
+                                    router.push({
+                                        pathname: '/series/[id]',
+                                        params: { id: String(show.series_id), name: show.name, cover: show.cover || '' },
+                                    })
+                                }}
                             >
                                 {show.cover ? (
                                     <Image source={{ uri: show.cover }} style={styles.poster} resizeMode="cover" />
@@ -187,4 +225,22 @@ const styles = StyleSheet.create({
     poster: { width: 30, height: 45, borderRadius: 4, backgroundColor: colors.card },
     thumbFallback: { alignItems: 'center', justifyContent: 'center' },
     name: { flex: 1, color: colors.text, fontSize: 14 },
+    historyBox: { paddingBottom: spacing.lg },
+    historyHeader: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', paddingRight: spacing.md },
+    historyClear: { padding: spacing.sm },
+    historyChips: {
+        flexDirection: 'row',
+        flexWrap: 'wrap',
+        gap: spacing.sm,
+        paddingHorizontal: spacing.lg,
+    },
+    historyChip: {
+        backgroundColor: colors.card,
+        borderColor: colors.border,
+        borderWidth: 1,
+        borderRadius: 16,
+        paddingHorizontal: spacing.md,
+        paddingVertical: 6,
+    },
+    historyChipText: { color: colors.text, fontSize: 13 },
 })

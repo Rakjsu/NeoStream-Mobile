@@ -1,5 +1,7 @@
 import { Ionicons } from '@expo/vector-icons'
-import { Tabs } from 'expo-router'
+import { router, Tabs } from 'expo-router'
+import { TouchableOpacity } from 'react-native'
+import { t } from '../../i18n/strings'
 import { colors } from '../../ui/theme'
 
 export default function TabsLayout() {
@@ -16,37 +18,49 @@ export default function TabsLayout() {
             }}
         >
             <Tabs.Screen
+                name="home"
+                options={{
+                    title: t('tabHome'),
+                    tabBarIcon: ({ color, size }) => <Ionicons name="home" size={size} color={color} />,
+                    headerRight: () => (
+                        <TouchableOpacity onPress={() => router.push('/downloads')} style={{ paddingHorizontal: 16 }}>
+                            <Ionicons name="cloud-download-outline" size={22} color={colors.text} />
+                        </TouchableOpacity>
+                    ),
+                }}
+            />
+            <Tabs.Screen
                 name="live"
                 options={{
-                    title: 'TV ao vivo',
+                    title: t('tabLive'),
                     tabBarIcon: ({ color, size }) => <Ionicons name="tv" size={size} color={color} />,
                 }}
             />
             <Tabs.Screen
                 name="movies"
                 options={{
-                    title: 'Filmes',
+                    title: t('tabMovies'),
                     tabBarIcon: ({ color, size }) => <Ionicons name="film" size={size} color={color} />,
                 }}
             />
             <Tabs.Screen
                 name="series"
                 options={{
-                    title: 'Séries',
+                    title: t('tabSeries'),
                     tabBarIcon: ({ color, size }) => <Ionicons name="albums" size={size} color={color} />,
                 }}
             />
             <Tabs.Screen
                 name="search"
                 options={{
-                    title: 'Buscar',
+                    title: t('tabSearch'),
                     tabBarIcon: ({ color, size }) => <Ionicons name="search" size={size} color={color} />,
                 }}
             />
             <Tabs.Screen
                 name="settings"
                 options={{
-                    title: 'Ajustes',
+                    title: t('tabSettings'),
                     tabBarIcon: ({ color, size }) => <Ionicons name="settings" size={size} color={color} />,
                 }}
             />

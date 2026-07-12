@@ -169,6 +169,34 @@ export async function markWatched(id: string): Promise<void> {
     } catch { /* best-effort */ }
 }
 
+export async function unmarkWatched(id: string): Promise<void> {
+    const set = await loadWatched()
+    if (!set.delete(id)) return
+    try {
+        await AsyncStorage.setItem(WATCHED_KEY, JSON.stringify([...set]))
+    } catch { /* best-effort */ }
+}
+
+/** "Limpar histórico" dos Ajustes: zera progresso e vistos. */
+export async function clearHistory(): Promise<void> {
+    cache = {}
+    watchedCache = new Set()
+    try {
+        await AsyncStorage.setItem(STORAGE_KEY, '{}')
+        await AsyncStorage.setItem(WATCHED_KEY, '[]')
+    } catch { /* best-effort */ }
+}
+
+/** Restauração de backup: substitui progresso e vistos. */
+export async function restoreProgress(map: Record<string, ProgressEntry>, watched: string[]): Promise<void> {
+    cache = map && typeof map === 'object' ? map : {}
+    watchedCache = new Set(Array.isArray(watched) ? watched.filter((x): x is string => typeof x === 'string') : [])
+    try {
+        await AsyncStorage.setItem(STORAGE_KEY, JSON.stringify(cache))
+        await AsyncStorage.setItem(WATCHED_KEY, JSON.stringify([...watchedCache]))
+    } catch { /* best-effort */ }
+}
+
 /** Só pra testes/logout. */
 export function resetProgressCache(): void {
     cache = null

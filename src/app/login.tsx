@@ -5,11 +5,14 @@ import {
     ActivityIndicator, KeyboardAvoidingView, Platform, ScrollView,
     StyleSheet, Text, TextInput, TouchableOpacity, View,
 } from 'react-native'
+import { M3uClient } from '../services/m3u'
 import { addAccount } from '../services/session'
 import { XtreamClient, normalizeBaseUrl } from '../services/xtream'
 import { colors, spacing } from '../ui/theme'
+import { t } from '../i18n/strings'
 
 export default function Login() {
+    const [mode, setMode] = useState<'xtream' | 'm3u'>('xtream')
     const [url, setUrl] = useState('')
     const [username, setUsername] = useState('')
     const [password, setPassword] = useState('')
@@ -17,20 +20,25 @@ export default function Login() {
     const [busy, setBusy] = useState(false)
     const [error, setError] = useState('')
 
-    const canSubmit = url.trim() !== '' && username.trim() !== '' && password !== '' && !busy
+    const canSubmit = url.trim() !== '' && (mode === 'm3u' || (username.trim() !== '' && password !== '')) && !busy
 
     const submit = async () => {
         if (!canSubmit) return
         setBusy(true)
         setError('')
         try {
-            const account = { url: normalizeBaseUrl(url), username: username.trim(), password }
-            const client = new XtreamClient(account)
-            const userInfo = await client.authenticate()
-            await addAccount(account, userInfo)
-            router.replace('/(tabs)/live')
+            if (mode === 'm3u') {
+                const listUrl = normalizeBaseUrl(url)
+                const userInfo = await new M3uClient(listUrl).authenticate()
+                await addAccount({ url: listUrl, username: '', password: '', type: 'm3u' }, userInfo)
+            } else {
+                const account = { url: normalizeBaseUrl(url), username: username.trim(), password }
+                const userInfo = await new XtreamClient(account).authenticate()
+                await addAccount(account, userInfo)
+            }
+            router.replace('/(tabs)/home')
         } catch (err) {
-            setError(err instanceof Error ? err.message : 'Falha ao conectar no servidor.')
+            setError(err instanceof Error ? err.message : t('loginFail'))
         } finally {
             setBusy(false)
         }
@@ -42,39 +50,57 @@ export default function Login() {
                 <View style={styles.logoWrap}>
                     <Ionicons name="play-circle" size={64} color={colors.accent} />
                     <Text style={styles.title}>NeoStream</Text>
-                    <Text style={styles.subtitle}>Entre com os dados da sua lista IPTV (Xtream)</Text>
+                    <Text style={styles.subtitle}>
+                        {mode === 'm3u' ? t('loginSubtitleM3u') : t('loginSubtitleXtream')}
+                    </Text>
                 </View>
 
-                <Text style={styles.label}>Servidor</Text>
+                <View style={styles.modeRow}>
+                    <TouchableOpacity
+                        style={[styles.modeBtn, mode === 'xtream' && styles.modeBtnOn]}
+                        onPress={() => { setMode('xtream'); setError('') }}
+                    >
+                        <Text style={[styles.modeText, mode === 'xtream' && styles.modeTextOn]}>{t('modeXtream')}</Text>
+                    </TouchableOpacity>
+                    <TouchableOpacity
+                        style={[styles.modeBtn, mode === 'm3u' && styles.modeBtnOn]}
+                        onPress={() => { setMode('m3u'); setError('') }}
+                    >
+                        <Text style={[styles.modeText, mode === 'm3u' && styles.modeTextOn]}>{t('modeM3u')}</Text>
+                    </TouchableOpacity>
+                </View>
+
+                <Text style={styles.label}>{mode === 'm3u' ? t('m3uLabel') : t('serverLabel')}</Text>
                 <TextInput
                     style={styles.input}
                     value={url}
                     onChangeText={setUrl}
-                    placeholder="http://servidor.tv:8080"
+                    placeholder={mode === 'm3u' ? 'http://provedor.tv/lista.m3u' : 'http://servidor.tv:8080'}
                     placeholderTextColor={colors.textDim}
                     autoCapitalize="none"
                     autoCorrect={false}
                     keyboardType="url"
                 />
 
-                <Text style={styles.label}>Usuário</Text>
+                {mode === 'xtream' ? <>
+                <Text style={styles.label}>{t('userLabel')}</Text>
                 <TextInput
                     style={styles.input}
                     value={username}
                     onChangeText={setUsername}
-                    placeholder="usuário"
+                    placeholder={t('userPh')}
                     placeholderTextColor={colors.textDim}
                     autoCapitalize="none"
                     autoCorrect={false}
                 />
 
-                <Text style={styles.label}>Senha</Text>
+                <Text style={styles.label}>{t('passLabel')}</Text>
                 <View style={styles.passwordRow}>
                     <TextInput
                         style={[styles.input, { flex: 1, marginBottom: 0 }]}
                         value={password}
                         onChangeText={setPassword}
-                        placeholder="senha"
+                        placeholder={t('passPh')}
                         placeholderTextColor={colors.textDim}
                         autoCapitalize="none"
                         autoCorrect={false}
@@ -85,6 +111,7 @@ export default function Login() {
                         <Ionicons name={showPassword ? 'eye-off' : 'eye'} size={20} color={colors.textDim} />
                     </TouchableOpacity>
                 </View>
+                </> : null}
 
                 {error ? <Text style={styles.error}>{error}</Text> : null}
 
@@ -95,11 +122,11 @@ export default function Login() {
                 >
                     {busy
                         ? <ActivityIndicator color="#fff" />
-                        : <Text style={styles.buttonText}>Entrar</Text>}
+                        : <Text style={styles.buttonText}>{t('signIn')}</Text>}
                 </TouchableOpacity>
 
                 <Text style={styles.hint}>
-                    Seus dados ficam só neste aparelho e são usados apenas pra falar com o seu provedor.
+                    {t('loginHint')}
                 </Text>
             </ScrollView>
         </KeyboardAvoidingView>
@@ -110,6 +137,19 @@ const styles = StyleSheet.create({
     root: { flex: 1, backgroundColor: colors.bg },
     scroll: { flexGrow: 1, justifyContent: 'center', padding: spacing.xl },
     logoWrap: { alignItems: 'center', marginBottom: spacing.xl, gap: spacing.xs },
+    modeRow: { flexDirection: 'row', gap: spacing.sm, marginBottom: spacing.sm },
+    modeBtn: {
+        flex: 1,
+        alignItems: 'center',
+        paddingVertical: 10,
+        borderRadius: 10,
+        borderWidth: 1,
+        borderColor: colors.border,
+        backgroundColor: colors.card,
+    },
+    modeBtnOn: { borderColor: colors.accent, backgroundColor: colors.accentSoft },
+    modeText: { color: colors.textDim, fontSize: 14, fontWeight: '600' },
+    modeTextOn: { color: colors.accent },
     title: { color: colors.text, fontSize: 28, fontWeight: '700' },
     subtitle: { color: colors.textDim, fontSize: 14, textAlign: 'center' },
     label: { color: colors.textDim, fontSize: 13, marginBottom: spacing.xs, marginTop: spacing.md },

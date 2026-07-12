@@ -4,11 +4,14 @@
  * são PUROS (testáveis); só load/save tocam o AsyncStorage.
  */
 import AsyncStorage from '@react-native-async-storage/async-storage'
-import { XtreamClient, normalizeBaseUrl, type UserInfo, type XtreamAccount } from './xtream'
+import { M3uClient } from './m3u'
+import { XtreamClient, normalizeBaseUrl, type CatalogClient, type UserInfo, type XtreamAccount } from './xtream'
 
 export interface StoredAccount extends XtreamAccount {
     id: string
     userInfo?: UserInfo
+    /** Apelido dado pelo usuário ("Casa", "Do irmão"…) — vence o label cru. */
+    alias?: string
 }
 
 const ACCOUNTS_KEY = 'neostream_accounts'
@@ -19,16 +22,24 @@ const LEGACY_USER_INFO_KEY = 'neostream_user_info'
 
 /** Id determinístico: mesma conta (url+usuário) nunca duplica. */
 export function accountId(account: XtreamAccount): string {
-    return `${account.username}@${normalizeBaseUrl(account.url)}`
+    const user = account.type === 'm3u' ? 'm3u' : account.username
+    return `${user}@${normalizeBaseUrl(account.url)}`
 }
 
-/** Nome de exibição: usuário@host (sem esquema/credencial). */
-export function accountLabel(account: XtreamAccount): string {
+/** Nome de exibição: apelido se houver; senão usuário@host (M3U mostra o host). */
+export function accountLabel(account: XtreamAccount & { alias?: string }): string {
+    if (account.alias?.trim()) return account.alias.trim()
     try {
-        return `${account.username}@${new URL(normalizeBaseUrl(account.url)).host}`
+        const host = new URL(normalizeBaseUrl(account.url)).host
+        return account.type === 'm3u' ? `M3U · ${host}` : `${account.username}@${host}`
     } catch {
         return accountId(account)
     }
+}
+
+/** Client certo pro tipo da conta (Xtream ou lista M3U). */
+export function buildClient(account: XtreamAccount): CatalogClient {
+    return account.type === 'm3u' ? new M3uClient(normalizeBaseUrl(account.url)) : new XtreamClient(account)
 }
 
 /** Insere/atualiza uma conta (PURO) — dedup pelo id determinístico. */
@@ -38,6 +49,9 @@ export function upsertAccount(
     userInfo?: UserInfo,
 ): { accounts: StoredAccount[]; entry: StoredAccount } {
     const entry: StoredAccount = { ...account, id: accountId(account), userInfo }
+    // Relogin não pode apagar o apelido que o usuário deu.
+    const previous = accounts.find(a => a.id === entry.id)
+    if (previous?.alias && !entry.alias) entry.alias = previous.alias
     const rest = accounts.filter(a => a.id !== entry.id)
     return { accounts: [...rest, entry], entry }
 }
@@ -46,7 +60,7 @@ export function upsertAccount(
 
 let accountsCache: StoredAccount[] | null = null
 let activeIdCache: string | null = null
-let client: XtreamClient | null = null
+let client: CatalogClient | null = null
 
 async function loadState(): Promise<{ accounts: StoredAccount[]; activeId: string | null }> {
     if (accountsCache) return { accounts: accountsCache, activeId: activeIdCache }
@@ -118,7 +132,7 @@ export async function addAccount(account: XtreamAccount, userInfo: UserInfo): Pr
     accountsCache = result.accounts
     activeIdCache = result.entry.id
     await persist()
-    client = new XtreamClient(result.entry)
+    client = buildClient(result.entry)
     invalidateCatalog()
     return result.entry
 }
@@ -130,7 +144,7 @@ export async function switchAccount(id: string): Promise<StoredAccount | null> {
     if (!entry) return null
     activeIdCache = id
     await persist()
-    client = new XtreamClient(entry)
+    client = buildClient(entry)
     invalidateCatalog()
     return entry
 }
@@ -142,6 +156,7 @@ export async function switchAccount(id: string): Promise<StoredAccount | null> {
 export async function removeAccount(id: string): Promise<StoredAccount | null> {
     const { accounts, activeId } = await loadState()
     accountsCache = accounts.filter(a => a.id !== id)
+    void dropPersistedCatalog(id)
     if (activeId === id) {
         activeIdCache = accountsCache[0]?.id ?? null
         client = null
@@ -149,17 +164,34 @@ export async function removeAccount(id: string): Promise<StoredAccount | null> {
     }
     await persist()
     const active = accountsCache.find(a => a.id === activeIdCache) ?? null
-    if (active && !client) client = new XtreamClient(active)
+    if (active && !client) client = buildClient(active)
     return active
 }
 
+/** Dá (ou limpa, com '') o apelido de uma conta. */
+export async function renameAccount(id: string, alias: string): Promise<void> {
+    const { accounts } = await loadState()
+    accountsCache = accounts.map(a => (a.id === id ? { ...a, alias: alias.trim() || undefined } : a))
+    await persist()
+}
+
 /** Client da conta ativa (null quando deslogado). */
-export async function getClient(): Promise<XtreamClient | null> {
+export async function getClient(): Promise<CatalogClient | null> {
     if (client) return client
     const account = await loadAccount()
     if (!account) return null
-    client = new XtreamClient(account)
+    client = buildClient(account)
     return client
+}
+
+/** Restauração de backup: substitui as contas e reativa o client. */
+export async function restoreAccounts(accounts: StoredAccount[], activeId: string | null): Promise<void> {
+    accountsCache = accounts.filter(a => !!a?.id && !!a.url)
+    activeIdCache = activeId && accountsCache.some(a => a.id === activeId) ? activeId : accountsCache[0]?.id ?? null
+    await persist()
+    const active = accountsCache.find(a => a.id === activeIdCache)
+    client = active ? buildClient(active) : null
+    invalidateCatalog()
 }
 
 /** Só pra testes. */
@@ -170,18 +202,89 @@ export function resetSessionCache(): void {
     invalidateCatalog()
 }
 
-// ---------------------------------------------------------- catálogo (memo) --
+// ----------------------------------------------------------- catálogo (SWR) --
 
 const catalog = new Map<string, unknown>()
+
+/** Só as listas grandes valem disco — EPG e afins ficam na sessão. */
+const PERSISTABLE_KEYS = new Set(['live', 'vod', 'series', 'live-cats', 'vod-cats', 'series-cats'])
+/** Cache mais novo que isso vai pra tela na hora (a rede atualiza por trás). */
+const FRESH_MS = 24 * 3600_000
+/** Entrada gigante estoura o AsyncStorage do Android — melhor não persistir. */
+const MAX_PERSIST_CHARS = 1_500_000
+
+interface PersistedCatalog {
+    t: number
+    data: unknown
+}
+
+function catalogStorageKey(id: string, key: string): string {
+    return `neostream_catalog_${id}_${key}`
+}
+
+async function readPersisted(storageKey: string): Promise<PersistedCatalog | null> {
+    try {
+        const raw = await AsyncStorage.getItem(storageKey)
+        const parsed = raw ? (JSON.parse(raw) as PersistedCatalog) : null
+        return parsed && typeof parsed.t === 'number' && 'data' in parsed ? parsed : null
+    } catch {
+        return null
+    }
+}
+
+async function writePersisted(storageKey: string, data: unknown): Promise<void> {
+    try {
+        const json = JSON.stringify({ t: Date.now(), data })
+        if (json.length > MAX_PERSIST_CHARS) return
+        await AsyncStorage.setItem(storageKey, json)
+    } catch { /* best-effort */ }
+}
+
+/** Remove o catálogo persistido de uma conta (chamado ao removê-la). */
+async function dropPersistedCatalog(id: string): Promise<void> {
+    try {
+        await AsyncStorage.multiRemove([...PERSISTABLE_KEYS].map(key => catalogStorageKey(id, key)))
+    } catch { /* best-effort */ }
+}
 
 export function invalidateCatalog(): void {
     catalog.clear()
 }
 
-/** Uma busca por chave por sessão; `force` refaz (pull-to-refresh). */
+/**
+ * Cache em três camadas: memória (sessão) → disco (SWR, por conta) → rede.
+ * Cache fresco em disco abre o app na hora e atualiza em background; se a
+ * rede falhar, catálogo velho vale mais que tela de erro (modo offline).
+ * `force` (pull-to-refresh) fura as duas camadas.
+ */
 export async function cachedFetch<T>(key: string, fetcher: () => Promise<T>, force = false): Promise<T> {
     if (!force && catalog.has(key)) return catalog.get(key) as T
-    const data = await fetcher()
-    catalog.set(key, data)
-    return data
+
+    const { activeId } = await loadState()
+    const storageKey = activeId && PERSISTABLE_KEYS.has(key) ? catalogStorageKey(activeId, key) : null
+    const persisted = storageKey && !force ? await readPersisted(storageKey) : null
+
+    if (persisted && Date.now() - persisted.t < FRESH_MS) {
+        catalog.set(key, persisted.data)
+        void fetcher()
+            .then(fresh => {
+                catalog.set(key, fresh)
+                if (storageKey) void writePersisted(storageKey, fresh)
+            })
+            .catch(() => undefined)
+        return persisted.data as T
+    }
+
+    try {
+        const data = await fetcher()
+        catalog.set(key, data)
+        if (storageKey) void writePersisted(storageKey, data)
+        return data
+    } catch (error) {
+        if (persisted) {
+            catalog.set(key, persisted.data)
+            return persisted.data as T
+        }
+        throw error
+    }
 }

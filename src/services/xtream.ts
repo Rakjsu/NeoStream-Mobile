@@ -4,10 +4,34 @@
  * NeoStream desktop (player_api.php + URLs /live /movie /series).
  */
 
+import { withRetry } from './net'
+
 export interface XtreamAccount {
     url: string
     username: string
     password: string
+    /** 'xtream' (padrão, ausente nas contas antigas) ou lista M3U por URL. */
+    type?: 'xtream' | 'm3u'
+}
+
+/**
+ * O que as telas consomem — implementado pelo XtreamClient e pelo M3uClient
+ * (m3u.ts), então trocar o tipo da conta não muda nenhuma tela.
+ */
+export interface CatalogClient {
+    authenticate(): Promise<UserInfo>
+    getLiveChannels(): Promise<LiveChannel[]>
+    getLiveCategories(): Promise<Category[]>
+    getVodMovies(): Promise<VodMovie[]>
+    getVodCategories(): Promise<Category[]>
+    getSeries(): Promise<SeriesItem[]>
+    getSeriesCategories(): Promise<Category[]>
+    getSeriesInfo(seriesId: string | number): Promise<SeriesInfo>
+    getVodDetails(vodId: string | number): Promise<VodDetails>
+    getShortEpg(streamId: number | string): Promise<NowNext>
+    liveStreamUrl(streamId: number | string): string
+    vodStreamUrl(streamId: number | string, container?: string): string
+    seriesStreamUrl(episodeId: number | string, container?: string): string
 }
 
 export interface UserInfo {
@@ -34,6 +58,8 @@ export interface VodMovie {
     container_extension?: string
     category_id?: string
     rating?: string | number
+    /** Epoch (s) de quando o provedor adicionou — alimenta "Recentes". */
+    added?: string
 }
 
 export interface SeriesItem {
@@ -42,6 +68,8 @@ export interface SeriesItem {
     cover?: string
     category_id?: string
     rating?: string | number
+    /** Epoch (s) da última atualização — alimenta "Recentes". */
+    last_modified?: string
 }
 
 export interface Episode {
@@ -73,6 +101,10 @@ export interface VodDetails {
     rating: string
     duration: string
     cover: string
+    /** URL completa do trailer no YouTube ('' quando não tem). */
+    trailer: string
+    cast: string
+    director: string
 }
 
 export interface Category {
@@ -193,7 +225,18 @@ export function parseVodDetails(data: unknown): VodDetails {
         rating: info.rating != null && info.rating !== '' ? String(info.rating) : '',
         duration: text(info.duration),
         cover: text(info.movie_image) || text(info.cover_big),
+        trailer: youtubeUrl(text(info.youtube_trailer) || text(info.trailer)),
+        cast: text(info.cast) || text(info.actors),
+        director: text(info.director),
     }
+}
+
+/** youtube_trailer vem ora como id ora como URL completa. */
+export function youtubeUrl(trailer: string): string {
+    const t = trailer.trim()
+    if (!t) return ''
+    if (/^https?:\/\//i.test(t)) return t
+    return `https://www.youtube.com/watch?v=${t}`
 }
 
 /** Categorias válidas (id + nome), na ordem do provedor. */
@@ -219,7 +262,7 @@ export function sanitizeList<T extends { name?: unknown }>(
     })
 }
 
-export class XtreamClient {
+export class XtreamClient implements CatalogClient {
     private baseUrl: string
     private username: string
     private password: string
@@ -240,20 +283,23 @@ export class XtreamClient {
     }
 
     private async request(action?: string, params: Record<string, string> = {}): Promise<unknown> {
-        const controller = new AbortController()
-        const timer = setTimeout(() => controller.abort(), 20000)
-        try {
-            const response = await fetch(this.apiUrl(action, params), { signal: controller.signal })
-            if (!response.ok) throw new Error(`HTTP ${response.status}`)
-            return await response.json()
-        } catch (error) {
-            if (error instanceof Error && error.name === 'AbortError') {
-                throw new Error('Tempo esgotado — o servidor demorou demais pra responder.')
+        // withRetry: 5xx/timeout ganham mais 2 tentativas; 4xx falha na hora.
+        return withRetry(async () => {
+            const controller = new AbortController()
+            const timer = setTimeout(() => controller.abort(), 20000)
+            try {
+                const response = await fetch(this.apiUrl(action, params), { signal: controller.signal })
+                if (!response.ok) throw new Error(`HTTP ${response.status}`)
+                return await response.json() as unknown
+            } catch (error) {
+                if (error instanceof Error && error.name === 'AbortError') {
+                    throw new Error('Tempo esgotado — o servidor demorou demais pra responder.')
+                }
+                throw error
+            } finally {
+                clearTimeout(timer)
             }
-            throw error
-        } finally {
-            clearTimeout(timer)
-        }
+        })
     }
 
     async authenticate(): Promise<UserInfo> {

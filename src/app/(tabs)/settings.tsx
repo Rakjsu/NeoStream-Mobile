@@ -2,14 +2,20 @@ import { Ionicons } from '@expo/vector-icons'
 import Constants from 'expo-constants'
 import { router, useFocusEffect } from 'expo-router'
 import { useCallback, useState } from 'react'
-import { Alert, ScrollView, StyleSheet, Text, TextInput, TouchableOpacity, View } from 'react-native'
+import { Alert, ScrollView, Share, StyleSheet, Text, TextInput, TouchableOpacity, View } from 'react-native'
+import { disableAppLock, enableAppLock, loadAppLock } from '../../services/appLock'
+import { getDownloadLimitGb, listDownloads, setDownloadLimitGb } from '../../services/downloads'
+import { applyBackup, collectBackup, parseBackup, serializeBackup } from '../../services/backup'
 import { disableParental, enableParental, isValidPin, loadParental } from '../../services/parental'
+import { clearHistory } from '../../services/progress'
 import {
-    accountLabel, listAccounts, loadAccount, removeAccount, switchAccount,
+    accountLabel, getClient, listAccounts, loadAccount, removeAccount, renameAccount, switchAccount,
     type StoredAccount,
 } from '../../services/session'
+import { dayKey, formatMinutes, loadUsage, summarize, type UsageSummary } from '../../services/usage'
 import { parseExpiry } from '../../services/xtream'
 import { colors, spacing } from '../../ui/theme'
+import { t, tf } from '../../i18n/strings'
 
 function InfoRow({ label, value }: { label: string; value: string }) {
     return (
@@ -26,12 +32,30 @@ export default function SettingsTab() {
     const [parentalOn, setParentalOn] = useState(false)
     const [pin, setPin] = useState('')
     const [pinError, setPinError] = useState('')
+    const [lockOn, setLockOn] = useState(false)
+    const [lockPin, setLockPin] = useState('')
+    const [lockError, setLockError] = useState('')
+    const [editingId, setEditingId] = useState<string | null>(null)
+    const [dlLimit, setDlLimit] = useState(0)
+    const [dlBytes, setDlBytes] = useState(0)
+    const [usage, setUsage] = useState<UsageSummary>({ totals: { live: 0, movie: 0, episode: 0 }, totalMinutes: 0 })
+    const [aliasDraft, setAliasDraft] = useState('')
+    const [importText, setImportText] = useState('')
+    const [backupMsg, setBackupMsg] = useState('')
+
+    const refreshStorage = useCallback(() => {
+        void listDownloads().then(items => setDlBytes(items.reduce((sum, item) => sum + item.sizeBytes, 0)))
+    }, [])
 
     const refresh = useCallback(() => {
         void listAccounts().then(setAccounts)
         void loadAccount().then(setActive)
         void loadParental().then(state => setParentalOn(state.enabled))
-    }, [])
+        void loadAppLock().then(state => setLockOn(state.enabled))
+        void getDownloadLimitGb().then(setDlLimit)
+        refreshStorage()
+        void loadUsage().then(map => setUsage(summarize(map, dayKey(Date.now()))))
+    }, [refreshStorage])
 
     useFocusEffect(useCallback(() => { queueMicrotask(refresh) }, [refresh]))
 
@@ -44,10 +68,10 @@ export default function SettingsTab() {
     }
 
     const confirmRemove = (account: StoredAccount) => {
-        Alert.alert('Remover conta', `Remover ${accountLabel(account)} deste aparelho?`, [
-            { text: 'Cancelar', style: 'cancel' },
+        Alert.alert(t('removeAccountTitle'), tf('removeAccountMsg', { label: accountLabel(account) }), [
+            { text: t('cancel'), style: 'cancel' },
             {
-                text: 'Remover',
+                text: t('remove'),
                 style: 'destructive',
                 onPress: () => {
                     void removeAccount(account.id).then(nextActive => {
@@ -60,14 +84,72 @@ export default function SettingsTab() {
         ])
     }
 
+
+    interface DiagRow { label: string; ok: boolean; ms: number; extra?: string }
+    const [diag, setDiag] = useState<DiagRow[] | 'running' | null>(null)
+
+    const testConnection = () => {
+        setDiag('running')
+        void (async () => {
+            const rows: DiagRow[] = []
+            const client = await getClient()
+            if (!client) { setDiag([]); return }
+            const timed = async (label: string, run: () => Promise<string>) => {
+                const startedAt = Date.now()
+                try {
+                    const extra = await run()
+                    rows.push({ label, ok: true, ms: Date.now() - startedAt, extra })
+                } catch {
+                    rows.push({ label, ok: false, ms: Date.now() - startedAt })
+                }
+            }
+            await timed(t('connAuth'), async () => {
+                await client.authenticate()
+                return ''
+            })
+            await timed(t('connChannels'), async () => {
+                const channels = await client.getLiveChannels()
+                return tf('connItems', { n: channels.length })
+            })
+            setDiag(rows)
+        })()
+    }
+
     const expiry = parseExpiry(active?.userInfo?.exp_date)
 
     return (
         <ScrollView style={styles.root} contentContainerStyle={{ padding: spacing.lg }}>
-            <Text style={styles.section}>Contas</Text>
+            <Text style={styles.section}>{t('secAccounts')}</Text>
             <View style={styles.card}>
                 {accounts.map(account => {
                     const isActive = account.id === active?.id
+                    if (editingId === account.id) {
+                        return (
+                            <View key={account.id} style={styles.accountRow}>
+                                <TextInput
+                                    style={styles.aliasInput}
+                                    value={aliasDraft}
+                                    onChangeText={setAliasDraft}
+                                    placeholder={t('aliasPh')}
+                                    placeholderTextColor={colors.textDim}
+                                    autoFocus
+                                    maxLength={24}
+                                />
+                                <TouchableOpacity
+                                    style={styles.trash}
+                                    accessibilityLabel={t('a11yConfirm')}
+                                    onPress={() => {
+                                        void renameAccount(account.id, aliasDraft).then(() => {
+                                            setEditingId(null)
+                                            refresh()
+                                        })
+                                    }}
+                                >
+                                    <Ionicons name="checkmark" size={20} color={colors.accent} />
+                                </TouchableOpacity>
+                            </View>
+                        )
+                    }
                     return (
                         <View key={account.id} style={styles.accountRow}>
                             <TouchableOpacity style={styles.accountMain} onPress={() => activate(account)}>
@@ -80,7 +162,14 @@ export default function SettingsTab() {
                                     {accountLabel(account)}
                                 </Text>
                             </TouchableOpacity>
-                            <TouchableOpacity style={styles.trash} onPress={() => confirmRemove(account)}>
+                            <TouchableOpacity
+                                style={styles.trash}
+                                accessibilityLabel={t('a11yEdit')}
+                                onPress={() => { setEditingId(account.id); setAliasDraft(account.alias ?? '') }}
+                            >
+                                <Ionicons name="pencil-outline" size={16} color={colors.textDim} />
+                            </TouchableOpacity>
+                            <TouchableOpacity style={styles.trash} accessibilityLabel={t('a11yDelete')} onPress={() => confirmRemove(account)}>
                                 <Ionicons name="trash-outline" size={18} color={colors.danger} />
                             </TouchableOpacity>
                         </View>
@@ -88,38 +177,60 @@ export default function SettingsTab() {
                 })}
                 <TouchableOpacity style={styles.addRow} onPress={() => router.push('/login')}>
                     <Ionicons name="add-circle-outline" size={18} color={colors.accent} />
-                    <Text style={styles.addText}>Adicionar conta</Text>
+                    <Text style={styles.addText}>{t('addAccount')}</Text>
                 </TouchableOpacity>
             </View>
 
-            <Text style={styles.section}>Conta ativa</Text>
+            <Text style={styles.section}>{t('secActiveAccount')}</Text>
             <View style={styles.card}>
-                <InfoRow label="Servidor" value={active?.url ?? '—'} />
-                <InfoRow label="Usuário" value={active?.username ?? '—'} />
-                <InfoRow label="Status" value={active?.userInfo?.status ?? '—'} />
+                <InfoRow label={t('serverRow')} value={active?.url ?? '—'} />
+                <InfoRow label={t('userRow')} value={active?.username ?? '—'} />
+                <InfoRow label={t('statusRow')} value={active?.userInfo?.status ?? '—'} />
                 <InfoRow
-                    label="Expira em"
-                    value={expiry ? expiry.toLocaleDateString('pt-BR', { day: '2-digit', month: '2-digit', year: 'numeric' }) : 'Sem expiração'}
+                    label={t('expiresRow')}
+                    value={expiry ? expiry.toLocaleDateString('pt-BR', { day: '2-digit', month: '2-digit', year: 'numeric' }) : t('noExpiry')}
                 />
                 <InfoRow
-                    label="Conexões"
-                    value={`${active?.userInfo?.active_cons ?? '?'} de ${active?.userInfo?.max_connections ?? '?'}`}
+                    label={t('connectionsRow')}
+                    value={tf('connOf', { a: active?.userInfo?.active_cons ?? '?', b: active?.userInfo?.max_connections ?? '?' })}
                 />
+                <View style={{ paddingVertical: spacing.md, gap: spacing.sm }}>
+                    <TouchableOpacity
+                        style={styles.backupBtn}
+                        disabled={diag === 'running'}
+                        onPress={testConnection}
+                    >
+                        <Ionicons name="pulse-outline" size={16} color="#fff" />
+                        <Text style={styles.backupBtnText}>{diag === 'running' ? t('testing') : t('testConn')}</Text>
+                    </TouchableOpacity>
+                    {Array.isArray(diag) ? diag.map(row => (
+                        <View key={row.label} style={styles.diagRow}>
+                            <Ionicons
+                                name={row.ok ? 'checkmark-circle' : 'close-circle'}
+                                size={16}
+                                color={row.ok ? colors.live : colors.danger}
+                            />
+                            <Text style={styles.diagLabel}>{row.label}</Text>
+                            <Text style={styles.diagMeta}>
+                                {row.ms >= 1000 ? `${(row.ms / 1000).toFixed(1)}s` : `${row.ms}ms`}
+                                {row.extra ? ` · ${row.extra}` : ''}
+                            </Text>
+                        </View>
+                    )) : null}
+                </View>
             </View>
 
-            <Text style={styles.section}>Controle parental</Text>
+            <Text style={styles.section}>{t('secParental')}</Text>
             <View style={[styles.card, { paddingVertical: spacing.md, gap: spacing.md }]}>
                 <Text style={styles.parentalHint}>
-                    {parentalOn
-                        ? 'Conteúdo adulto oculto. Digite o PIN pra desativar.'
-                        : 'Oculta categorias adultas das abas e da busca, protegido por PIN de 4 dígitos.'}
+                    {parentalOn ? t('parentalOnHint') : t('parentalOffHint')}
                 </Text>
                 <View style={styles.pinRow}>
                     <TextInput
                         style={styles.pinInput}
                         value={pin}
                         onChangeText={text => { setPin(text.replace(/[^0-9]/g, '')); setPinError('') }}
-                        placeholder="PIN (4 dígitos)"
+                        placeholder={t('pinPh')}
                         placeholderTextColor={colors.textDim}
                         keyboardType="number-pad"
                         secureTextEntry
@@ -129,19 +240,159 @@ export default function SettingsTab() {
                         style={[styles.parentalBtn, parentalOn && styles.parentalBtnOff]}
                         onPress={() => {
                             void (async () => {
-                                if (!isValidPin(pin)) { setPinError('O PIN tem 4 dígitos.'); return }
+                                if (!isValidPin(pin)) { setPinError(t('pinLen')); return }
                                 const ok = parentalOn ? await disableParental(pin) : await enableParental(pin)
-                                if (!ok) { setPinError('PIN incorreto.'); return }
+                                if (!ok) { setPinError(t('pinWrong')); return }
                                 setPin('')
                                 // Recarrega as abas já com (ou sem) o filtro.
                                 router.replace('/')
                             })()
                         }}
                     >
-                        <Text style={styles.parentalBtnText}>{parentalOn ? 'Desativar' : 'Ativar'}</Text>
+                        <Text style={styles.parentalBtnText}>{parentalOn ? t('disable') : t('enable')}</Text>
                     </TouchableOpacity>
                 </View>
                 {pinError ? <Text style={styles.pinError}>{pinError}</Text> : null}
+            </View>
+
+            <Text style={styles.section}>{t('secAppLock')}</Text>
+            <View style={[styles.card, { paddingVertical: spacing.md, gap: spacing.md }]}>
+                <Text style={styles.parentalHint}>{lockOn ? t('appLockOnHint') : t('appLockOffHint')}</Text>
+                <View style={styles.pinRow}>
+                    <TextInput
+                        style={styles.pinInput}
+                        value={lockPin}
+                        onChangeText={text => { setLockPin(text.replace(/[^0-9]/g, '')); setLockError('') }}
+                        placeholder={t('pinPh')}
+                        placeholderTextColor={colors.textDim}
+                        keyboardType="number-pad"
+                        secureTextEntry
+                        maxLength={4}
+                    />
+                    <TouchableOpacity
+                        style={[styles.parentalBtn, lockOn && styles.parentalBtnOff]}
+                        onPress={() => {
+                            void (async () => {
+                                if (!isValidPin(lockPin)) { setLockError(t('pinLen')); return }
+                                const ok = lockOn ? await disableAppLock(lockPin) : await enableAppLock(lockPin)
+                                if (!ok) { setLockError(t('pinWrong')); return }
+                                setLockPin('')
+                                setLockOn(!lockOn)
+                            })()
+                        }}
+                    >
+                        <Text style={styles.parentalBtnText}>{lockOn ? t('disable') : t('enable')}</Text>
+                    </TouchableOpacity>
+                </View>
+                {lockError ? <Text style={styles.pinError}>{lockError}</Text> : null}
+            </View>
+
+            <Text style={styles.section}>{t('secUsage')}</Text>
+            <View style={styles.card}>
+                <InfoRow label={t('usageWeek')} value="" />
+                <InfoRow label={t('tabLive')} value={formatMinutes(usage.totals.live)} />
+                <InfoRow label={t('tabMovies')} value={formatMinutes(usage.totals.movie)} />
+                <InfoRow label={t('tabSeries')} value={formatMinutes(usage.totals.episode)} />
+                <InfoRow label={t('usageTotal')} value={formatMinutes(usage.totalMinutes)} />
+            </View>
+
+            <Text style={styles.section}>{t('secStorage')}</Text>
+            <View style={[styles.card, { paddingVertical: spacing.md, gap: spacing.md }]}>
+                <Text style={styles.parentalHint}>{t('storageHint')}</Text>
+                <View style={styles.limitRow}>
+                    {[0, 1, 2, 5].map(gb => (
+                        <TouchableOpacity
+                            key={gb}
+                            style={[styles.limitChip, dlLimit === gb && styles.limitChipOn]}
+                            onPress={() => {
+                                setDlLimit(gb)
+                                void setDownloadLimitGb(gb).then(refreshStorage)
+                            }}
+                        >
+                            <Text style={[styles.limitChipText, dlLimit === gb && styles.limitChipTextOn]}>
+                                {gb === 0 ? t('noLimit') : `${gb} GB`}
+                            </Text>
+                        </TouchableOpacity>
+                    ))}
+                </View>
+                <Text style={styles.parentalHint}>{tf('usedSpace', { mb: Math.round(dlBytes / 1048576) })}</Text>
+            </View>
+
+            <Text style={styles.section}>{t('secHistory')}</Text>
+            <View style={[styles.card, { paddingVertical: spacing.md, gap: spacing.md }]}>
+                <Text style={styles.parentalHint}>{t('historyHint')}</Text>
+                <TouchableOpacity
+                    style={[styles.backupBtn, styles.restoreBtn]}
+                    onPress={() => {
+                        Alert.alert(t('clearHistoryTitle'), t('clearHistoryMsg'), [
+                            { text: t('cancel'), style: 'cancel' },
+                            { text: t('clear'), style: 'destructive', onPress: () => void clearHistory() },
+                        ])
+                    }}
+                >
+                    <Ionicons name="trash-outline" size={16} color="#fff" />
+                    <Text style={styles.backupBtnText}>{t('clearHistoryBtn')}</Text>
+                </TouchableOpacity>
+            </View>
+
+            <Text style={styles.section}>{t('secBackup')}</Text>
+            <View style={[styles.card, { paddingVertical: spacing.md, gap: spacing.md }]}>
+                <Text style={styles.parentalHint}>{t('backupHint')}</Text>
+                <TouchableOpacity
+                    style={styles.backupBtn}
+                    onPress={() => {
+                        void (async () => {
+                            const json = serializeBackup(await collectBackup())
+                            await Share.share({ message: json }).catch(() => undefined)
+                        })()
+                    }}
+                >
+                    <Ionicons name="share-outline" size={16} color="#fff" />
+                    <Text style={styles.backupBtnText}>{t('exportBtn')}</Text>
+                </TouchableOpacity>
+                <TextInput
+                    style={styles.importInput}
+                    value={importText}
+                    onChangeText={text => { setImportText(text); setBackupMsg('') }}
+                    placeholder={t('importPh')}
+                    placeholderTextColor={colors.textDim}
+                    multiline
+                    numberOfLines={3}
+                    autoCorrect={false}
+                    autoCapitalize="none"
+                />
+                <TouchableOpacity
+                    style={[styles.backupBtn, styles.restoreBtn, !importText.trim() && { opacity: 0.5 }]}
+                    disabled={!importText.trim()}
+                    onPress={() => {
+                        try {
+                            const backup = parseBackup(importText)
+                            Alert.alert(
+                                t('restoreTitle'),
+                                tf('restoreMsg', { n: backup.accounts.length }),
+                                [
+                                    { text: t('cancel'), style: 'cancel' },
+                                    {
+                                        text: t('restoreBtn'),
+                                        style: 'destructive',
+                                        onPress: () => {
+                                            void applyBackup(backup).then(() => {
+                                                setImportText('')
+                                                router.replace('/')
+                                            })
+                                        },
+                                    },
+                                ],
+                            )
+                        } catch (err) {
+                            setBackupMsg(err instanceof Error ? err.message : t('backupInvalid'))
+                        }
+                    }}
+                >
+                    <Ionicons name="download-outline" size={16} color="#fff" />
+                    <Text style={styles.backupBtnText}>{t('restoreBtn')}</Text>
+                </TouchableOpacity>
+                {backupMsg ? <Text style={styles.pinError}>{backupMsg}</Text> : null}
             </View>
 
             <Text style={styles.version}>
@@ -172,6 +423,18 @@ const styles = StyleSheet.create({
     accountNameActive: { color: colors.text, fontWeight: '600' },
     trash: { padding: spacing.sm },
     addRow: { flexDirection: 'row', alignItems: 'center', gap: spacing.md, paddingVertical: 12 },
+    aliasInput: {
+        flex: 1,
+        backgroundColor: colors.bg,
+        borderColor: colors.border,
+        borderWidth: 1,
+        borderRadius: 8,
+        color: colors.text,
+        paddingHorizontal: spacing.md,
+        paddingVertical: 8,
+        fontSize: 14,
+        marginVertical: 6,
+    },
     addText: { color: colors.accent, fontSize: 14, fontWeight: '600' },
     infoRow: {
         flexDirection: 'row',
@@ -207,4 +470,41 @@ const styles = StyleSheet.create({
     parentalBtnOff: { backgroundColor: colors.danger },
     parentalBtnText: { color: '#fff', fontSize: 14, fontWeight: '600' },
     pinError: { color: colors.danger, fontSize: 13 },
+    limitRow: { flexDirection: 'row', flexWrap: 'wrap', gap: spacing.sm },
+    diagRow: { flexDirection: 'row', alignItems: 'center', gap: spacing.sm },
+    diagLabel: { flex: 1, color: colors.text, fontSize: 14 },
+    diagMeta: { color: colors.textDim, fontSize: 13 },
+    limitChip: {
+        borderColor: colors.border,
+        borderWidth: 1,
+        borderRadius: 16,
+        paddingHorizontal: spacing.md,
+        paddingVertical: 6,
+    },
+    limitChipOn: { backgroundColor: colors.accentSoft, borderColor: colors.accent },
+    limitChipText: { color: colors.textDim, fontSize: 13, fontWeight: '600' },
+    limitChipTextOn: { color: colors.accent },
+    backupBtn: {
+        flexDirection: 'row',
+        alignItems: 'center',
+        justifyContent: 'center',
+        gap: spacing.sm,
+        backgroundColor: colors.accent,
+        borderRadius: 8,
+        paddingVertical: 10,
+    },
+    restoreBtn: { backgroundColor: colors.danger },
+    backupBtnText: { color: '#fff', fontSize: 14, fontWeight: '600' },
+    importInput: {
+        backgroundColor: colors.bg,
+        borderColor: colors.border,
+        borderWidth: 1,
+        borderRadius: 8,
+        color: colors.text,
+        paddingHorizontal: spacing.md,
+        paddingVertical: 8,
+        fontSize: 12,
+        minHeight: 64,
+        textAlignVertical: 'top',
+    },
 })

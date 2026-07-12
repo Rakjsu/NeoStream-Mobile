@@ -6,6 +6,7 @@ import {
 import type { ProgressEntry } from '../services/progress'
 import { progressPct } from '../services/progress'
 import type { Category } from '../services/xtream'
+import { t } from '../i18n/strings'
 import { colors, spacing } from './theme'
 
 export function SearchBar({ value, onChange, placeholder }: {
@@ -82,8 +83,8 @@ export function CategoryChips({ categories, selected, onSelect }: {
     onSelect: (id: string) => void
 }) {
     const chips = [
-        { id: 'all', label: 'Todos' },
-        { id: 'fav', label: '❤ Favoritos' },
+        { id: 'all', label: t('all') },
+        { id: 'fav', label: t('favoritesChip') },
         ...categories.map(c => ({ id: c.category_id, label: c.category_name })),
     ]
     return (
@@ -112,14 +113,16 @@ export function CategoryChips({ categories, selected, onSelect }: {
 }
 
 /** Rail horizontal "Continuar assistindo" com barra de progresso. */
-export function ContinueRail({ entries, onPlay }: {
+export function ContinueRail({ entries, onPlay, onRemove }: {
     entries: ProgressEntry[]
     onPlay: (entry: ProgressEntry) => void
+    /** Segurar um card remove do rail (com confirmação de quem chama). */
+    onRemove?: (entry: ProgressEntry) => void
 }) {
     if (entries.length === 0) return null
     return (
         <View style={styles.railWrap}>
-            <Text style={styles.railTitle}>⏯ Continuar assistindo</Text>
+            <Text style={styles.railTitle}>{t('continueRail')}</Text>
             <FlatList
                 data={entries}
                 horizontal
@@ -127,7 +130,12 @@ export function ContinueRail({ entries, onPlay }: {
                 keyExtractor={item => item.id}
                 contentContainerStyle={{ paddingHorizontal: spacing.md }}
                 renderItem={({ item }) => (
-                    <TouchableOpacity style={styles.railCard} onPress={() => onPlay(item)}>
+                    <TouchableOpacity
+                        style={styles.railCard}
+                        onPress={() => onPlay(item)}
+                        onLongPress={onRemove ? () => onRemove(item) : undefined}
+                        delayLongPress={350}
+                    >
                         {item.cover ? (
                             <Image source={{ uri: item.cover }} style={styles.railImg} resizeMode="cover" />
                         ) : (
@@ -139,6 +147,83 @@ export function ContinueRail({ entries, onPlay }: {
                             <View style={[styles.railBarFill, { width: `${progressPct(item.position, item.duration)}%` }]} />
                         </View>
                         <Text style={styles.railName} numberOfLines={2}>{item.title}</Text>
+                    </TouchableOpacity>
+                )}
+            />
+        </View>
+    )
+}
+
+/** Item genérico das fileiras da Home (filme ou série). */
+export interface RailItem {
+    key: string
+    kind: 'movie' | 'series'
+    id: string
+    name: string
+    cover: string
+    /** Extras pro tap (container do filme, por ex.). */
+    container?: string
+}
+
+/** Fileira horizontal de pôsteres (Home: favoritos, recentes…). */
+export function PosterRail({ title, items, onPress }: {
+    title: string
+    items: RailItem[]
+    onPress: (item: RailItem) => void
+}) {
+    if (items.length === 0) return null
+    return (
+        <View style={styles.railWrap}>
+            <Text style={styles.railTitle}>{title}</Text>
+            <FlatList
+                data={items}
+                horizontal
+                showsHorizontalScrollIndicator={false}
+                keyExtractor={item => item.key}
+                contentContainerStyle={{ paddingHorizontal: spacing.md }}
+                renderItem={({ item }) => (
+                    <TouchableOpacity style={styles.posterRailCard} onPress={() => onPress(item)}>
+                        {item.cover ? (
+                            <Image source={{ uri: item.cover }} style={styles.posterRailImg} resizeMode="cover" />
+                        ) : (
+                            <View style={[styles.posterRailImg, styles.posterFallback]}>
+                                <Ionicons name={item.kind === 'series' ? 'albums-outline' : 'film-outline'} size={22} color={colors.textDim} />
+                            </View>
+                        )}
+                        <Text style={styles.railName} numberOfLines={2}>{item.name}</Text>
+                    </TouchableOpacity>
+                )}
+            />
+        </View>
+    )
+}
+
+/** Fileira horizontal de canais (logo redondo + nome). */
+export function ChannelRail({ title, items, onPress }: {
+    title: string
+    items: { id: string; name: string; logo: string }[]
+    onPress: (item: { id: string; name: string; logo: string }) => void
+}) {
+    if (items.length === 0) return null
+    return (
+        <View style={styles.railWrap}>
+            <Text style={styles.railTitle}>{title}</Text>
+            <FlatList
+                data={items}
+                horizontal
+                showsHorizontalScrollIndicator={false}
+                keyExtractor={item => item.id}
+                contentContainerStyle={{ paddingHorizontal: spacing.md }}
+                renderItem={({ item }) => (
+                    <TouchableOpacity style={styles.chRailCard} onPress={() => onPress(item)}>
+                        {item.logo ? (
+                            <Image source={{ uri: item.logo }} style={styles.chRailLogo} resizeMode="contain" />
+                        ) : (
+                            <View style={[styles.chRailLogo, styles.posterFallback]}>
+                                <Ionicons name="tv-outline" size={20} color={colors.textDim} />
+                            </View>
+                        )}
+                        <Text style={styles.railName} numberOfLines={1}>{item.name}</Text>
                     </TouchableOpacity>
                 )}
             />
@@ -162,7 +247,7 @@ const styles = StyleSheet.create({
     searchInput: { flex: 1, color: colors.text, paddingVertical: 10, fontSize: 15 },
     center: { flex: 1, alignItems: 'center', justifyContent: 'center', gap: spacing.md, padding: spacing.xl },
     dim: { color: colors.textDim, fontSize: 14, textAlign: 'center' },
-    poster: { flex: 1 / 3, padding: spacing.xs },
+    poster: { flex: 1, padding: spacing.xs },
     posterImg: { width: '100%', aspectRatio: 2 / 3, borderRadius: 8, backgroundColor: colors.card },
     posterFallback: { alignItems: 'center', justifyContent: 'center' },
     posterName: { color: colors.text, fontSize: 12, marginTop: 4 },
@@ -201,4 +286,8 @@ const styles = StyleSheet.create({
     railBarTrack: { height: 3, backgroundColor: colors.border, borderRadius: 2, marginTop: 4 },
     railBarFill: { height: 3, backgroundColor: colors.accent, borderRadius: 2 },
     railName: { color: colors.text, fontSize: 11, marginTop: 4 },
+    posterRailCard: { width: 96, marginRight: spacing.sm },
+    posterRailImg: { width: 96, aspectRatio: 2 / 3, borderRadius: 8, backgroundColor: colors.card },
+    chRailCard: { width: 72, marginRight: spacing.sm, alignItems: 'center' },
+    chRailLogo: { width: 56, height: 56, borderRadius: 28, backgroundColor: colors.card },
 })

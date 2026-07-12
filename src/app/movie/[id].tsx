@@ -1,12 +1,14 @@
 import { Ionicons } from '@expo/vector-icons'
 import { Stack, router, useLocalSearchParams } from 'expo-router'
 import { useEffect, useState } from 'react'
-import { Image, ScrollView, StyleSheet, Text, TouchableOpacity, View } from 'react-native'
+import { Alert, Image, Linking, ScrollView, StyleSheet, Text, TouchableOpacity, View } from 'react-native'
+import { activeProgress, getDownload, removeDownload, startDownload, subscribeDownloads } from '../../services/downloads'
 import { emptyFavorites, isFavorite, loadFavorites, persistToggle, type Favorites } from '../../services/favorites'
 import { buildProgressId, getEntry, progressPct, resumePosition } from '../../services/progress'
 import { getClient } from '../../services/session'
 import type { VodDetails } from '../../services/xtream'
 import { colors, spacing } from '../../ui/theme'
+import { t, tf } from '../../i18n/strings'
 
 /** Ficha do filme: capa, sinopse e metadados antes de dar o play. */
 export default function MovieDetail() {
@@ -19,8 +21,20 @@ export default function MovieDetail() {
     const [details, setDetails] = useState<VodDetails | null>(null)
     const [favorites, setFavorites] = useState<Favorites>(emptyFavorites())
     const [resumePct, setResumePct] = useState(0)
+    const [dlState, setDlState] = useState<'none' | 'active' | 'done'>('none')
+    const [dlPct, setDlPct] = useState(0)
 
     const pid = buildProgressId('movie', String(id))
+
+    useEffect(() => {
+        const refreshDl = () => {
+            const progress = activeProgress(pid)
+            if (progress !== null) { setDlState('active'); setDlPct(Math.round(progress * 100)); return }
+            void getDownload(pid).then(item => setDlState(item ? 'done' : 'none'))
+        }
+        queueMicrotask(refreshDl)
+        return subscribeDownloads(refreshDl)
+    }, [pid])
 
     useEffect(() => {
         let alive = true
@@ -88,23 +102,67 @@ export default function MovieDetail() {
             <View style={styles.actions}>
                 <TouchableOpacity style={styles.playBtn} onPress={() => void play()}>
                     <Ionicons name="play" size={18} color="#fff" />
-                    <Text style={styles.playText}>{resumePct > 0 ? `Retomar (${resumePct}%)` : 'Assistir'}</Text>
+                    <Text style={styles.playText}>{resumePct > 0 ? tf('resumeAt', { pct: resumePct }) : t('watch')}</Text>
                 </TouchableOpacity>
                 <TouchableOpacity
                     style={[styles.favBtn, fav && styles.favBtnOn]}
+                    accessibilityLabel={t('a11yFav')}
                     onPress={() => void persistToggle('movie', String(id)).then(setFavorites)}
                 >
                     <Ionicons name={fav ? 'heart' : 'heart-outline'} size={20} color={fav ? '#fff' : colors.danger} />
                 </TouchableOpacity>
             </View>
 
+            <TouchableOpacity
+                style={styles.trailerBtn}
+                onPress={() => {
+                    if (dlState === 'none') {
+                        void (async () => {
+                            const client = await getClient()
+                            if (!client) return
+                            await startDownload({
+                                id: pid,
+                                url: client.vodStreamUrl(String(id), String(container || 'mp4')),
+                                title: name ?? '',
+                                cover: details?.cover || cover || '',
+                                container: String(container || 'mp4'),
+                            }).catch(() => Alert.alert(t('dlTitle'), t('dlMovieFail')))
+                        })()
+                    } else if (dlState === 'done') {
+                        Alert.alert(t('dlTitle'), t('dlMovieDone'), [
+                            { text: t('ok'), style: 'cancel' },
+                            { text: t('dlDelete'), style: 'destructive', onPress: () => void removeDownload(pid) },
+                        ])
+                    }
+                }}
+            >
+                <Ionicons
+                    name={dlState === 'done' ? 'checkmark-circle' : 'cloud-download-outline'}
+                    size={18}
+                    color={dlState === 'done' ? colors.live : colors.text}
+                />
+                <Text style={styles.trailerText}>
+                    {dlState === 'done' ? t('downloadedBtn') : dlState === 'active' ? tf('downloadingPct', { pct: dlPct }) : t('download')}
+                </Text>
+            </TouchableOpacity>
+
+            {details?.trailer ? (
+                <TouchableOpacity style={styles.trailerBtn} onPress={() => void Linking.openURL(details.trailer)}>
+                    <Ionicons name="logo-youtube" size={18} color={colors.text} />
+                    <Text style={styles.trailerText}>{t('trailerBtn')}</Text>
+                </TouchableOpacity>
+            ) : null}
+
             {details === null ? (
-                <Text style={styles.plotDim}>Carregando detalhes…</Text>
+                <Text style={styles.plotDim}>{t('loadingDetails')}</Text>
             ) : details.plot ? (
                 <Text style={styles.plot}>{details.plot}</Text>
             ) : (
-                <Text style={styles.plotDim}>Sem sinopse disponível.</Text>
+                <Text style={styles.plotDim}>{t('noPlot')}</Text>
             )}
+
+            {details?.cast ? <Text style={styles.credits}><Text style={styles.creditsLabel}>{t('castLabel')}</Text>{details.cast}</Text> : null}
+            {details?.director ? <Text style={styles.credits}><Text style={styles.creditsLabel}>{t('directorLabel')}</Text>{details.director}</Text> : null}
         </ScrollView>
     )
 }
@@ -143,4 +201,17 @@ const styles = StyleSheet.create({
     favBtnOn: { backgroundColor: colors.danger },
     plot: { color: colors.text, fontSize: 14, lineHeight: 21 },
     plotDim: { color: colors.textDim, fontSize: 14 },
+    trailerBtn: {
+        flexDirection: 'row',
+        alignItems: 'center',
+        justifyContent: 'center',
+        gap: spacing.sm,
+        borderColor: colors.border,
+        borderWidth: 1,
+        borderRadius: 10,
+        paddingVertical: 11,
+    },
+    trailerText: { color: colors.text, fontSize: 14, fontWeight: '600' },
+    credits: { color: colors.textDim, fontSize: 13, lineHeight: 19 },
+    creditsLabel: { color: colors.text, fontWeight: '600' },
 })

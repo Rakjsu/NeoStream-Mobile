@@ -4,11 +4,13 @@ import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { FlatList, Image, RefreshControl, StyleSheet, Text, TouchableOpacity, View, type ViewToken } from 'react-native'
 import { emptyFavorites, isFavorite, persistToggle, loadFavorites, type Favorites } from '../../services/favorites'
 import { allowedCategoryIds, loadParental } from '../../services/parental'
+import { recordRecentChannel } from '../../services/recents'
 import { cachedFetch, getClient } from '../../services/session'
 import type { Category, LiveChannel, NowNext } from '../../services/xtream'
 import { setZapContext } from '../../services/zap'
 import { CategoryChips, EmptyState, Loading, SearchBar } from '../../ui/components'
 import { colors, spacing } from '../../ui/theme'
+import { t } from '../../i18n/strings'
 
 const VIEWABILITY = { itemVisiblePercentThreshold: 30 }
 
@@ -41,7 +43,7 @@ export default function LiveTab() {
             setAllowed(allowedCategoryIds(cats, parental.enabled))
             setError('')
         } catch (err) {
-            setError(err instanceof Error ? err.message : 'Falha ao carregar os canais.')
+            setError(err instanceof Error ? err.message : t('failChannels'))
             setChannels([])
         }
     }, [])
@@ -63,6 +65,7 @@ export default function LiveTab() {
         if (!client) return
         // A lista FILTRADA vira o contexto de zapping (⏮/⏭ no player).
         setZapContext(filtered.map(c => ({ id: String(c.stream_id), name: c.name })), String(channel.stream_id))
+        void recordRecentChannel({ id: String(channel.stream_id), name: channel.name, logo: channel.stream_icon || '' })
         router.push({
             pathname: '/player',
             params: { url: client.liveStreamUrl(channel.stream_id), title: channel.name, live: '1' },
@@ -92,11 +95,11 @@ export default function LiveTab() {
         }
     }, [])
 
-    if (channels === null) return <Loading label="Carregando canais…" />
+    if (channels === null) return <Loading label={t('loadingChannels')} />
 
     return (
         <View style={styles.root}>
-            <SearchBar value={query} onChange={setQuery} placeholder="Buscar canal…" />
+            <SearchBar value={query} onChange={setQuery} placeholder={t('searchChannel')} />
             <CategoryChips categories={allowed ? categories.filter(c => allowed.has(c.category_id)) : categories} selected={category} onSelect={setCategory} />
             {error ? <Text style={styles.error}>{error}</Text> : null}
             <FlatList
@@ -117,7 +120,7 @@ export default function LiveTab() {
                 ListEmptyComponent={
                     <EmptyState
                         icon="tv-outline"
-                        label={category === 'fav' ? 'Nenhum canal favorito ainda — toque no ❤ de um canal.' : query ? 'Nenhum canal encontrado.' : 'Nenhum canal na lista.'}
+                        label={category === 'fav' ? t('noFavChannels') : query ? t('noChannelFound') : t('noChannels')}
                     />
                 }
                 contentContainerStyle={filtered.length === 0 ? { flexGrow: 1 } : undefined}
@@ -125,9 +128,9 @@ export default function LiveTab() {
                     const fav = isFavorite(favorites, 'live', String(item.stream_id))
                     const epg = epgMap[String(item.stream_id)]
                     const epgLine = epg?.now
-                        ? `${epg.now.title}${epg.next ? `  ·  A seguir: ${epg.next.title}` : ''}`
+                        ? `${epg.now.title}${epg.next ? `  ·  ${t('nextUp')}${epg.next.title}` : ''}`
                         : epg?.next
-                            ? `A seguir: ${epg.next.title}`
+                            ? `${t('nextUp')}${epg.next.title}`
                             : ''
                     return (
                         <TouchableOpacity style={styles.row} onPress={() => void play(item)}>

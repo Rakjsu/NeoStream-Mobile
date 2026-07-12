@@ -4,6 +4,6 @@ import { defineConfig } from 'vitest/config'
 // exercitadas no aparelho/Expo Go, não em jsdom.
 export default defineConfig({
     test: {
-        include: ['src/services/**/*.test.ts'],
+        include: ['src/**/*.test.ts'],
     },
 })

@@ -1,7 +1,7 @@
 import { Ionicons } from '@expo/vector-icons'
 import Constants from 'expo-constants'
 import { router, useFocusEffect } from 'expo-router'
-import { useCallback, useState } from 'react'
+import { useCallback, useRef, useState } from 'react'
 import { Alert, Linking, ScrollView, Share, StyleSheet, Text, TextInput, TouchableOpacity, View } from 'react-native'
 import * as DocumentPicker from 'expo-document-picker'
 import * as FileSystem from 'expo-file-system/legacy'
@@ -9,6 +9,8 @@ import { disableAppLock, enableAppLock, loadAppLock } from '../../services/appLo
 import { applyCapturePolicy } from '../../services/privacy'
 import { isDataSaverEnabled, setDataSaver } from '../../services/dataSaver'
 import { getDownloadLimitGb, listDownloads, setDownloadLimitGb } from '../../services/downloads'
+import { captureRef } from 'react-native-view-shot'
+import * as Sharing from 'expo-sharing'
 import { applyBackup, collectBackup, parseBackup, serializeBackup } from '../../services/backup'
 import { disableParental, enableParental, isValidPin, loadParental } from '../../services/parental'
 import { clearHistory } from '../../services/progress'
@@ -49,6 +51,7 @@ export default function SettingsTab() {
     const [usageDays, setUsageDays] = useState<{ day: string; minutes: number }[]>([])
     const [topLive, setTopLive] = useState<TopTitle[]>([])
     const [topShows, setTopShows] = useState<TopTitle[]>([])
+    const usageShotRef = useRef<View>(null)
     const [aliasDraft, setAliasDraft] = useState('')
     const [importText, setImportText] = useState('')
     const [backupMsg, setBackupMsg] = useState('')
@@ -127,10 +130,22 @@ export default function SettingsTab() {
                 await client.authenticate()
                 return ''
             })
+            let firstChannel = ''
             await timed(t('connChannels'), async () => {
                 const channels = await client.getLiveChannels()
+                firstChannel = channels[0] ? String(channels[0].stream_id) : ''
                 return tf('connItems', { n: channels.length })
             })
+            await timed(t('connVod'), async () => {
+                const movies = await client.getVodMovies()
+                return tf('connItems', { n: movies.length })
+            })
+            if (firstChannel) {
+                await timed(t('connEpg'), async () => {
+                    const nowNext = await client.getShortEpg(firstChannel)
+                    return nowNext.now?.title ?? '—'
+                })
+            }
             setDiag(rows)
         })()
     }
@@ -309,7 +324,7 @@ export default function SettingsTab() {
             </View>
 
             <Text style={styles.section}>{t('secUsage')}</Text>
-            <View style={styles.card}>
+            <View ref={usageShotRef} collapsable={false} style={styles.card}>
                 <InfoRow label={t('usageWeek')} value="" />
                 <View style={styles.usageBars}>
                     {usageDays.map(entry => {
@@ -334,7 +349,21 @@ export default function SettingsTab() {
                 {topShows.map((entry, index) => (
                     <InfoRow key={`s${entry.title}`} label={`${index + 1}. ${entry.title}`} value={formatMinutes(entry.minutes)} />
                 ))}
-                <View style={{ paddingVertical: spacing.md }}>
+                <View style={{ paddingVertical: spacing.md, gap: spacing.sm }}>
+                    <TouchableOpacity
+                        style={styles.backupBtn}
+                        onPress={() => {
+                            void (async () => {
+                                try {
+                                    const uri = await captureRef(usageShotRef, { format: 'png', quality: 1 })
+                                    if (await Sharing.isAvailableAsync()) await Sharing.shareAsync(uri)
+                                } catch { /* aparelho sem share de arquivo */ }
+                            })()
+                        }}
+                    >
+                        <Ionicons name="image-outline" size={16} color="#fff" />
+                        <Text style={styles.backupBtnText}>{t('shareImageBtn')}</Text>
+                    </TouchableOpacity>
                     <TouchableOpacity
                         style={styles.backupBtn}
                         onPress={() => {

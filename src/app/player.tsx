@@ -15,6 +15,7 @@ import { getEntry, resumePosition, saveSample, type ProgressKind } from '../serv
 import { listRecentChannels, recordRecentChannel } from '../services/recents'
 import { loadFavorites } from '../services/favorites'
 import { cachedFetch, getClient, resolvePlayableUrl } from '../services/session'
+import { tapLight } from '../services/haptics'
 import { recordWatchMinute } from '../services/usage'
 import { hasZapContext, rankChannels, zapBy, zapList, zapTo, type ZapChannel } from '../services/zap'
 import { colors, spacing } from '../ui/theme'
@@ -192,7 +193,10 @@ export default function Player() {
 
     const zap = (delta: number) => {
         const channel = zapBy(delta)
-        if (channel) switchChannel(channel)
+        if (channel) {
+            tapLight()
+            switchChannel(channel)
+        }
     }
 
     // Gaveta de canais: lista do contexto de zap com filtro; toque troca direto.

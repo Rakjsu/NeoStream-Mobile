@@ -1,11 +1,13 @@
 import { Ionicons } from '@expo/vector-icons'
 import { Stack, router, useLocalSearchParams } from 'expo-router'
-import { useEffect, useState } from 'react'
+import { useEffect, useRef, useState } from 'react'
 import { Alert, Image, Linking, ScrollView, StyleSheet, Text, TouchableOpacity, View } from 'react-native'
+import { castAvailable, castToCurrentSession, onCastSessionStarted, showCastPicker } from '../../services/cast'
 import { activeProgress, getDownload, removeDownload, startDownload, subscribeDownloads } from '../../services/downloads'
+import { tapLight } from '../../services/haptics'
 import { emptyFavorites, isFavorite, loadFavorites, persistToggle, type Favorites } from '../../services/favorites'
 import { buildProgressId, getEntry, progressPct, resumePosition } from '../../services/progress'
-import { getClient } from '../../services/session'
+import { getClient, resolvePlayableUrl } from '../../services/session'
 import type { VodDetails } from '../../services/xtream'
 import { colors, spacing } from '../../ui/theme'
 import { t, tf } from '../../i18n/strings'
@@ -25,6 +27,33 @@ export default function MovieDetail() {
     const [dlPct, setDlPct] = useState(0)
 
     const pid = buildProgressId('movie', String(id))
+    const canCast = castAvailable()
+    // Sem sessão: guarda o pedido, abre o seletor e manda ao conectar.
+    const pendingCastRef = useRef<{ url: string; startAt: number } | null>(null)
+
+    const castNow = async (): Promise<void> => {
+        const client = await getClient()
+        if (!client) return
+        const url = await resolvePlayableUrl(client.vodStreamUrl(String(id), String(container || 'mp4')))
+        const entry = await getEntry(pid)
+        const startAt = entry ? resumePosition(entry) : 0
+        const sent = await castToCurrentSession(url, name ?? '', details?.cover || cover || '', false, startAt)
+        if (!sent) {
+            pendingCastRef.current = { url, startAt }
+            await showCastPicker()
+        }
+    }
+
+    useEffect(() => {
+        if (!canCast) return
+        return onCastSessionStarted(() => {
+            const pending = pendingCastRef.current
+            if (!pending) return
+            pendingCastRef.current = null
+            void castToCurrentSession(pending.url, name ?? '', details?.cover || cover || '', false, pending.startAt)
+        })
+        // eslint-disable-next-line react-hooks/exhaustive-deps
+    }, [canCast, details])
 
     useEffect(() => {
         const refreshDl = () => {
@@ -104,10 +133,15 @@ export default function MovieDetail() {
                     <Ionicons name="play" size={18} color="#fff" />
                     <Text style={styles.playText}>{resumePct > 0 ? tf('resumeAt', { pct: resumePct }) : t('watch')}</Text>
                 </TouchableOpacity>
+                {canCast ? (
+                    <TouchableOpacity style={styles.favBtn} accessibilityLabel={t('a11yCast')} onPress={() => void castNow()}>
+                        <Ionicons name="tv-outline" size={20} color={colors.text} />
+                    </TouchableOpacity>
+                ) : null}
                 <TouchableOpacity
                     style={[styles.favBtn, fav && styles.favBtnOn]}
                     accessibilityLabel={t('a11yFav')}
-                    onPress={() => void persistToggle('movie', String(id)).then(setFavorites)}
+                    onPress={() => { tapLight(); void persistToggle('movie', String(id)).then(setFavorites) }}
                 >
                     <Ionicons name={fav ? 'heart' : 'heart-outline'} size={20} color={fav ? '#fff' : colors.danger} />
                 </TouchableOpacity>

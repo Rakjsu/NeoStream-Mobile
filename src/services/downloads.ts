@@ -33,6 +33,21 @@ const LIMIT_KEY = 'neostream_dl_limit_gb'
 const DIR = `${FileSystem.documentDirectory}downloads/`
 
 /**
+ * Quais pedidos ainda valem entrar na fila (PURO): fora os já baixados,
+ * os baixando e os que já estão na fila.
+ */
+export function pickPending(requests: DownloadRequest[], taken: Set<string>): DownloadRequest[] {
+    const seen = new Set(taken)
+    const pending: DownloadRequest[] = []
+    for (const request of requests) {
+        if (seen.has(request.id)) continue
+        seen.add(request.id)
+        pending.push(request)
+    }
+    return pending
+}
+
+/**
  * Quem sai quando o teto estoura (PURO): assistidos primeiro, depois os mais
  * antigos, até caber. Devolve [] quando não há teto ou já cabe.
  */
@@ -180,6 +195,43 @@ export async function startDownload(request: DownloadRequest): Promise<void> {
         throw error
     } finally {
         active.delete(request.id)
+        notify()
+    }
+}
+
+// Fila sequencial (baixar temporada): um download por vez pra não afogar
+// a rede nem o provedor. A fila vive em memória — fechar o app a esvazia.
+const pendingQueue: DownloadRequest[] = []
+let queueRunning = false
+
+export function listQueuedIds(): string[] {
+    return pendingQueue.map(request => request.id)
+}
+
+export async function enqueueDownloads(requests: DownloadRequest[]): Promise<void> {
+    const map = await loadRegistry()
+    const taken = new Set([...Object.keys(map), ...active.keys(), ...listQueuedIds()])
+    pendingQueue.push(...pickPending(requests, taken))
+    notify()
+    if (queueRunning) return
+    queueRunning = true
+    try {
+        while (pendingQueue.length > 0) {
+            const next = pendingQueue.shift()!
+            notify()
+            await startDownload(next).catch(() => undefined)
+        }
+    } finally {
+        queueRunning = false
+        notify()
+    }
+}
+
+/** Tira um item ainda não iniciado da fila. */
+export function dequeueDownload(id: string): void {
+    const index = pendingQueue.findIndex(request => request.id === id)
+    if (index >= 0) {
+        pendingQueue.splice(index, 1)
         notify()
     }
 }

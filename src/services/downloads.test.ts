@@ -1,5 +1,5 @@
 import { describe, it, expect, vi } from 'vitest'
-import { pickEvictions, safeFileName } from './downloads'
+import { pickEvictions, pickPending, safeFileName } from './downloads'
 
 // Hoisted pelo vitest — evita os imports reais (que puxam react-native).
 vi.mock('@react-native-async-storage/async-storage', () => ({
@@ -43,5 +43,14 @@ describe('pickEvictions (teto de armazenamento)', () => {
         expect(out.map(i => i.id)).toEqual(['visto'])
         const out2 = pickEvictions(items, new Set(['visto']), 2 * GB)
         expect(out2.map(i => i.id)).toEqual(['visto', 'velho'])
+    })
+})
+
+describe('pickPending (fila da temporada)', () => {
+    const req = (id: string) => ({ id, url: 'http://u/' + id, title: id, cover: '', container: 'mp4' })
+
+    it('pula já baixados/baixando/na fila e dedup interno', () => {
+        const out = pickPending([req('a'), req('b'), req('a'), req('c')], new Set(['b']))
+        expect(out.map(r => r.id)).toEqual(['a', 'c'])
     })
 })

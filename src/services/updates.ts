@@ -40,8 +40,11 @@ interface CachedCheck {
     url: string
 }
 
-/** Versão mais nova disponível, ou null (em dia / sem rede / cache fresco). */
-export async function checkForUpdate(currentVersion: string, now = Date.now()): Promise<UpdateInfo | null> {
+/**
+ * Versão mais nova disponível, ou null (em dia / sem rede / cache fresco).
+ * `force` fura o cache de 24h (botão "Verificar atualização" nos Ajustes).
+ */
+export async function checkForUpdate(currentVersion: string, now = Date.now(), force = false): Promise<UpdateInfo | null> {
     let cached: CachedCheck | null = null
     try {
         const raw = await AsyncStorage.getItem(CACHE_KEY)
@@ -50,7 +53,7 @@ export async function checkForUpdate(currentVersion: string, now = Date.now()): 
 
     let version = cached?.version ?? ''
     let url = cached?.url ?? ''
-    if (!cached || now - cached.at >= CHECK_INTERVAL_MS) {
+    if (force || !cached || now - cached.at >= CHECK_INTERVAL_MS) {
         try {
             const response = await fetch(LATEST_URL, { headers: { Accept: 'application/vnd.github+json' } })
             if (!response.ok) throw new Error(`HTTP ${response.status}`)

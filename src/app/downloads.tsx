@@ -1,11 +1,11 @@
 import { Ionicons } from '@expo/vector-icons'
 import { Stack, router } from 'expo-router'
 import { useCallback, useEffect, useState } from 'react'
-import { Alert, FlatList, Image, StyleSheet, Text, TouchableOpacity, View } from 'react-native'
+import { Alert, Image, SectionList, StyleSheet, Text, TouchableOpacity, View } from 'react-native'
 import {
-    cancelDownload, discardInterrupted, listActiveDownloads, listDownloads,
-    listInterrupted, removeDownload, startDownload, subscribeDownloads,
-    type DownloadItem, type DownloadRequest,
+    cancelDownload, discardInterrupted, groupDownloads, listActiveDownloads,
+    listDownloads, listInterrupted, removeDownload, startDownload,
+    subscribeDownloads, type DownloadItem, type DownloadRequest,
 } from '../services/downloads'
 import { colors, spacing } from '../ui/theme'
 import { EmptyState } from '../ui/components'
@@ -56,6 +56,22 @@ export default function Downloads() {
     }
 
     const totalBytes = items.reduce((sum, item) => sum + item.sizeBytes, 0)
+    const sections = groupDownloads(items, t('secMovies'))
+
+    const confirmRemoveGroup = (title: string, data: DownloadItem[]) => {
+        Alert.alert(t('delGroupTitle'), tf('delGroupMsg', { n: data.length, title }), [
+            { text: t('cancel'), style: 'cancel' },
+            {
+                text: t('delete'),
+                style: 'destructive',
+                onPress: () => {
+                    void (async () => {
+                        for (const item of data) await removeDownload(item.id)
+                    })()
+                },
+            },
+        ])
+    }
 
     return (
         <View style={styles.root}>
@@ -99,9 +115,17 @@ export default function Downloads() {
                     ))}
                 </View>
             ) : null}
-            <FlatList
-                data={items}
+            <SectionList
+                sections={sections}
                 keyExtractor={item => item.id}
+                renderSectionHeader={({ section }) => (
+                    <Text
+                        style={styles.groupHeader}
+                        onLongPress={() => confirmRemoveGroup(section.title, section.data)}
+                    >
+                        {section.title} · {formatMb(section.bytes)}
+                    </Text>
+                )}
                 ListHeaderComponent={
                     items.length > 0
                         ? <Text style={styles.total}>{tf('itemsSize', { n: items.length, mb: Math.max(1, Math.round(totalBytes / 1048576)) })}</Text>
@@ -157,6 +181,14 @@ const styles = StyleSheet.create({
     fill: { height: 4, backgroundColor: colors.accent, borderRadius: 2 },
     total: { color: colors.textDim, fontSize: 12, paddingHorizontal: spacing.lg, paddingVertical: spacing.sm },
     interruptedBox: { paddingTop: spacing.sm },
+    groupHeader: {
+        color: colors.textDim,
+        fontSize: 13,
+        textTransform: 'uppercase',
+        backgroundColor: colors.bg,
+        paddingHorizontal: spacing.lg,
+        paddingVertical: spacing.sm,
+    },
     row: {
         flexDirection: 'row',
         alignItems: 'center',

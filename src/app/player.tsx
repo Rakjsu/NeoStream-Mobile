@@ -34,6 +34,13 @@ function applySubtitleTrack(target: TrackPlayer, track: SubtitleTrack | null) {
 function applyPlaybackRate(target: { playbackRate: number }, rate: number) {
     target.playbackRate = rate
 }
+function applyBackgroundMode(
+    target: { staysActiveInBackground: boolean; showNowPlayingNotification: boolean },
+    enabled: boolean,
+) {
+    target.staysActiveInBackground = enabled
+    target.showNowPlayingNotification = enabled
+}
 
 export default function Player() {
     const { url, title, live, pid, kind, sid, container, cover } = useLocalSearchParams<{
@@ -97,6 +104,26 @@ export default function Player() {
             void NavigationBar.setVisibilityAsync('visible').catch(() => undefined)
         }
     }, [])
+
+    // 🎵 Áudio em segundo plano: o vídeo segue tocando com o app minimizado,
+    // com notificação de mídia do sistema (play/pause na barra do Android).
+    const [bgAudio, setBgAudio] = useState(false)
+    const toggleBgAudio = () => {
+        const next = !bgAudio
+        setBgAudio(next)
+        try { applyBackgroundMode(player, next) } catch { /* player já liberado */ }
+        showTrackToast(next ? t('bgAudioOn') : t('bgAudioOff'))
+    }
+
+    // 🛑 "Só mais esse": no fim do episódio atual, pausa em vez de emendar.
+    const [stopAfter, setStopAfter] = useState(false)
+    const stopAfterRef = useRef(false)
+    const toggleStopAfter = () => {
+        const next = !stopAfter
+        setStopAfter(next)
+        stopAfterRef.current = next
+        showTrackToast(next ? t('stopAfterOn') : t('stopAfterOff'))
+    }
 
     // Velocidade de reprodução (VOD): 1x → 1.25x → 1.5x → 2x.
     const RATES = [1, 1.25, 1.5, 2]
@@ -287,6 +314,11 @@ export default function Player() {
             const now = Date.now()
             if (now - lastAdvanceRef.current < 3000) return // status duplicado
             lastAdvanceRef.current = now
+            if (stopAfterRef.current) {
+                stopAfterRef.current = false
+                setStopAfter(false)
+                return
+            }
             const next = nextEpisodeAfter(castEp?.pid ?? String(pid))
             if (!next) return
             void (async () => {
@@ -340,6 +372,11 @@ export default function Player() {
 
     useEventListener(player, 'playToEnd', () => {
         if (kind !== 'episode' || !trackable) return
+        if (stopAfterRef.current) {
+            stopAfterRef.current = false
+            setStopAfter(false)
+            return // pediu pra parar aqui — sem próximo episódio
+        }
         const next = nextEpisodeAfter(String(pid))
         if (next) { setCountdown(5); setUpNext(next) }
     })
@@ -474,6 +511,22 @@ export default function Player() {
                 {canCast ? (
                     <TouchableOpacity style={styles.trackBtn} accessibilityLabel={t('a11yCast')} onPress={() => void showCastPicker()}>
                         <Ionicons name="tv-outline" size={20} color={colors.text} />
+                    </TouchableOpacity>
+                ) : null}
+                <TouchableOpacity style={styles.trackBtn} accessibilityLabel={t('a11yBgAudio')} onPress={toggleBgAudio}>
+                    <Ionicons
+                        name={bgAudio ? 'musical-notes' : 'musical-notes-outline'}
+                        size={20}
+                        color={bgAudio ? colors.accent : colors.text}
+                    />
+                </TouchableOpacity>
+                {kind === 'episode' ? (
+                    <TouchableOpacity style={styles.trackBtn} accessibilityLabel={t('a11yStopAfter')} onPress={toggleStopAfter}>
+                        <Ionicons
+                            name={stopAfter ? 'pause-circle' : 'pause-circle-outline'}
+                            size={20}
+                            color={stopAfter ? colors.accent : colors.text}
+                        />
                     </TouchableOpacity>
                 ) : null}
                 {live !== '1' ? (

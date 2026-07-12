@@ -1,5 +1,5 @@
 import { describe, it, expect, vi } from 'vitest'
-import { pickEvictions, pickPending, safeFileName } from './downloads'
+import { groupDownloads, pickEvictions, pickPending, safeFileName } from './downloads'
 
 // Hoisted pelo vitest — evita os imports reais (que puxam react-native).
 vi.mock('@react-native-async-storage/async-storage', () => ({
@@ -52,5 +52,25 @@ describe('pickPending (fila da temporada)', () => {
     it('pula já baixados/baixando/na fila e dedup interno', () => {
         const out = pickPending([req('a'), req('b'), req('a'), req('c')], new Set(['b']))
         expect(out.map(r => r.id)).toEqual(['a', 'c'])
+    })
+})
+
+describe('groupDownloads', () => {
+    const dl = (id: string, title: string, mb: number, at: number) =>
+        ({ id, title, cover: '', container: 'mp4', fileUri: id, sizeBytes: mb, downloadedAt: at })
+
+    it('episódios agrupam pela série; filmes vão pro fim', () => {
+        const groups = groupDownloads([
+            dl('movie:1', 'Matrix', 700, 3),
+            dl('episode:10', 'Dark · Ep 1', 300, 2),
+            dl('episode:11', 'Dark · Ep 2', 300, 1),
+        ], 'Filmes')
+        expect(groups.map(g => g.title)).toEqual(['Dark', 'Filmes'])
+        expect(groups[0].bytes).toBe(600)
+        expect(groups[0].data).toHaveLength(2)
+    })
+
+    it('lista vazia → sem grupos', () => {
+        expect(groupDownloads([], 'Filmes')).toEqual([])
     })
 })

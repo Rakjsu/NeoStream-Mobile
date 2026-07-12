@@ -1,7 +1,7 @@
 import { Ionicons } from '@expo/vector-icons'
 import { Stack, router, useFocusEffect, useLocalSearchParams } from 'expo-router'
 import { useCallback, useEffect, useState } from 'react'
-import { Alert, Image, SectionList, StyleSheet, Text, TouchableOpacity, View } from 'react-native'
+import { Alert, Image, SectionList, Share, StyleSheet, Text, TouchableOpacity, View } from 'react-native'
 import { castAvailable, castToCurrentSession, showCastPicker } from '../../services/cast'
 import { activeProgress, enqueueDownloads, listActiveDownloads, listDownloads, listQueuedIds, removeDownload, startDownload, subscribeDownloads, type DownloadRequest } from '../../services/downloads'
 import { tapLight } from '../../services/haptics'
@@ -218,6 +218,16 @@ export default function SeriesDetail() {
                         >
                             <Ionicons name={fav ? 'heart' : 'heart-outline'} size={16} color={fav ? '#fff' : colors.danger} />
                             <Text style={[styles.favText, fav && styles.favTextOn]}>{fav ? t('favOn') : t('favBtn')}</Text>
+                        </TouchableOpacity>
+                        <TouchableOpacity
+                            style={styles.seenBtn}
+                            accessibilityLabel={t('a11yShare')}
+                            onPress={() => {
+                                const link = `neostream://series/${id}?name=${encodeURIComponent(name ?? '')}`
+                                void Share.share({ message: `${tf('shareContent', { name: name ?? '' })}\n${link}` }).catch(() => undefined)
+                            }}
+                        >
+                            <Ionicons name="share-social-outline" size={16} color={colors.textDim} />
                         </TouchableOpacity>
                         <TouchableOpacity style={styles.seenBtn} onPress={() => setHideSeen(current => !current)}>
                             <Ionicons name={hideSeen ? 'eye-off' : 'eye-outline'} size={16} color={colors.textDim} />

@@ -11,6 +11,7 @@ import { isDataSaverEnabled, setDataSaver } from '../../services/dataSaver'
 import { getDownloadLimitGb, listDownloads, setDownloadLimitGb } from '../../services/downloads'
 import { captureRef } from 'react-native-view-shot'
 import * as Sharing from 'expo-sharing'
+import { listAutoBackups, readAutoBackup, type AutoBackupFile } from '../../services/autoBackup'
 import { applyBackup, collectBackup, parseBackup, serializeBackup } from '../../services/backup'
 import { disableParental, enableParental, isValidPin, loadParental } from '../../services/parental'
 import { clearHistory } from '../../services/progress'
@@ -55,6 +56,7 @@ export default function SettingsTab() {
     const [aliasDraft, setAliasDraft] = useState('')
     const [importText, setImportText] = useState('')
     const [backupMsg, setBackupMsg] = useState('')
+    const [autoCopies, setAutoCopies] = useState<AutoBackupFile[]>([])
 
     const refreshStorage = useCallback(() => {
         void listDownloads().then(items => setDlBytes(items.reduce((sum, item) => sum + item.sizeBytes, 0)))
@@ -65,6 +67,7 @@ export default function SettingsTab() {
         void loadAccount().then(setActive)
         void loadParental().then(state => setParentalOn(state.enabled))
         void loadAppLock().then(state => setLockOn(state.enabled))
+        void listAutoBackups().then(setAutoCopies)
         void getDownloadLimitGb().then(setDlLimit)
         void isDataSaverEnabled().then(setDataSaverState)
         refreshStorage()
@@ -543,6 +546,23 @@ export default function SettingsTab() {
                     <Text style={styles.backupBtnText}>{t('restoreBtn')}</Text>
                 </TouchableOpacity>
                 {backupMsg ? <Text style={styles.pinError}>{backupMsg}</Text> : null}
+                <Text style={styles.parentalHint}>
+                    {autoCopies.length > 0 ? t('autoCopies') : t('autoCopiesNone')}
+                </Text>
+                {autoCopies.map(copy => (
+                    <TouchableOpacity
+                        key={copy.name}
+                        style={styles.ghRow}
+                        onPress={() => {
+                            void readAutoBackup(copy.uri)
+                                .then(content => { setImportText(content); setBackupMsg('') })
+                                .catch(() => setBackupMsg(t('fileReadFail')))
+                        }}
+                    >
+                        <Ionicons name="archive-outline" size={14} color={colors.textDim} />
+                        <Text style={styles.ghText}>{copy.name.replace('auto-', '').replace('.json', '')}</Text>
+                    </TouchableOpacity>
+                ))}
             </View>
 
 

@@ -5,6 +5,7 @@ import { onNotificationRoute } from '../services/notify'
 import { setupShortcuts } from '../services/shortcuts'
 import { applyCapturePolicy } from '../services/privacy'
 import { refreshDataSaver } from '../services/dataSaver'
+import { runAutoBackup } from '../services/autoBackup'
 import { ErrorBoundary } from '../ui/ErrorBoundary'
 import { colors } from '../ui/theme'
 import { t } from '../i18n/strings'
@@ -21,6 +22,9 @@ export default function RootLayout() {
 
     // Cache síncrono da economia de dados (opção + tipo de rede).
     useEffect(() => { void refreshDataSaver() }, [])
+
+    // Auto-backup silencioso (a cada 3 dias, mantém as 5 últimas cópias).
+    useEffect(() => { void runAutoBackup() }, [])
 
     return (
         <ErrorBoundary>

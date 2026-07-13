@@ -1,7 +1,8 @@
 /**
  * Backup completo do aparelho: contas, favoritos, progresso, vistos,
- * parental e (v2) canais ocultos + preferências. O parse é PURO (testável)
- * e lê v1 e v2; coletar/aplicar delegam pros serviços.
+ * parental, (v2) canais ocultos + preferências e (v3) Minha lista, chave do
+ * TMDB, modo infantil e buscas recentes. O parse é PURO (testável) e lê
+ * v1/v2/v3; coletar/aplicar delegam pros serviços.
  */
 import AsyncStorage from '@react-native-async-storage/async-storage'
 import { loadFavorites, restoreFavorites, type Favorites } from './favorites'
@@ -11,6 +12,10 @@ import { loadProgress, loadWatched, restoreProgress, type ProgressEntry } from '
 import { getDownloadLimitGb, setDownloadLimitGb } from './downloads'
 import { isDataSaverEnabled, setDataSaver } from './dataSaver'
 import { getActiveAccountId, listAccounts, restoreAccounts, type StoredAccount } from './session'
+import { loadWatchlist, restoreWatchlist, type WatchItem } from './watchlist'
+import { getTmdbKey, setTmdbKey } from './tmdb'
+import { isKidsMode, setKidsMode } from './kids'
+import { listSearchTerms, restoreSearchTerms } from './searchHistory'
 
 export interface BackupPrefs {
     downloadLimitGb: number
@@ -19,8 +24,8 @@ export interface BackupPrefs {
 
 export interface MobileBackup {
     app: 'neostream-mobile'
-    /** v1 (até 0.4.0) não tem hidden/prefs — o parse aceita as duas. */
-    version: 1 | 2
+    /** v1 (até 0.4.0) sem hidden/prefs; v2 sem watchlist/TMDB/kids/buscas. */
+    version: 1 | 2 | 3
     accounts: StoredAccount[]
     activeId: string | null
     favorites: Favorites
@@ -29,12 +34,18 @@ export interface MobileBackup {
     parental: ParentalState
     hiddenByAccount?: Record<string, HiddenChannel[]>
     prefs?: BackupPrefs
+    watchlist?: WatchItem[]
+    tmdbKey?: string
+    kidsMode?: boolean
+    searches?: string[]
 }
 
 export async function collectBackup(): Promise<MobileBackup> {
-    const [accounts, activeId, favorites, progress, watched, parental, downloadLimitGb, dataSaver] = await Promise.all([
+    const [accounts, activeId, favorites, progress, watched, parental, downloadLimitGb, dataSaver,
+        watchlist, tmdbKey, kidsMode, searches] = await Promise.all([
         listAccounts(), getActiveAccountId(), loadFavorites(), loadProgress(), loadWatched(), loadParental(),
         getDownloadLimitGb(), isDataSaverEnabled(),
+        loadWatchlist(), getTmdbKey(), isKidsMode(), listSearchTerms(),
     ])
     const hiddenByAccount: Record<string, HiddenChannel[]> = {}
     for (const account of accounts) {
@@ -43,7 +54,7 @@ export async function collectBackup(): Promise<MobileBackup> {
     }
     return {
         app: 'neostream-mobile',
-        version: 2,
+        version: 3,
         accounts,
         activeId,
         favorites,
@@ -52,6 +63,10 @@ export async function collectBackup(): Promise<MobileBackup> {
         parental,
         hiddenByAccount,
         prefs: { downloadLimitGb, dataSaver },
+        watchlist,
+        tmdbKey,
+        kidsMode,
+        searches,
     }
 }
 
@@ -71,7 +86,7 @@ export function parseBackup(text: string): MobileBackup {
     if (!backup || backup.app !== 'neostream-mobile') {
         throw new Error('Este arquivo não é um backup do NeoStream Mobile.')
     }
-    if (backup.version !== 1 && backup.version !== 2) {
+    if (backup.version !== 1 && backup.version !== 2 && backup.version !== 3) {
         throw new Error(`Versão de backup não suportada (${String(backup.version)}).`)
     }
     if (!Array.isArray(backup.accounts)) {
@@ -94,5 +109,10 @@ export async function applyBackup(backup: MobileBackup): Promise<void> {
         // O cache síncrono da economia de dados relê no próximo boot.
         await AsyncStorage.getItem('neostream_datasaver').catch(() => null)
     }
+    // Campos do v3 — backup antigo simplesmente não mexe neles.
+    if (backup.watchlist) await restoreWatchlist(backup.watchlist)
+    if (typeof backup.tmdbKey === 'string' && backup.tmdbKey) await setTmdbKey(backup.tmdbKey)
+    if (typeof backup.kidsMode === 'boolean') await setKidsMode(backup.kidsMode)
+    if (backup.searches) await restoreSearchTerms(backup.searches)
     await restoreAccounts(backup.accounts, backup.activeId ?? null)
 }

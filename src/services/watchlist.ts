@@ -41,6 +41,13 @@ export async function loadWatchlist(): Promise<WatchItem[]> {
     }
 }
 
+/** Restauração de backup. */
+export async function restoreWatchlist(list: WatchItem[]): Promise<void> {
+    try {
+        await AsyncStorage.setItem(STORAGE_KEY, JSON.stringify(Array.isArray(list) ? list.slice(0, MAX_ITEMS) : []))
+    } catch { /* best-effort */ }
+}
+
 /** Alterna o item e devolve a lista nova (a tela usa pro estado do botão). */
 export async function toggleWatchlist(item: WatchItem): Promise<WatchItem[]> {
     const next = toggleItem(await loadWatchlist(), item)

@@ -45,14 +45,25 @@ describe('backup v2 (retrocompatível)', () => {
         expect(v1.hiddenByAccount).toBeUndefined()
     })
 
-    it('aceita v2 com ocultos e preferências; rejeita v3', () => {
+    it('aceita v2 com ocultos e preferências', () => {
         const v2 = parseBackup(JSON.stringify({
             app: 'neostream-mobile', version: 2, accounts: [],
             hiddenByAccount: { 'u@http://a.tv': [{ id: '1', name: 'X' }] },
             prefs: { downloadLimitGb: 2, dataSaver: true },
         }))
         expect(v2.prefs?.downloadLimitGb).toBe(2)
-        expect(() => parseBackup(JSON.stringify({ app: 'neostream-mobile', version: 3, accounts: [] })))
+    })
+
+    it('aceita v3 com Minha lista/TMDB/kids/buscas; rejeita v4', () => {
+        const v3 = parseBackup(JSON.stringify({
+            app: 'neostream-mobile', version: 3, accounts: [],
+            watchlist: [{ kind: 'movie', id: '7', name: 'Duna', cover: '', addedAt: 1 }],
+            tmdbKey: 'k1', kidsMode: true, searches: ['duna'],
+        }))
+        expect(v3.watchlist?.[0].name).toBe('Duna')
+        expect(v3.tmdbKey).toBe('k1')
+        expect(v3.kidsMode).toBe(true)
+        expect(() => parseBackup(JSON.stringify({ app: 'neostream-mobile', version: 4, accounts: [] })))
             .toThrow(/não suportada/)
     })
 })

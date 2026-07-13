@@ -342,6 +342,23 @@ export class M3uClient implements CatalogClient {
         return { matched, total: catalog.live.length, misses }
     }
 
+    /** Procura um termo em TODA a grade do XMLTV (qualquer canal — não só favoritos). */
+    async searchGuide(term: string, limit = 10): Promise<{ channelId: string; program: EpgProgram }[]> {
+        const catalog = await this.load()
+        const guide = await this.loadGuide()
+        const q = term.trim().toLowerCase()
+        if (!guide || !q) return []
+        const hits: { channelId: string; program: EpgProgram }[] = []
+        for (const channel of catalog.live) {
+            for (const program of lookupDaySchedule(guide, this.epgOverrides[channel.id] ?? channel.tvgId ?? '', channel.name)) {
+                if (!program.title.toLowerCase().includes(q)) continue
+                hits.push({ channelId: channel.id, program })
+                if (hits.length >= limit) return hits
+            }
+        }
+        return hits
+    }
+
     /** Canais do guia XMLTV (pra tela de correção manual). */
     async listGuideChannels(): Promise<{ id: string; name: string }[]> {
         await this.load()

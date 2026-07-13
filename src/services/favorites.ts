@@ -51,6 +51,26 @@ export async function persistToggle(kind: FavoriteKind, id: string): Promise<Fav
     return cache
 }
 
+/** Move um favorito uma posição pra cima/baixo (PURO — ordem personalizada). */
+export function moveFavorite(favorites: Favorites, kind: FavoriteKind, id: string, dir: -1 | 1): Favorites {
+    const list = [...(favorites[kind] ?? [])]
+    const from = list.indexOf(id)
+    const to = from + dir
+    if (from < 0 || to < 0 || to >= list.length) return favorites
+    list[from] = list[to]
+    list[to] = id
+    return { ...favorites, [kind]: list }
+}
+
+export async function persistMove(kind: FavoriteKind, id: string, dir: -1 | 1): Promise<Favorites> {
+    const current = await loadFavorites()
+    cache = moveFavorite(current, kind, id, dir)
+    try {
+        await AsyncStorage.setItem(profileKey(STORAGE_KEY), JSON.stringify(cache))
+    } catch { /* best-effort */ }
+    return cache
+}
+
 /** Restauração de backup: substitui tudo (valida o formato antes). */
 export async function restoreFavorites(favorites: Favorites): Promise<void> {
     const clean = { ...emptyFavorites() }

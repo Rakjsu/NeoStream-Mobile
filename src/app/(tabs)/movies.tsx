@@ -12,7 +12,7 @@ import { buildProgressId } from '../../services/progress'
 import { cachedFetch, getClient, resolvePlayableUrl } from '../../services/session'
 import type { Category, VodMovie } from '../../services/xtream'
 import { CategoryChips, ContinueRail, EmptyState, Loading, PosterCard, SearchBar, TvTouchable } from '../../ui/components'
-import { nextSortMode, sortCatalog, type SortMode } from '../../services/sorting'
+import { isRecentlyAdded, nextSortMode, sortCatalog, type SortMode } from '../../services/sorting'
 import { colors, spacing } from '../../ui/theme'
 import { SORT_KEY, t, tf } from '../../i18n/strings'
 
@@ -27,6 +27,8 @@ export default function MoviesTab() {
     const [error, setError] = useState('')
     const [allowed, setAllowed] = useState<Set<string> | null>(null)
     const [sort, setSort] = useState<SortMode>('default')
+    // Relógio congelado por render (regra react-hooks/purity) — badge NOVO.
+    const [nowMs] = useState(() => Date.now())
     // Seleção em lote: long-press entra; toque marca; barra age em todos.
     const [selection, setSelection] = useState<Set<string> | null>(null)
 
@@ -246,6 +248,7 @@ export default function MoviesTab() {
                                 cover={item.stream_icon}
                                 fav={isFavorite(favorites, 'movie', id)}
                                 selected={selection?.has(id)}
+                                badge={isRecentlyAdded(item.added, nowMs) ? t('newBadge') : undefined}
                             />
                         </TvTouchable>
                     )

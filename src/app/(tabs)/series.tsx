@@ -10,7 +10,7 @@ import { guardedCategoryIds } from '../../services/kids'
 import { cachedFetch, getClient } from '../../services/session'
 import type { Category, SeriesItem } from '../../services/xtream'
 import { CategoryChips, ContinueRail, EmptyState, Loading, PosterCard, SearchBar, TvTouchable } from '../../ui/components'
-import { nextSortMode, sortCatalog, type SortMode } from '../../services/sorting'
+import { isRecentlyAdded, nextSortMode, sortCatalog, type SortMode } from '../../services/sorting'
 import { colors, spacing } from '../../ui/theme'
 import { SORT_KEY, t, tf } from '../../i18n/strings'
 
@@ -25,6 +25,8 @@ export default function SeriesTab() {
     const [error, setError] = useState('')
     const [allowed, setAllowed] = useState<Set<string> | null>(null)
     const [sort, setSort] = useState<SortMode>('default')
+    // Relógio congelado por render (regra react-hooks/purity) — badge NOVO.
+    const [nowMs] = useState(() => Date.now())
     const [selection, setSelection] = useState<Set<string> | null>(null)
 
     const toggleSelected = (id: string) => {
@@ -214,6 +216,7 @@ export default function SeriesTab() {
                             cover={item.cover}
                             fav={isFavorite(favorites, 'series', String(item.series_id))}
                             selected={selection?.has(String(item.series_id))}
+                            badge={isRecentlyAdded(item.last_modified, nowMs) ? t('newBadge') : undefined}
                         />
                     </TvTouchable>
                 )}

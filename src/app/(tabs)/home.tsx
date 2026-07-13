@@ -114,8 +114,14 @@ export default function HomeTab() {
                 ...visibleShows.filter(s => favorites.series.includes(String(s.series_id))).map(seriesRail),
             ].slice(0, RAIL_MAX))
 
+            // Rail de favoritos respeita a ORDEM personalizada (setas ↑/↓ na aba TV).
+            const liveByIdFav = new Map(live.map(c => [String(c.stream_id), c]))
             setFavChannels(
-                live.filter(c => favorites.live.includes(String(c.stream_id)) && pass(allowedLive, c.category_id))
+                favorites.live
+                    .flatMap(id => {
+                        const channel = liveByIdFav.get(id)
+                        return channel && pass(allowedLive, channel.category_id) ? [channel] : []
+                    })
                     .slice(0, RAIL_MAX)
                     .map(c => ({ id: String(c.stream_id), name: c.name, logo: c.stream_icon || '' })),
             )

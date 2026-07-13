@@ -3,7 +3,7 @@ import { Image } from 'expo-image'
 import { router } from 'expo-router'
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { Alert, FlatList, RefreshControl, StyleSheet, Text, TouchableOpacity, View, type ViewToken } from 'react-native'
-import { emptyFavorites, isFavorite, persistToggle, loadFavorites, type Favorites } from '../../services/favorites'
+import { emptyFavorites, isFavorite, persistMove, persistToggle, loadFavorites, type Favorites } from '../../services/favorites'
 import { loadParental } from '../../services/parental'
 import { guardedCategoryIds } from '../../services/kids'
 import { hiddenIdSet, hideChannel } from '../../services/hidden'
@@ -75,7 +75,12 @@ export default function LiveTab() {
         if (!channels) return []
         const q = query.trim().toLowerCase()
         let list = channels
-        if (category === 'fav') list = list.filter(c => isFavorite(favorites, 'live', String(c.stream_id)))
+        if (category === 'fav') {
+            list = list.filter(c => isFavorite(favorites, 'live', String(c.stream_id)))
+            // Ordem personalizada: a posição no array de favoritos manda (setas ↑/↓).
+            const order = new Map(favorites.live.map((favId, index) => [favId, index]))
+            list = [...list].sort((a, b) => (order.get(String(a.stream_id)) ?? 0) - (order.get(String(b.stream_id)) ?? 0))
+        }
         else if (category !== 'all') list = list.filter(c => c.category_id === category)
         if (allowed) list = list.filter(item => !item.category_id || allowed.has(item.category_id))
         if (hidden.size > 0) list = list.filter(item => !hidden.has(String(item.stream_id)))
@@ -186,6 +191,24 @@ export default function LiveTab() {
                                 <Text style={styles.name} numberOfLines={1}>{item.name}</Text>
                                 {epgLine ? <Text style={styles.epg} numberOfLines={1}>{epgLine}</Text> : null}
                             </View>
+                            {category === 'fav' ? (
+                                <View style={styles.reorderCol}>
+                                    <TouchableOpacity
+                                        style={styles.reorderBtn}
+                                        accessibilityLabel={t('favUp')}
+                                        onPress={() => void persistMove('live', String(item.stream_id), -1).then(setFavorites)}
+                                    >
+                                        <Ionicons name="chevron-up" size={14} color={colors.textDim} />
+                                    </TouchableOpacity>
+                                    <TouchableOpacity
+                                        style={styles.reorderBtn}
+                                        accessibilityLabel={t('favDown')}
+                                        onPress={() => void persistMove('live', String(item.stream_id), 1).then(setFavorites)}
+                                    >
+                                        <Ionicons name="chevron-down" size={14} color={colors.textDim} />
+                                    </TouchableOpacity>
+                                </View>
+                            ) : null}
                             <TouchableOpacity
                                 style={styles.favBtn}
                                 accessibilityLabel={t('a11yExpand')}
@@ -270,4 +293,6 @@ const styles = StyleSheet.create({
     name: { color: colors.text, fontSize: 15 },
     epg: { color: colors.textDim, fontSize: 12 },
     favBtn: { padding: spacing.xs },
+    reorderCol: { justifyContent: 'center' },
+    reorderBtn: { paddingHorizontal: 4, paddingVertical: 2 },
 })

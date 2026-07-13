@@ -4,6 +4,8 @@ import { router } from 'expo-router'
 import { useCallback, useEffect, useMemo, useState } from 'react'
 import { Alert, ScrollView, StyleSheet, Text, TouchableOpacity, View } from 'react-native'
 import { loadFavorites } from '../../services/favorites'
+import { enqueueDownloads } from '../../services/downloads'
+import { M3uClient } from '../../services/m3u'
 import { notifyAt } from '../../services/notify'
 import { hasCatchup } from '../../services/xtream'
 import { loadWatchlist, type WatchItem } from '../../services/watchlist'
@@ -11,7 +13,7 @@ import { loadParental } from '../../services/parental'
 import { guardedCategoryIds } from '../../services/kids'
 import { recordRecentChannel } from '../../services/recents'
 import { clearSearchTerms, listSearchTerms, recordSearchTerm } from '../../services/searchHistory'
-import { cachedFetch, getClient } from '../../services/session'
+import { cachedFetch, getClient, resolvePlayableUrl } from '../../services/session'
 import type { Category, EpgProgram, LiveChannel, SeriesItem, VodMovie } from '../../services/xtream'
 import { setZapContext } from '../../services/zap'
 import { EmptyState, Loading, SearchBar } from '../../ui/components'
@@ -83,11 +85,21 @@ export default function SearchTab() {
     // "No guia hoje": procura o termo na grade dos canais FAVORITOS (até 8),
     // com debounce — cada grade vem do cache SWR (day:<id>).
     useEffect(() => {
-        if (q.length < 3 || !channels || favLive.length === 0) { queueMicrotask(() => setGuideHits([])); return }
+        if (q.length < 3 || !channels) { queueMicrotask(() => setGuideHits([])); return }
         const timer = setTimeout(() => {
             void (async () => {
                 const client = await getClient()
-                if (!client?.getDaySchedule) return
+                // M3U: o XMLTV inteiro já está em memória — procura em TODOS os canais.
+                if (client instanceof M3uClient) {
+                    const hits = await client.searchGuide(q, 10).catch(() => [])
+                    const byId = new Map(channels.map(c => [String(c.stream_id), c]))
+                    setGuideHits(hits.flatMap(hit => {
+                        const channel = byId.get(hit.channelId)
+                        return channel ? [{ channel, program: hit.program }] : []
+                    }))
+                    return
+                }
+                if (!client?.getDaySchedule || favLive.length === 0) { setGuideHits([]); return }
                 const targets = channels.filter(c => favLive.includes(String(c.stream_id))).slice(0, 8)
                 const perChannel = await Promise.all(targets.map(async channel => {
                     const id = String(channel.stream_id)
@@ -112,7 +124,26 @@ export default function SearchTab() {
                 if (!client?.catchupUrl || !hasCatchup(channel)) return
                 const durationMin = Math.max(1, Math.round((program.endMs - program.startMs) / 60_000))
                 const url = client.catchupUrl(String(channel.stream_id), program.startMs, durationMin, program.id)
-                if (url) router.push({ pathname: '/player', params: { url, title: `⏪ ${program.title}` } })
+                if (!url) return
+                Alert.alert(`⏪ ${program.title}`, channel.name, [
+                    { text: t('cancel'), style: 'cancel' },
+                    ...(url.includes('.m3u8') ? [] : [{
+                        text: t('catchupDlBtn'),
+                        onPress: () => {
+                            void (async () => {
+                                await enqueueDownloads([{
+                                    id: `rec:catchup:${channel.stream_id}:${program.startMs}`,
+                                    url: await resolvePlayableUrl(url),
+                                    title: `⏪ ${program.title}`,
+                                    cover: channel.stream_icon || '',
+                                    container: 'ts',
+                                }])
+                                Alert.alert(t('catchupDlQueued'))
+                            })()
+                        },
+                    }]),
+                    { text: t('catchupPlayBtn'), onPress: () => router.push({ pathname: '/player', params: { url, title: `⏪ ${program.title}` } }) },
+                ])
             })()
             return
         }

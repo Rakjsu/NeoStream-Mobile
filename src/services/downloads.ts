@@ -332,6 +332,9 @@ export async function startDownload(request: DownloadRequest): Promise<void> {
     await writePending(pending)
 
     await waitForAllowedNetwork()
+    // Disco quase cheio: melhor falhar o download do que travar o aparelho.
+    const freeBytes = await FileSystem.getFreeDiskStorageAsync().catch(() => Number.POSITIVE_INFINITY)
+    if (freeBytes < 200 * 1024 * 1024) throw new Error('Sem espaço livre no aparelho.')
     await FileSystem.makeDirectoryAsync(DIR, { intermediates: true }).catch(() => undefined)
     const fileUri = DIR + safeFileName(request.id, request.container)
     // URL adiada de portal resolve agora (create_link é de uso único).

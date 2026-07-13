@@ -162,6 +162,25 @@ export function lastDays(map: UsageMap, todayKey: string, n = 7): { day: string;
     return series
 }
 
+/** Dias SEGUIDOS assistindo até hoje (hoje vazio conta a partir de ontem) (PURO). */
+export function currentStreak(map: UsageMap, todayKey: string): number {
+    const minutesOf = (key: string) => {
+        const kinds = map[key] ?? {}
+        return (kinds.live ?? 0) + (kinds.movie ?? 0) + (kinds.episode ?? 0)
+    }
+    const [year, month, day] = todayKey.split('-').map(Number)
+    let streak = 0
+    let offset = minutesOf(todayKey) > 0 ? 0 : 1
+    for (;;) {
+        const date = new Date(Date.UTC(year, month - 1, day - offset))
+        const key = `${date.getUTCFullYear()}-${String(date.getUTCMonth() + 1).padStart(2, '0')}-${String(date.getUTCDate()).padStart(2, '0')}`
+        if (minutesOf(key) <= 0) break
+        streak++
+        offset++
+    }
+    return streak
+}
+
 /** 205 → "3h 25min"; 45 → "45min". */
 export function formatMinutes(minutes: number): string {
     const hours = Math.floor(minutes / 60)

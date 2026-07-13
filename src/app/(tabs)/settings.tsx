@@ -29,7 +29,7 @@ import {
     accountLabel, cachedFetch, clearCatalogCache, getClient, listAccounts, loadAccount, removeAccount, renameAccount, switchAccount,
     type StoredAccount,
 } from '../../services/session'
-import { dayKey, formatMinutes, lastDays, lastMonths, loadMonthUsage, loadTitleUsage, loadUsage, monthKey, summarize, topTitles, usageCsv, type TopTitle, type UsageSummary } from '../../services/usage'
+import { currentStreak, dayKey, formatMinutes, lastDays, lastMonths, loadMonthUsage, loadTitleUsage, loadUsage, monthKey, summarize, topTitles, usageCsv, type TopTitle, type UsageSummary } from '../../services/usage'
 import { parseExpiry } from '../../services/xtream'
 import { TvTouchable } from '../../ui/components'
 import { colors, setThemeVariant, spacing, themeVariant } from '../../ui/theme'
@@ -61,6 +61,7 @@ export default function SettingsTab() {
     const [usage, setUsage] = useState<UsageSummary>({ totals: { live: 0, movie: 0, episode: 0 }, totalMinutes: 0 })
     const [usageDays, setUsageDays] = useState<{ day: string; minutes: number }[]>([])
     const [usageMonths, setUsageMonths] = useState<{ month: string; minutes: number }[]>([])
+    const [streak, setStreak] = useState(0)
     const [topLive, setTopLive] = useState<TopTitle[]>([])
     const [topShows, setTopShows] = useState<TopTitle[]>([])
     const usageShotRef = useRef<View>(null)
@@ -119,6 +120,7 @@ export default function SettingsTab() {
             const today = dayKey(Date.now())
             setUsage(summarize(map, today))
             setUsageDays(lastDays(map, today))
+            setStreak(currentStreak(map, today))
         })
         void loadMonthUsage().then(map => setUsageMonths(lastMonths(map, monthKey(Date.now()))))
         void loadTitleUsage().then(titles => {
@@ -503,6 +505,7 @@ export default function SettingsTab() {
                         )
                     })}
                 </View>
+                {streak >= 2 ? <Text style={[styles.parentalHint, { color: colors.accent }]}>{tf('streakLabel', { n: streak })}</Text> : null}
                 <Text style={styles.parentalHint}>{t('usageMonths')}</Text>
                 <View style={styles.usageBars}>
                     {usageMonths.map(entry => {

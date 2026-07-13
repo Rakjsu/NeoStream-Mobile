@@ -38,7 +38,7 @@ describe('parsers do portal', () => {
             },
         })
         expect(channels).toHaveLength(1)
-        expect(channels[0]).toEqual({ id: '101', name: 'Globo HD', logo: 'http://l/g.png', genreId: '3', cmd: 'ffmpeg http://s/101.ts' })
+        expect(channels[0]).toEqual({ id: '101', name: 'Globo HD', logo: 'http://l/g.png', genreId: '3', cmd: 'ffmpeg http://s/101.ts', tvArchive: false })
     })
 
     it('gêneros: descarta o "All" (a UI já tem o chip Todos)', () => {

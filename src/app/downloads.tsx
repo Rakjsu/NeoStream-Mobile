@@ -2,10 +2,10 @@ import { Ionicons } from '@expo/vector-icons'
 import { Image } from 'expo-image'
 import { Stack, router } from 'expo-router'
 import { useCallback, useEffect, useState } from 'react'
-import { Alert, SectionList, StyleSheet, Text, TouchableOpacity, View } from 'react-native'
+import { Alert, SectionList, StyleSheet, Text, TextInput, TouchableOpacity, View } from 'react-native'
 import {
     cancelDownload, discardInterrupted, groupDownloads, listActiveDownloads,
-    listDownloads, listInterrupted, pauseDownload, removeDownload, resumeDownload,
+    listDownloads, listInterrupted, pauseDownload, removeDownload, renameDownload, resumeDownload,
     startDownload, subscribeDownloads, type DownloadItem, type DownloadRequest,
 } from '../services/downloads'
 import { colors, spacing } from '../ui/theme'
@@ -21,6 +21,8 @@ export default function Downloads() {
     const [items, setItems] = useState<DownloadItem[]>([])
     const [activeList, setActiveList] = useState<{ id: string; progress: number; paused: boolean }[]>([])
     const [interrupted, setInterrupted] = useState<DownloadRequest[]>([])
+    const [renameId, setRenameId] = useState<string | null>(null)
+    const [renameDraft, setRenameDraft] = useState('')
 
     const refresh = useCallback(() => {
         void listDownloads().then(setItems)
@@ -57,7 +59,7 @@ export default function Downloads() {
     }
 
     const totalBytes = items.reduce((sum, item) => sum + item.sizeBytes, 0)
-    const sections = groupDownloads(items, t('secMovies'))
+    const sections = groupDownloads(items, t('secMovies'), t('recGroup'))
 
     const confirmRemoveGroup = (title: string, data: DownloadItem[]) => {
         Alert.alert(t('delGroupTitle'), tf('delGroupMsg', { n: data.length, title }), [
@@ -135,6 +137,31 @@ export default function Downloads() {
                     ))}
                 </View>
             ) : null}
+            {renameId ? (
+                <View style={styles.renameRow}>
+                    <TextInput
+                        style={styles.renameInput}
+                        value={renameDraft}
+                        onChangeText={setRenameDraft}
+                        placeholder={t('recRename')}
+                        placeholderTextColor={colors.textDim}
+                        autoFocus
+                        maxLength={60}
+                    />
+                    <TouchableOpacity
+                        style={styles.iconBtn}
+                        onPress={() => {
+                            void renameDownload(renameId, `⏺ ${renameDraft.trim()}`)
+                            setRenameId(null)
+                        }}
+                    >
+                        <Ionicons name="checkmark-circle" size={24} color={colors.accent} />
+                    </TouchableOpacity>
+                    <TouchableOpacity style={styles.iconBtn} onPress={() => setRenameId(null)}>
+                        <Ionicons name="close-circle-outline" size={24} color={colors.textDim} />
+                    </TouchableOpacity>
+                </View>
+            ) : null}
             <SectionList
                 sections={sections}
                 keyExtractor={item => item.id}
@@ -158,7 +185,16 @@ export default function Downloads() {
                 }
                 contentContainerStyle={items.length === 0 ? { flexGrow: 1 } : undefined}
                 renderItem={({ item }) => (
-                    <TouchableOpacity style={styles.row} onPress={() => play(item)}>
+                    <TouchableOpacity
+                        style={styles.row}
+                        onPress={() => play(item)}
+                        onLongPress={() => {
+                            if (!item.id.startsWith('rec:')) return
+                            setRenameDraft(item.title.replace(/^⏺ /, ''))
+                            setRenameId(item.id)
+                        }}
+                        delayLongPress={400}
+                    >
                         {item.cover ? (
                             <Image source={{ uri: item.cover }} style={styles.cover} contentFit="cover" transition={120} />
                         ) : (
@@ -224,4 +260,21 @@ const styles = StyleSheet.create({
     title: { color: colors.text, fontSize: 14 },
     meta: { color: colors.textDim, fontSize: 12 },
     iconBtn: { padding: spacing.xs },
+    renameRow: {
+        flexDirection: 'row',
+        alignItems: 'center',
+        gap: spacing.sm,
+        marginHorizontal: spacing.lg,
+        marginTop: spacing.md,
+    },
+    renameInput: {
+        flex: 1,
+        backgroundColor: colors.card,
+        borderColor: colors.border,
+        borderWidth: 1,
+        borderRadius: 8,
+        color: colors.text,
+        paddingHorizontal: spacing.md,
+        paddingVertical: 7,
+    },
 })

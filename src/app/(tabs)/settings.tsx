@@ -21,7 +21,7 @@ import { listHiddenChannels, unhideChannel, type HiddenChannel } from '../../ser
 import { applyBackup, collectBackup, parseBackup, serializeBackup } from '../../services/backup'
 import { disableParental, enableParental, isValidPin, loadParental } from '../../services/parental'
 import { isKidsMode, listKidsCategories, setKidsMode } from '../../services/kids'
-import { runSpeedTest, type SpeedVerdict } from '../../services/speedtest'
+import { loadSpeedHistory, runSpeedTest, saveSpeedSample, type SpeedSample, type SpeedVerdict } from '../../services/speedtest'
 import { clearHistory } from '../../services/progress'
 import { checkForUpdate } from '../../services/updates'
 import {
@@ -81,6 +81,7 @@ export default function SettingsTab() {
     const [wifiOnly, setWifiOnlyState] = useState(false)
     const [smartDl, setSmartDlState] = useState(false)
     const [cloudDir, setCloudDir] = useState('')
+    const [speedHist, setSpeedHist] = useState<SpeedSample[]>([])
     const [kidsCatCount, setKidsCatCount] = useState(0)
     const [amoled, setAmoled] = useState(themeVariant() === 'amoled')
 
@@ -106,6 +107,7 @@ export default function SettingsTab() {
         void isWifiOnly().then(setWifiOnlyState)
         void isSmartDownloads().then(setSmartDlState)
         void getCloudBackupDir().then(setCloudDir)
+        void loadSpeedHistory().then(setSpeedHist)
         refreshStorage()
         void loadUsage().then(map => {
             const today = dayKey(Date.now())
@@ -341,12 +343,28 @@ export default function SettingsTab() {
                                     '4k': 'speed4k', hd: 'speedHd', sd: 'speedSd', slow: 'speedSlow',
                                 }
                                 setSpeedMsg(tf('speedResult', { mbps: result.mbps, verdict: t(verdictKey[result.verdict]) }))
+                                await saveSpeedSample({ at: Date.now(), mbps: result.mbps, verdict: result.verdict })
+                                setSpeedHist(await loadSpeedHistory())
                             })()
                         }}
                     >
                         <Ionicons name="speedometer-outline" size={16} color="#fff" />
                         <Text style={styles.backupBtnText}>{speedMsg || t('speedBtn')}</Text>
                     </TvTouchable>
+                    {speedHist.length > 0 ? (
+                        <View style={{ gap: 4 }}>
+                            <Text style={styles.parentalHint}>{t('speedHistTitle')}</Text>
+                            {speedHist.slice(0, 5).map(sample => (
+                                <View key={sample.at} style={styles.diagRow}>
+                                    <Ionicons name="speedometer-outline" size={14} color={colors.textDim} />
+                                    <Text style={styles.diagLabel}>
+                                        {new Date(sample.at).toLocaleDateString()} {new Date(sample.at).toLocaleTimeString().slice(0, 5)}
+                                    </Text>
+                                    <Text style={styles.diagMeta}>{sample.mbps} Mbps</Text>
+                                </View>
+                            ))}
+                        </View>
+                    ) : null}
                     {Array.isArray(diag) ? diag.map(row => (
                         <View key={row.label} style={styles.diagRow}>
                             <Ionicons

@@ -375,6 +375,20 @@ export default function Player() {
     const [liveEpg, setLiveEpg] = useState('')
     const zappable = live === '1' && hasZapContext()
 
+    // "Ainda está assistindo?": 4h de live sem trocar de canal → pausa + overlay.
+    const [stillAsking, setStillAsking] = useState(false)
+    const [stillRound, setStillRound] = useState(0)
+    useEffect(() => {
+        if (live !== '1') return
+        const timer = setTimeout(() => {
+            try { player.pause() } catch { /* player já liberado */ }
+            setStillAsking(true)
+        }, 4 * 3600_000)
+        return () => clearTimeout(timer)
+        // eslint-disable-next-line react-hooks/exhaustive-deps
+    }, [live, liveTitle, stillRound])
+
+
     const showEpg = (channelId: string) => {
         void (async () => {
             const client = await getClient()
@@ -939,6 +953,24 @@ export default function Player() {
                             <Text style={styles.upNextCancelText}>{t('cancel')}</Text>
                         </TvTouchable>
                     </View>
+                </View>
+            ) : null}
+
+            {stillAsking ? (
+                <View style={styles.errorBox}>
+                    <Ionicons name="cafe-outline" size={28} color={colors.accent} />
+                    <Text style={styles.errorText}>{t('stillTitle')}</Text>
+                    <TvTouchable
+                        style={styles.upNextPlay}
+                        onPress={() => {
+                            setStillAsking(false)
+                            setStillRound(round => round + 1)
+                            try { player.play() } catch { /* player já liberado */ }
+                        }}
+                    >
+                        <Ionicons name="play" size={16} color="#fff" />
+                        <Text style={styles.upNextPlayText}>{t('stillBtn')}</Text>
+                    </TvTouchable>
                 </View>
             ) : null}
 

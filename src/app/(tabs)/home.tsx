@@ -13,7 +13,7 @@ import { scheduleWeeklySummary } from '../../services/weekly'
 import { hourBucketOf, loadHabits, topHabitKeys } from '../../services/habit'
 import { loadParental } from '../../services/parental'
 import { guardedCategoryIds } from '../../services/kids'
-import { listContinue, loadProgress, removeEntry, type ProgressEntry } from '../../services/progress'
+import { listContinue, loadProgress, removeEntry, saveSample, type ProgressEntry } from '../../services/progress'
 import { becauseYouWatched, type RecCandidate } from '../../services/recommend'
 import { loadWatchlist } from '../../services/watchlist'
 import { accountLabel, cachedFetch, catalogFetchedAt, getClient, loadAccount } from '../../services/session'
@@ -50,6 +50,8 @@ export default function HomeTab() {
     const [because, setBecause] = useState<{ title: string; items: RailItem[] } | null>(null)
     const [catalogAge, setCatalogAge] = useState('')
     const [watchRail, setWatchRail] = useState<RailItem[]>([])
+    // Desfazer: guarda a entrada removida por 5s antes de sumir de vez.
+    const [undoEntry, setUndoEntry] = useState<ProgressEntry | null>(null)
     const [praAgora, setPraAgora] = useState<{ id: string; name: string; logo: string }[]>([])
     const [expiryDays, setExpiryDays] = useState<number | null>(null)
 
@@ -257,19 +259,27 @@ export default function HomeTab() {
         })
     }
 
+    // Remove direto e oferece DESFAZER por 5s (em vez de Alert de confirmação).
     const confirmRemoveContinue = (entry: ProgressEntry) => {
-        Alert.alert(t('removeContinueTitle'), tf('removeContinueMsg', { title: entry.title }), [
-            { text: t('cancel'), style: 'cancel' },
-            {
-                text: t('remove'),
-                style: 'destructive',
-                onPress: () => {
-                    void removeEntry(entry.id).then(() =>
-                        loadProgress().then(map => { setContinueList(listContinue(map).slice(0, RAIL_MAX)) }),
-                    )
-                },
-            },
-        ])
+        void removeEntry(entry.id).then(() =>
+            loadProgress().then(map => { setContinueList(listContinue(map).slice(0, RAIL_MAX)) }),
+        )
+        setUndoEntry(entry)
+    }
+
+    useEffect(() => {
+        if (!undoEntry) return
+        const timer = setTimeout(() => setUndoEntry(null), 5000)
+        return () => clearTimeout(timer)
+    }, [undoEntry])
+
+    const undoRemove = () => {
+        const entry = undoEntry
+        if (!entry) return
+        setUndoEntry(null)
+        void saveSample(entry).then(() =>
+            loadProgress().then(map => { setContinueList(listContinue(map).slice(0, RAIL_MAX)) }),
+        )
     }
 
     if (!ready) return <Loading label={t('loadingHome')} />
@@ -326,6 +336,14 @@ export default function HomeTab() {
                     <PosterRail title={t('newSeriesRail')} items={newSeries} onPress={openRailItem} />
                 </View>
             )}
+            {undoEntry ? (
+                <View style={styles.snackbar}>
+                    <Text style={styles.snackText} numberOfLines={1}>{t('removedToast')}: {undoEntry.title}</Text>
+                    <TouchableOpacity onPress={undoRemove}>
+                        <Text style={styles.snackAction}>{t('undoBtn')}</Text>
+                    </TouchableOpacity>
+                </View>
+            ) : null}
         </ScrollView>
     )
 }
@@ -348,4 +366,19 @@ const styles = StyleSheet.create({
         paddingVertical: 10,
     },
     updateText: { flex: 1, color: colors.text, fontSize: 13, fontWeight: '600' },
+    snackbar: {
+        flexDirection: 'row',
+        alignItems: 'center',
+        gap: spacing.md,
+        backgroundColor: colors.card,
+        borderColor: colors.border,
+        borderWidth: 1,
+        borderRadius: 10,
+        marginHorizontal: spacing.lg,
+        marginVertical: spacing.sm,
+        paddingHorizontal: spacing.md,
+        paddingVertical: 10,
+    },
+    snackText: { flex: 1, color: colors.text, fontSize: 13 },
+    snackAction: { color: colors.accent, fontSize: 13, fontWeight: '700' },
 })

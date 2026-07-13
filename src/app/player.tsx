@@ -56,6 +56,14 @@ function applySeek(target: { currentTime: number }, deltaSec: number) {
 
 const clamp01 = (value: number) => Math.min(1, Math.max(0, value))
 
+// Destravar exige toque duplo — Date.now fora do componente (regra purity).
+function isUnlockDoubleTap(ref: { current: number }): boolean {
+    const now = Date.now()
+    const double = now - ref.current < 400
+    ref.current = double ? 0 : now
+    return double
+}
+
 interface GestureRefs {
     player: React.MutableRefObject<{ volume: number; currentTime: number }>
     live: React.MutableRefObject<boolean>
@@ -433,6 +441,10 @@ export default function Player() {
         }
     }
 
+    // 🔒 Cadeado: trava todos os toques (anti-pause de bolso/orelha).
+    const [touchLocked, setTouchLocked] = useState(false)
+    const unlockTapRef = useRef(0)
+
     // Zap por número: teclado na tela; commit após 1,5s parado (ou no ✓).
     const [numPadOpen, setNumPadOpen] = useState(false)
     const [numBuffer, setNumBuffer] = useState('')
@@ -803,6 +815,13 @@ export default function Player() {
                         <Text style={styles.rateText}>{rate}x</Text>
                     </TvTouchable>
                 ) : null}
+                <TvTouchable
+                    style={styles.trackBtn}
+                    accessibilityLabel={t('a11yLock')}
+                    onPress={() => { setTouchLocked(true); setChrome(false); showTrackToast(t('lockHint')) }}
+                >
+                    <Ionicons name="lock-open-outline" size={20} color={colors.text} />
+                </TvTouchable>
                 <TvTouchable style={styles.trackBtn} accessibilityLabel={t('a11yAspect')} onPress={cycleAspect}>
                     <Ionicons name="expand-outline" size={20} color={aspect !== 'contain' ? colors.accent : colors.text} />
                 </TvTouchable>
@@ -987,6 +1006,19 @@ export default function Player() {
                 </View>
             ) : null}
 
+            {touchLocked ? (
+                <View
+                    style={styles.lockOverlay}
+                    onStartShouldSetResponder={() => true}
+                    onResponderRelease={() => {
+                        if (isUnlockDoubleTap(unlockTapRef)) setTouchLocked(false)
+                        else showTrackToast(t('lockHint'))
+                    }}
+                >
+                    <Ionicons name="lock-closed" size={22} color="rgba(244,244,248,0.35)" style={styles.lockIcon} />
+                </View>
+            ) : null}
+
             {status === 'error' ? (
                 <View style={styles.errorBox}>
                     <Ionicons name="warning" size={28} color={colors.danger} />
@@ -1045,6 +1077,12 @@ const styles = StyleSheet.create({
         left: 0,
         right: 0,
     },
+    lockOverlay: {
+        position: 'absolute',
+        top: 0, left: 0, right: 0, bottom: 0,
+        zIndex: 30,
+    },
+    lockIcon: { position: 'absolute', top: 48, right: 18 },
     zapCol: {
         position: 'absolute',
         right: spacing.sm,

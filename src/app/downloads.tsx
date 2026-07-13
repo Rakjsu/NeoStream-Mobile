@@ -22,7 +22,7 @@ function formatMb(bytes: number): string {
 /** Baixados (tocam offline) + downloads em andamento com barra e cancelar. */
 export default function Downloads() {
     const [items, setItems] = useState<DownloadItem[]>([])
-    const [activeList, setActiveList] = useState<{ id: string; progress: number; paused: boolean }[]>([])
+    const [activeList, setActiveList] = useState<{ id: string; progress: number; paused: boolean; speedBps: number }[]>([])
     const [interrupted, setInterrupted] = useState<DownloadRequest[]>([])
     const [renameId, setRenameId] = useState<string | null>(null)
     const [renameDraft, setRenameDraft] = useState('')
@@ -100,6 +100,9 @@ export default function Downloads() {
                             {activeItem.paused
                                 ? tf('dlPaused', { pct: Math.round(activeItem.progress * 100) })
                                 : tf('downloadingPct', { pct: Math.round(activeItem.progress * 100) })}
+                            {!activeItem.paused && activeItem.speedBps > 0
+                                ? ` · ${(activeItem.speedBps / 1048576).toFixed(1)} MB/s`
+                                : ''}
                         </Text>
                         <View style={styles.track}>
                             <View style={[styles.fill, { width: `${Math.round(activeItem.progress * 100)}%` },

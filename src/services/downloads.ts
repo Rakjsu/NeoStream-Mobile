@@ -201,6 +201,10 @@ interface ActiveEntry {
     task: FileSystem.DownloadResumable
     progress: number
     paused: boolean
+    /** Janela deslizante pro MB/s da barra. */
+    lastBytes?: number
+    lastAt?: number
+    speedBps?: number
     cancelled?: boolean
     /** Acorda o loop do startDownload quando retomar/cancelar. */
     wake?: () => void
@@ -251,8 +255,10 @@ export function activeProgress(id: string): number | null {
     return active.get(id)?.progress ?? null
 }
 
-export function listActiveDownloads(): { id: string; progress: number; paused: boolean }[] {
-    return [...active.entries()].map(([id, entry]) => ({ id, progress: entry.progress, paused: entry.paused }))
+export function listActiveDownloads(): { id: string; progress: number; paused: boolean; speedBps: number }[] {
+    return [...active.entries()].map(([id, entry]) => ({
+        id, progress: entry.progress, paused: entry.paused, speedBps: entry.speedBps ?? 0,
+    }))
 }
 
 /**
@@ -344,6 +350,15 @@ export async function startDownload(request: DownloadRequest): Promise<void> {
         const entry = active.get(request.id)
         if (entry && progress.totalBytesExpectedToWrite > 0) {
             entry.progress = progress.totalBytesWritten / progress.totalBytesExpectedToWrite
+            const at = Date.now()
+            if (entry.lastAt && at - entry.lastAt >= 1000) {
+                entry.speedBps = ((progress.totalBytesWritten - (entry.lastBytes ?? 0)) / (at - entry.lastAt)) * 1000
+                entry.lastBytes = progress.totalBytesWritten
+                entry.lastAt = at
+            } else if (!entry.lastAt) {
+                entry.lastBytes = progress.totalBytesWritten
+                entry.lastAt = at
+            }
             notify()
         }
     }, request.resumeData)

@@ -359,6 +359,26 @@ export default function SettingsTab() {
                         <Ionicons name="speedometer-outline" size={16} color="#fff" />
                         <Text style={styles.backupBtnText}>{speedMsg || t('speedBtn')}</Text>
                     </TvTouchable>
+                    <TvTouchable
+                        style={[styles.backupBtn, styles.restoreBtn]}
+                        onPress={() => {
+                            const lines = [
+                                `NeoStream Mobile v${Constants.expoConfig?.version ?? '?'}`,
+                                `Conta: ${active ? accountLabel(active).replace(/^[^@]+@/, '***@') : '—'} (${active?.type ?? 'xtream'})`,
+                                '',
+                                'Velocímetro:',
+                                ...speedHist.slice(0, 5).map(s =>
+                                    `  ${new Date(s.at).toLocaleString()} — ${s.mbps} Mbps (${s.verdict})`),
+                                '',
+                                'Últimos erros:',
+                                ...errorList.slice(0, 5).map(e => `  ${new Date(e.at).toLocaleString()} — ${e.message}`),
+                            ]
+                            void Share.share({ message: lines.join('\n') }).catch(() => undefined)
+                        }}
+                    >
+                        <Ionicons name="document-text-outline" size={16} color="#fff" />
+                        <Text style={styles.backupBtnText}>{t('diagCopyBtn')}</Text>
+                    </TvTouchable>
                     {speedHist.length > 0 ? (
                         <View style={{ gap: 4 }}>
                             <Text style={styles.parentalHint}>{t('speedHistTitle')}</Text>

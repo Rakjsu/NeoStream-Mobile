@@ -10,7 +10,6 @@ import { notifyNow } from '../../services/notify'
 import { listRecentChannels, recordRecentChannel } from '../../services/recents'
 import { checkRecurringReminders } from '../../services/recurring'
 import { scheduleWeeklySummary } from '../../services/weekly'
-import { checkScheduledRecordings } from '../../services/schedRec'
 import { hourBucketOf, loadHabits, topHabitKeys } from '../../services/habit'
 import { loadParental } from '../../services/parental'
 import { guardedCategoryIds } from '../../services/kids'
@@ -25,6 +24,7 @@ import { setZapContext } from '../../services/zap'
 import { dayKey, formatMinutes, loadTitleUsage, topTitles } from '../../services/usage'
 import { checkForUpdate, type UpdateInfo } from '../../services/updates'
 import { checkWhatsNew } from '../../services/whatsnew'
+import { getCloudBackupDir } from '../../services/autoBackup'
 import { ChannelRail, ContinueRail, EmptyState, Loading, PosterRail, type RailItem } from '../../ui/components'
 import { colors, spacing } from '../../ui/theme'
 import { t, tf } from '../../i18n/strings'
@@ -55,6 +55,7 @@ export default function HomeTab() {
     // Desfazer: guarda a entrada removida por 5s antes de sumir de vez.
     const [undoEntry, setUndoEntry] = useState<ProgressEntry | null>(null)
     const [whatsNew, setWhatsNew] = useState<{ version: string; notes: string } | null>(null)
+    const [cloudNudge, setCloudNudge] = useState(false)
     const [praAgora, setPraAgora] = useState<{ id: string; name: string; logo: string }[]>([])
     const [expiryDays, setExpiryDays] = useState<number | null>(null)
 
@@ -165,7 +166,6 @@ export default function HomeTab() {
 
             void checkRecurringReminders()
             void scheduleWeeklySummary()
-            void checkScheduledRecordings(t('recStartedNotif'))
 
             // "Pra agora": canais que você costuma ver NESTE dia/horário.
             const habitNow = new Date()
@@ -205,6 +205,15 @@ export default function HomeTab() {
             void checkWhatsNew(Constants.expoConfig?.version ?? '')
                 .then(setWhatsNew)
                 .catch(() => undefined)
+            // 7 dias de uso sem pasta na nuvem → um empurrão (uma vez só).
+            void (async () => {
+                if (await AsyncStorage.getItem('neostream_cloud_nudged')) return
+                const firstRaw = await AsyncStorage.getItem('neostream_first_use')
+                if (!firstRaw) { await AsyncStorage.setItem('neostream_first_use', String(Date.now())); return }
+                if (Date.now() - Number(firstRaw) < 7 * 24 * 3600_000) return
+                if (await getCloudBackupDir()) return
+                setCloudNudge(true)
+            })().catch(() => undefined)
         })
     }, [])
 
@@ -347,6 +356,19 @@ export default function HomeTab() {
                     <PosterRail title={t('newSeriesRail')} items={newSeries} onPress={openRailItem} />
                 </View>
             )}
+            {cloudNudge ? (
+                <TouchableOpacity
+                    style={styles.updateBanner}
+                    onPress={() => {
+                        setCloudNudge(false)
+                        void AsyncStorage.setItem('neostream_cloud_nudged', '1').catch(() => undefined)
+                        router.push('/(tabs)/settings')
+                    }}
+                >
+                    <Ionicons name="cloud-upload-outline" size={18} color={colors.accent} />
+                    <Text style={styles.updateText}>{t('cloudNudge')} <Text style={{ color: colors.accent }}>{t('cloudNudgeBtn')}</Text></Text>
+                </TouchableOpacity>
+            ) : null}
             {whatsNew ? (
                 <View style={styles.whatsNewBox}>
                     <View style={styles.whatsNewHeader}>

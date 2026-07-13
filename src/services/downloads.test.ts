@@ -1,5 +1,5 @@
 import { describe, it, expect, vi } from 'vitest'
-import { groupDownloads, pickEvictions, pickPending, safeFileName , networkAllows } from './downloads'
+import { groupDownloads, isFreeable, pickEvictions, pickPending, safeFileName , networkAllows } from './downloads'
 
 // Hoisted pelo vitest — evita os imports reais (que puxam react-native).
 vi.mock('@react-native-async-storage/async-storage', () => ({
@@ -87,5 +87,19 @@ describe('networkAllows (só no Wi-Fi)', () => {
         expect(networkAllows(true, 'ETHERNET', true)).toBe(true)
         expect(networkAllows(true, 'CELLULAR', true)).toBe(false)
         expect(networkAllows(true, undefined, true)).toBe(false)
+    })
+})
+
+describe('isFreeable (liberar espaço)', () => {
+    const item = (id: string, at: number) =>
+        ({ id, title: '', cover: '', container: 'ts', fileUri: '', sizeBytes: 1, downloadedAt: at })
+    const DAY = 24 * 3600_000
+
+    it('visto libera; gravação velha libera; resto fica', () => {
+        const now = 100 * DAY
+        expect(isFreeable(item('movie:1', now), new Set(['movie:1']), now)).toBe(true)
+        expect(isFreeable(item('rec:1', now - 15 * DAY), new Set(), now)).toBe(true)
+        expect(isFreeable(item('rec:2', now - 2 * DAY), new Set(), now)).toBe(false)
+        expect(isFreeable(item('movie:2', now - 30 * DAY), new Set(), now)).toBe(false)
     })
 })

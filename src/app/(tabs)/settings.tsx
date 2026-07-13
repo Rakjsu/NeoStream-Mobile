@@ -20,7 +20,7 @@ import { buildSetupLink } from '../../services/setupLink'
 import { getTmdbKey, setTmdbKey } from '../../services/tmdb'
 import { listHiddenChannels, unhideChannel, type HiddenChannel } from '../../services/hidden'
 import { applyBackup, collectBackup, parseBackup, serializeBackup } from '../../services/backup'
-import { disableParental, enableParental, isValidPin, loadParental } from '../../services/parental'
+import { disableParental, enableParental, isValidPin, listBlockedCategories, loadParental } from '../../services/parental'
 import { isKidsMode, listKidsCategories, setKidsMode } from '../../services/kids'
 import { loadSpeedHistory, runSpeedTest, saveSpeedSample, type SpeedSample, type SpeedVerdict } from '../../services/speedtest'
 import { clearHistory } from '../../services/progress'
@@ -86,6 +86,7 @@ export default function SettingsTab() {
     const [bootLive, setBootLive] = useState(false)
     const [freeMsg, setFreeMsg] = useState('')
     const [kidsCatCount, setKidsCatCount] = useState(0)
+    const [blockedCount, setBlockedCount] = useState(0)
     const [amoled, setAmoled] = useState(themeVariant() === 'amoled')
 
     const refreshStorage = useCallback(() => {
@@ -98,6 +99,7 @@ export default function SettingsTab() {
         void loadParental().then(state => setParentalOn(state.enabled))
         void isKidsMode().then(on => { setKidsOn(on); setKidsGate(on) })
         void listKidsCategories().then(list => setKidsCatCount(list.length))
+        void listBlockedCategories().then(list => setBlockedCount(list.length))
         void getTmdbKey().then(setTmdbDraft)
         void loadAppLock().then(state => setLockOn(state.enabled))
         void listAutoBackups().then(setAutoCopies)
@@ -442,6 +444,12 @@ export default function SettingsTab() {
                         {kidsOn ? t('kidsOn') : t('kidsOff')}
                     </Text>
                 </TvTouchable>
+                {parentalOn ? (
+                    <TvTouchable style={styles.kidsRow} onPress={() => router.push('/blockedcats')}>
+                        <Ionicons name="lock-closed-outline" size={18} color={colors.textDim} />
+                        <Text style={styles.kidsText}>{tf('blockedCatsBtn', { n: blockedCount })}</Text>
+                    </TvTouchable>
+                ) : null}
                 <TvTouchable style={styles.kidsRow} onPress={() => router.push('/kidscats')}>
                     <Ionicons name="albums-outline" size={18} color={colors.textDim} />
                     <Text style={styles.kidsText}>{tf('kidsCatsBtn', { n: kidsCatCount })}</Text>

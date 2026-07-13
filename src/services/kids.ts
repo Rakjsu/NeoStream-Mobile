@@ -4,7 +4,7 @@
  * O filtro de categorias em si é do parental; aqui vive só o interruptor.
  */
 import AsyncStorage from '@react-native-async-storage/async-storage'
-import { allowedCategoryIds } from './parental'
+import { allowedCategoryIds, listBlockedCategories, loadParental, withoutBlocked } from './parental'
 import type { Category } from './xtream'
 
 const STORAGE_KEY = 'neostream_kids_mode'
@@ -56,7 +56,11 @@ export async function toggleKidsCategory(name: string): Promise<string[]> {
  * infantil (quando ligado e configurada). Fora do modo infantil = só parental.
  */
 export async function guardedCategoryIds(categories: Category[], parentalEnabled: boolean): Promise<Set<string> | null> {
-    const base = allowedCategoryIds(categories, parentalEnabled)
+    let base = allowedCategoryIds(categories, parentalEnabled)
+    // Bloqueios manuais valem sempre que o parental está ligado.
+    if ((await loadParental()).enabled) {
+        base = withoutBlocked(base, categories, await listBlockedCategories())
+    }
     if (!(await isKidsMode())) return base
     return intersectAllowed(base, whitelistCategoryIds(categories, await listKidsCategories()))
 }

@@ -24,6 +24,7 @@ import { updateContinueShortcut } from '../../services/shortcuts'
 import { setZapContext } from '../../services/zap'
 import { dayKey, formatMinutes, loadTitleUsage, topTitles } from '../../services/usage'
 import { checkForUpdate, type UpdateInfo } from '../../services/updates'
+import { checkWhatsNew } from '../../services/whatsnew'
 import { ChannelRail, ContinueRail, EmptyState, Loading, PosterRail, type RailItem } from '../../ui/components'
 import { colors, spacing } from '../../ui/theme'
 import { t, tf } from '../../i18n/strings'
@@ -53,6 +54,7 @@ export default function HomeTab() {
     const [watchRail, setWatchRail] = useState<RailItem[]>([])
     // Desfazer: guarda a entrada removida por 5s antes de sumir de vez.
     const [undoEntry, setUndoEntry] = useState<ProgressEntry | null>(null)
+    const [whatsNew, setWhatsNew] = useState<{ version: string; notes: string } | null>(null)
     const [praAgora, setPraAgora] = useState<{ id: string; name: string; logo: string }[]>([])
     const [expiryDays, setExpiryDays] = useState<number | null>(null)
 
@@ -200,6 +202,9 @@ export default function HomeTab() {
             void checkForUpdate(Constants.expoConfig?.version ?? '0.0.0')
                 .then(setUpdate)
                 .catch(() => undefined)
+            void checkWhatsNew(Constants.expoConfig?.version ?? '')
+                .then(setWhatsNew)
+                .catch(() => undefined)
         })
     }, [])
 
@@ -342,6 +347,17 @@ export default function HomeTab() {
                     <PosterRail title={t('newSeriesRail')} items={newSeries} onPress={openRailItem} />
                 </View>
             )}
+            {whatsNew ? (
+                <View style={styles.whatsNewBox}>
+                    <View style={styles.whatsNewHeader}>
+                        <Text style={styles.whatsNewTitle}>{tf('whatsNewTitle', { version: whatsNew.version })}</Text>
+                        <TouchableOpacity accessibilityLabel={t('cancel')} onPress={() => setWhatsNew(null)}>
+                            <Ionicons name="close" size={20} color={colors.text} />
+                        </TouchableOpacity>
+                    </View>
+                    <Text style={styles.whatsNewBody}>{whatsNew.notes.slice(0, 900)}</Text>
+                </View>
+            ) : null}
             {undoEntry ? (
                 <View style={styles.snackbar}>
                     <Text style={styles.snackText} numberOfLines={1}>{t('removedToast')}: {undoEntry.title}</Text>
@@ -387,4 +403,17 @@ const styles = StyleSheet.create({
     },
     snackText: { flex: 1, color: colors.text, fontSize: 13 },
     snackAction: { color: colors.accent, fontSize: 13, fontWeight: '700' },
+    whatsNewBox: {
+        backgroundColor: colors.card,
+        borderColor: colors.accent,
+        borderWidth: 1,
+        borderRadius: 12,
+        marginHorizontal: spacing.lg,
+        marginVertical: spacing.sm,
+        padding: spacing.md,
+        gap: spacing.sm,
+    },
+    whatsNewHeader: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between' },
+    whatsNewTitle: { color: colors.text, fontSize: 14, fontWeight: '700' },
+    whatsNewBody: { color: colors.textDim, fontSize: 12, lineHeight: 18 },
 })

@@ -445,10 +445,16 @@ export async function cancelDownload(id: string): Promise<void> {
     notify()
 }
 
-/** Downloads já VISTOS — candidatos do botão "liberar espaço". */
+/** Liberável: já visto OU gravação com 14+ dias (PURO). */
+export function isFreeable(item: DownloadItem, watched: Set<string>, nowMs: number): boolean {
+    if (watched.has(item.id)) return true
+    return item.id.startsWith('rec:') && nowMs - item.downloadedAt > 14 * 24 * 3600_000
+}
+
+/** Candidatos do botão "liberar espaço". */
 export async function listFreeable(): Promise<DownloadItem[]> {
     const watched = await loadWatched().catch(() => new Set<string>())
-    return (await listDownloads()).filter(item => watched.has(item.id))
+    return (await listDownloads()).filter(item => isFreeable(item, watched, Date.now()))
 }
 
 /** Renomeia um item (gravações: "rec_..." vira "Final do campeonato"). */

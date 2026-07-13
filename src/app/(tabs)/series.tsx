@@ -1,4 +1,5 @@
 import { Ionicons } from '@expo/vector-icons'
+import AsyncStorage from '@react-native-async-storage/async-storage'
 import { router, useFocusEffect } from 'expo-router'
 import { useCallback, useEffect, useMemo, useState } from 'react'
 import { Alert, FlatList, RefreshControl, StyleSheet, Text, TouchableOpacity, useWindowDimensions, View } from 'react-native'
@@ -47,7 +48,22 @@ export default function SeriesTab() {
     }
     // Colunas pela largura: 3 no celular em pé, 5-6 deitado/tablet.
     const { width } = useWindowDimensions()
-    const columns = Math.max(3, Math.min(8, Math.floor(width / 128)))
+    // Densidade: automática ou fixa (3/4/5), compartilhada entre as abas.
+    const [density, setDensity] = useState(0) // 0 = auto
+    useEffect(() => {
+        void AsyncStorage.getItem('neostream_grid_cols')
+            .then(raw => setDensity(Number(raw) || 0))
+            .catch(() => undefined)
+    }, [])
+    const cycleDensity = () => {
+        const next = density === 0 ? 3 : density >= 5 ? 0 : density + 1
+        setDensity(next)
+        void (next === 0
+            ? AsyncStorage.removeItem('neostream_grid_cols')
+            : AsyncStorage.setItem('neostream_grid_cols', String(next))
+        ).catch(() => undefined)
+    }
+    const columns = density > 0 ? density : Math.max(3, Math.min(8, Math.floor(width / 128)))
 
     const load = useCallback(async (force = false) => {
         try {
@@ -134,6 +150,9 @@ export default function SeriesTab() {
                 <TouchableOpacity style={styles.sortBtn} onPress={() => setSort(nextSortMode(sort))}>
                     <Ionicons name="swap-vertical" size={14} color={sort === 'default' ? colors.textDim : colors.accent} />
                     <Text style={[styles.sortText, sort !== 'default' && { color: colors.accent }]}>{t(SORT_KEY[sort])}</Text>
+                </TouchableOpacity>
+                <TouchableOpacity style={styles.sortBtn} accessibilityLabel={tf('gridDensity', { n: density || 'auto' })} onPress={cycleDensity}>
+                    <Text style={[styles.sortText, density > 0 && { color: colors.accent }]}>{density > 0 ? `▦${density}` : '▦'}</Text>
                 </TouchableOpacity>
             </View>
             {error ? <Text style={styles.error}>{error}</Text> : null}

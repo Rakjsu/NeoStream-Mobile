@@ -18,6 +18,7 @@ import { listHiddenChannels, unhideChannel, type HiddenChannel } from '../../ser
 import { applyBackup, collectBackup, parseBackup, serializeBackup } from '../../services/backup'
 import { disableParental, enableParental, isValidPin, loadParental } from '../../services/parental'
 import { isKidsMode, setKidsMode } from '../../services/kids'
+import { getTmdbKey, setTmdbKey } from '../../services/tmdb'
 import { clearHistory } from '../../services/progress'
 import { checkForUpdate } from '../../services/updates'
 import {
@@ -70,6 +71,7 @@ export default function SettingsTab() {
     const [kidsGate, setKidsGate] = useState(false)
     const [gatePin, setGatePin] = useState('')
     const [gateError, setGateError] = useState('')
+    const [tmdbDraft, setTmdbDraft] = useState('')
 
     const refreshStorage = useCallback(() => {
         void listDownloads().then(items => setDlBytes(items.reduce((sum, item) => sum + item.sizeBytes, 0)))
@@ -80,6 +82,7 @@ export default function SettingsTab() {
         void loadAccount().then(setActive)
         void loadParental().then(state => setParentalOn(state.enabled))
         void isKidsMode().then(on => { setKidsOn(on); setKidsGate(on) })
+        void getTmdbKey().then(setTmdbDraft)
         void loadAppLock().then(state => setLockOn(state.enabled))
         void listAutoBackups().then(setAutoCopies)
         void listHiddenChannels().then(setHiddenList)
@@ -698,6 +701,28 @@ export default function SettingsTab() {
                 ))}
             </View>
 
+
+            <Text style={styles.section}>{t('secApis')}</Text>
+            <View style={[styles.card, { paddingVertical: spacing.md, gap: spacing.md }]}>
+                <Text style={styles.parentalHint}>{t('tmdbHint')}</Text>
+                <View style={styles.pinRow}>
+                    <TextInput
+                        style={styles.pinInput}
+                        value={tmdbDraft}
+                        onChangeText={setTmdbDraft}
+                        placeholder={t('tmdbPh')}
+                        placeholderTextColor={colors.textDim}
+                        autoCapitalize="none"
+                        autoCorrect={false}
+                    />
+                    <TvTouchable
+                        style={styles.parentalBtn}
+                        onPress={() => { void setTmdbKey(tmdbDraft).then(() => Alert.alert(t('tmdbSaved'))) }}
+                    >
+                        <Text style={styles.parentalBtnText}>{t('saveBtn')}</Text>
+                    </TvTouchable>
+                </View>
+            </View>
 
             <Text style={styles.section}>{t('secAbout')}</Text>
             <View style={[styles.card, { paddingVertical: spacing.md, gap: spacing.md }]}>

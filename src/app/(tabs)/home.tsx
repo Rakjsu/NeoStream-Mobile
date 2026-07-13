@@ -11,6 +11,7 @@ import { listRecentChannels, recordRecentChannel } from '../../services/recents'
 import { allowedCategoryIds, loadParental } from '../../services/parental'
 import { listContinue, loadProgress, removeEntry, type ProgressEntry } from '../../services/progress'
 import { becauseYouWatched, type RecCandidate } from '../../services/recommend'
+import { loadWatchlist } from '../../services/watchlist'
 import { accountLabel, cachedFetch, catalogFetchedAt, getClient, loadAccount } from '../../services/session'
 import { daysUntil, parseExpiry } from '../../services/xtream'
 import type { Category, SeriesItem, VodMovie } from '../../services/xtream'
@@ -43,6 +44,7 @@ export default function HomeTab() {
     const [update, setUpdate] = useState<UpdateInfo | null>(null)
     const [because, setBecause] = useState<{ title: string; items: RailItem[] } | null>(null)
     const [catalogAge, setCatalogAge] = useState('')
+    const [watchRail, setWatchRail] = useState<RailItem[]>([])
     const [expiryDays, setExpiryDays] = useState<number | null>(null)
 
     const load = useCallback(async (force = false) => {
@@ -71,6 +73,12 @@ export default function HomeTab() {
             const visibleShows = shows.filter(s => pass(allowedSeries, s.category_id))
 
             setContinueList(listContinue(progress).slice(0, RAIL_MAX))
+
+            const watchlist = await loadWatchlist()
+            setWatchRail(watchlist.slice(0, RAIL_MAX).map(item => ({
+                key: `w${item.kind === 'movie' ? 'm' : 's'}${item.id}`, kind: item.kind,
+                id: item.id, name: item.name, cover: item.cover, container: item.container,
+            })))
 
             const movieRail = (movie: VodMovie): RailItem => ({
                 key: `m${movie.stream_id}`, kind: 'movie', id: String(movie.stream_id),
@@ -237,7 +245,7 @@ export default function HomeTab() {
     if (!ready) return <Loading label={t('loadingHome')} />
 
     const empty = continueList.length === 0 && favPosters.length === 0 && favChannels.length === 0 && recentChannels.length === 0
-        && newMovies.length === 0 && newSeries.length === 0 && freshEpisodes.length === 0
+        && newMovies.length === 0 && newSeries.length === 0 && freshEpisodes.length === 0 && watchRail.length === 0
 
     return (
         <ScrollView
@@ -275,6 +283,7 @@ export default function HomeTab() {
             ) : (
                 <View style={{ gap: spacing.md }}>
                     <ContinueRail entries={continueList} onPlay={entry => void resume(entry)} onRemove={confirmRemoveContinue} />
+                    <PosterRail title={t('watchlistRail')} items={watchRail} onPress={openRailItem} />
                     <PosterRail title={t('newEpisodesRail')} items={freshEpisodes} onPress={openRailItem} />
                     <PosterRail title={t('favRail')} items={favPosters} onPress={openRailItem} />
                     {because ? (

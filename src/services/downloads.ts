@@ -27,6 +27,8 @@ export interface DownloadRequest {
     title: string
     cover: string
     container: string
+    /** Estado do DownloadResumable salvo na pausa — retoma do byte após reabrir. */
+    resumeData?: string
 }
 
 const STORAGE_KEY = 'neostream_downloads'
@@ -232,12 +234,25 @@ export function listActiveDownloads(): { id: string; progress: number; paused: b
     return [...active.entries()].map(([id, entry]) => ({ id, progress: entry.progress, paused: entry.paused }))
 }
 
-/** Pausa um download ativo (o arquivo parcial fica; retomar continua dele). */
+/**
+ * Pausa um download ativo (o arquivo parcial fica; retomar continua dele).
+ * O snapshot vai pro registro de pendentes — fechar o app não perde o byte.
+ */
 export async function pauseDownload(id: string): Promise<void> {
     const entry = active.get(id)
     if (!entry || entry.paused) return
     entry.paused = true
     await entry.task.pauseAsync().catch(() => undefined)
+    try {
+        const snapshot = entry.task.savable()
+        if (snapshot.resumeData) {
+            const pending = await readPending()
+            if (pending[id]) {
+                pending[id] = { ...pending[id], resumeData: snapshot.resumeData }
+                await writePending(pending)
+            }
+        }
+    } catch { /* sem snapshot → recomeça do zero */ }
     notify()
 }
 
@@ -307,16 +322,17 @@ export async function startDownload(request: DownloadRequest): Promise<void> {
             entry.progress = progress.totalBytesWritten / progress.totalBytesExpectedToWrite
             notify()
         }
-    })
+    }, request.resumeData)
     const entry: ActiveEntry = { task, progress: 0, paused: false }
     active.set(request.id, entry)
     notify()
 
     try {
         // Loop de pausa: pauseAsync derruba o await atual; o wake retoma com
-        // resumeAsync (que continua do byte onde parou).
+        // resumeAsync (que continua do byte onde parou). Pedido com snapshot
+        // (pausado antes do app fechar) já começa retomando.
         let result: FileSystem.FileSystemDownloadResult | undefined
-        let resuming = false
+        let resuming = !!request.resumeData
         for (;;) {
             try {
                 result = resuming ? await task.resumeAsync() : await task.downloadAsync()

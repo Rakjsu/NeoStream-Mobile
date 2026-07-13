@@ -29,7 +29,7 @@ import {
 import { dayKey, formatMinutes, lastDays, lastMonths, loadMonthUsage, loadTitleUsage, loadUsage, monthKey, summarize, topTitles, usageCsv, type TopTitle, type UsageSummary } from '../../services/usage'
 import { parseExpiry } from '../../services/xtream'
 import { TvTouchable } from '../../ui/components'
-import { colors, spacing } from '../../ui/theme'
+import { colors, setThemeVariant, spacing, themeVariant } from '../../ui/theme'
 import { t, tf } from '../../i18n/strings'
 
 function InfoRow({ label, value }: { label: string; value: string }) {
@@ -77,6 +77,7 @@ export default function SettingsTab() {
     const [speedMsg, setSpeedMsg] = useState('')
     const [wifiOnly, setWifiOnlyState] = useState(false)
     const [kidsCatCount, setKidsCatCount] = useState(0)
+    const [amoled, setAmoled] = useState(themeVariant() === 'amoled')
 
     const refreshStorage = useCallback(() => {
         void listDownloads().then(items => setDlBytes(items.reduce((sum, item) => sum + item.sizeBytes, 0)))
@@ -556,6 +557,18 @@ export default function SettingsTab() {
                     ))}
                 </View>
                 <Text style={styles.parentalHint}>{tf('usedSpace', { mb: Math.round(dlBytes / 1048576) })}</Text>
+                <TvTouchable
+                    style={styles.kidsRow}
+                    onPress={() => {
+                        const next = !amoled
+                        setAmoled(next)
+                        void setThemeVariant(next ? 'amoled' : 'dark')
+                    }}
+                >
+                    <Ionicons name={amoled ? 'contrast' : 'contrast-outline'} size={18} color={amoled ? colors.accent : colors.textDim} />
+                    <Text style={[styles.kidsText, amoled && { color: colors.accent }]}>{t('themeAmoled')}</Text>
+                </TvTouchable>
+                {amoled ? <Text style={styles.parentalHint}>{t('themeHint')}</Text> : null}
                 <TvTouchable
                     style={styles.kidsRow}
                     onPress={() => {

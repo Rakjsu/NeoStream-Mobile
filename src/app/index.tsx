@@ -3,6 +3,7 @@ import { Redirect } from 'expo-router'
 import { useEffect, useState } from 'react'
 import { needsUnlock } from '../services/appLock'
 import { initProfiles, shouldPickProfile } from '../services/profiles'
+import { initTheme } from '../ui/theme'
 import { loadAccount } from '../services/session'
 import { Loading } from '../ui/components'
 
@@ -17,6 +18,7 @@ export default function Index() {
             needsUnlock(),
             AsyncStorage.getItem('neostream_onboarded').catch(() => null),
             initProfiles(),
+            initTheme(),
         ]).then(([account, locked, onboarded]) => {
             if (!alive) return
             if (!account) setState(onboarded ? 'out' : 'welcome')

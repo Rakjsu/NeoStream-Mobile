@@ -19,7 +19,7 @@ import { cachedFetch, getClient, resolvePlayableUrl } from '../services/session'
 import { tapLight } from '../services/haptics'
 import { alternateLiveUrl } from '../services/xtream'
 import { recordWatchMinute } from '../services/usage'
-import { hasZapContext, rankChannels, zapBy, zapList, zapTo, zapToNumber, type ZapChannel } from '../services/zap'
+import { currentZapChannel, hasZapContext, rankChannels, zapBy, zapList, zapTo, zapToNumber, type ZapChannel } from '../services/zap'
 import { TvTouchable } from '../ui/components'
 import { colors, spacing } from '../ui/theme'
 import { t, tf } from '../i18n/strings'
@@ -116,6 +116,7 @@ export default function Player() {
     }>()
     const insets = useSafeAreaInsets()
     useKeepAwake()
+    const videoRef = useRef<VideoView>(null)
 
     // Item baixado troca a fonte pro arquivo local — mudar o `source` faz o
     // useVideoPlayer recriar o player (jeito permitido pela regra de hooks).
@@ -206,12 +207,36 @@ export default function Player() {
         showTrackToast(`⏩ ${next}x`)
     }
 
-    // Sleep timer: 🌙 cicla 30 → 60 → 90 min → desligado; ao zerar, pausa.
+    // Sleep timer: 🌙 cicla 30 → 60 → 90 min → (ao vivo) fim do programa →
+    // desligado; ao zerar, pausa.
     const SLEEP_STEPS = [0, 30, 60, 90]
     const [sleepMin, setSleepMin] = useState(0)
 
+    /** Ao vivo: pega o fim do programa atual no EPG e arma o timer até lá. */
+    const armProgramSleep = () => {
+        void (async () => {
+            const channel = currentZapChannel()
+            const client = await getClient()
+            const nowNext = channel && client
+                ? await cachedFetch(`epg:${channel.id}`, () => client.getShortEpg(channel.id)).catch(() => null)
+                : null
+            const endMs = nowNext?.now?.endMs
+            if (!endMs || endMs <= Date.now()) {
+                setSleepMin(0)
+                showTrackToast(t('sleepNoEpg'))
+                return
+            }
+            const minutes = Math.max(1, Math.ceil((endMs - Date.now()) / 60_000))
+            setSleepMin(minutes)
+            showTrackToast(tf('sleepProgram', { m: minutes }))
+        })()
+    }
+
     const cycleSleep = () => {
-        const next = SLEEP_STEPS[(SLEEP_STEPS.indexOf(sleepMin) + 1) % SLEEP_STEPS.length]
+        const steps = live === '1' && hasZapContext() ? [...SLEEP_STEPS, -1] : SLEEP_STEPS
+        const index = steps.indexOf(sleepMin)
+        const next = steps[(index + 1) % steps.length]
+        if (next === -1) { armProgramSleep(); return }
         setSleepMin(next)
         showTrackToast(next === 0 ? t('sleepOff') : tf('sleepIn', { m: next }))
     }
@@ -592,6 +617,7 @@ export default function Player() {
         <View style={styles.root}>
             <StatusBar hidden />
             <VideoView
+                ref={videoRef}
                 player={player}
                 style={styles.video}
                 contentFit="contain"
@@ -648,6 +674,13 @@ export default function Player() {
                         <Text style={styles.rateText}>{rate}x</Text>
                     </TvTouchable>
                 ) : null}
+                <TvTouchable
+                    style={styles.trackBtn}
+                    accessibilityLabel={t('a11yPip')}
+                    onPress={() => { videoRef.current?.startPictureInPicture() }}
+                >
+                    <Ionicons name="browsers-outline" size={20} color={colors.text} />
+                </TvTouchable>
                 <TvTouchable style={styles.trackBtn} accessibilityLabel={t('a11ySleep')} onPress={cycleSleep}>
                     <Ionicons
                         name={sleepMin > 0 ? 'moon' : 'moon-outline'}

@@ -2,7 +2,7 @@
 
 Player IPTV pra celular (Android primeiro) — o irmão mobile do [NeoStream desktop](https://github.com/Rakjsu/NeoStream). Adicione sua lista **Xtream Codes** ou **M3U** e assista TV ao vivo, filmes e séries direto no aparelho.
 
-> **Status: v0.5** — app completo pro dia a dia (e pra sala): catálogo (Xtream, M3U e portal MAC), player, downloads offline, Chromecast, multi-conta, 3 idiomas e **instalável na Android TV**.
+> **Status: v0.6** — streaming completo: catálogo (Xtream, M3U e portal MAC), guia visual com **catch-up/replay**, fichas com **TMDB**, downloads offline (com pausa), Chromecast, **multi-view 2×2**, modo infantil, biometria, multi-conta, 3 idiomas e **Android TV**.
 
 ## Funcionalidades
 
@@ -14,8 +14,11 @@ Player IPTV pra celular (Android primeiro) — o irmão mobile do [NeoStream des
 - **Downloads offline**: filme, episódio ou **temporada inteira** (fila sequencial), tela agrupada por série, teto de armazenamento (LRU), notificação ao concluir, recuperação de interrompidos e player local
 - **Busca global**: canais + filmes + séries numa consulta só
 - **Proteções**: controle parental (PIN), bloqueio do app com PIN + FLAG_SECURE (sem screenshot/preview) e ErrorBoundary global
-- **Guia**: "Agora na TV" (programa atual com progresso, favoritos/recentes no topo), **lembrete de programa** (notificação na hora que começa) e ocultar canais
-- **Extras**: onboarding, atalhos no ícone, economia de dados, "Seu uso" com mais assistidos e **retrospectiva em imagem** (+ Wrapped anual em dezembro), episódios novos das favoritas, histórico completo, multi-select nas grades, diagnóstico em 4 passos, buscas recentes com filtros, gaveta de canais, compartilhar por deep link, auto-backup (e backup v2 completo), toques hápticos e **Android TV** (leanback + foco de D-pad)
+- **Guia**: "Agora na TV", **grade visual canais × tempo** (busca + só favoritos), programação do dia por canal, **catch-up/replay** (Xtream `tv_archive` e Stalker), lembrete de programa e ocultar canais
+- **Fichas & pessoal**: TMDB opcional (sinopse/nota/elenco/trailer com a SUA chave), **Minha lista**, rail "Porque você assistiu", trailer do YouTube
+- **Player**: gestos de brilho/volume/±10s, zap por número, PiP (automático e manual), sleep timer (inclusive "até o fim do programa"), faixas de áudio/legenda, velocidade, áudio em 2º plano e **multi-view 2×2**
+- **Família & segurança**: controle parental por PIN, **modo infantil** (Configurações trancadas), bloqueio do app com **biometria** e FLAG_SECURE
+- **Extras**: onboarding, atalhos no ícone, economia de dados, banner offline, "Seu uso" com retrospectiva em imagem (+ Wrapped anual), episódios novos das favoritas, histórico completo, multi-select, diagnóstico com **velocímetro do provedor**, buscas recentes, compartilhar por deep link, auto-backup (**backup v3** completo), toques hápticos e **Android TV** (leanback + D-pad)
 - **Backup**: exporta/importa contas, favoritos, progresso e ajustes como texto
 - **Idiomas**: português, inglês e espanhol (segue o idioma do sistema)
 - **Aviso de atualização**: banner no Início quando sai release nova no GitHub

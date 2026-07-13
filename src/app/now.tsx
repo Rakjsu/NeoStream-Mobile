@@ -101,12 +101,11 @@ export default function NowOnTv() {
             const client = await getClient()
             if (!client?.catchupUrl) return
             const durationMin = Math.max(1, Math.round((program.endMs - program.startMs) / 60_000))
+            const url = client.catchupUrl(schedule.channelId, program.startMs, durationMin, program.id)
+            if (!url) return
             router.push({
                 pathname: '/player',
-                params: {
-                    url: client.catchupUrl(schedule.channelId, program.startMs, durationMin),
-                    title: `⏪ ${program.title}`,
-                },
+                params: { url, title: `⏪ ${program.title}` },
             })
         })()
     }

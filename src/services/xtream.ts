@@ -31,8 +31,8 @@ export interface CatalogClient {
     getShortEpg(streamId: number | string): Promise<NowNext>
     /** Grade do dia do canal (opcional — nem todo tipo de conta tem). */
     getDaySchedule?(streamId: number | string): Promise<EpgProgram[]>
-    /** Catch-up: URL do programa que já passou (opcional — só Xtream com tv_archive). */
-    catchupUrl?(streamId: number | string, startMs: number, durationMin: number): string
+    /** Catch-up: URL do programa que já passou ('' quando não dá). */
+    catchupUrl?(streamId: number | string, startMs: number, durationMin: number, programId?: string): string
     liveStreamUrl(streamId: number | string): string
     vodStreamUrl(streamId: number | string, container?: string): string
     seriesStreamUrl(episodeId: number | string, container?: string): string
@@ -128,6 +128,8 @@ export interface EpgProgram {
     title: string
     startMs: number
     endMs: number
+    /** id do programa no portal (Stalker) — habilita o replay por create_link. */
+    id?: string
 }
 
 export interface NowNext {

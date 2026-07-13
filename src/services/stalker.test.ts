@@ -1,7 +1,8 @@
 import { describe, it, expect } from 'vitest'
 import {
     cmdToUrl, normalizeMac, normalizePortalUrl, parseHandshakeToken,
-    decodeStalkerEpisode, encodeStalkerEpisode, parseCreateLink, parseStalkerChannels,
+    decodeStalkerArchive, encodeStalkerArchive,
+    decodeStalkerEpisode, encodeStalkerEpisode, parseCreateLink, parseStalkerChannels, parseStalkerPrograms,
     parseStalkerEpg, parseStalkerGenres, parseStalkerSeasons, parseStalkerVodPage, seasonNumberFromName,
 } from './stalker'
 
@@ -115,5 +116,33 @@ describe('fase 3: séries do portal', () => {
     it('create_link → URL tocável', () => {
         expect(parseCreateLink({ js: { cmd: 'ffmpeg http://srv/ep7.mpg?token=x' } })).toBe('http://srv/ep7.mpg?token=x')
         expect(parseCreateLink({ js: {} })).toBe('')
+    })
+})
+
+describe('catch-up do portal (tv_archive)', () => {
+    it('encode/decode do replay adiado', () => {
+        const url = encodeStalkerArchive('123/abc')
+        expect(url).toBe('stalker://archive/123%2Fabc')
+        expect(decodeStalkerArchive(url)).toBe('123/abc')
+        expect(decodeStalkerArchive('stalker://ep/1/2')).toBeNull()
+        expect(decodeStalkerArchive('http://x')).toBeNull()
+    })
+
+    it('parseStalkerPrograms carrega o id do programa', () => {
+        const programs = parseStalkerPrograms({ js: [
+            { id: 99, name: 'Jornal', start_timestamp: '100', stop_timestamp: '200' },
+            { name: 'Sem id', start_timestamp: '300', stop_timestamp: '400' },
+        ] })
+        expect(programs[0].id).toBe('99')
+        expect(programs[1].id).toBeUndefined()
+    })
+
+    it('parseStalkerChannels lê o enable_tv_archive', () => {
+        const channels = parseStalkerChannels({ js: { data: [
+            { id: 1, name: 'Com replay', enable_tv_archive: 1 },
+            { id: 2, name: 'Sem replay', enable_tv_archive: 0 },
+            { id: 3, name: 'Portal antigo' },
+        ] } })
+        expect(channels.map(c => c.tvArchive)).toEqual([true, false, false])
     })
 })

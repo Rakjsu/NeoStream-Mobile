@@ -9,7 +9,7 @@ import { useSafeAreaInsets } from 'react-native-safe-area-context'
 import { StatusBar } from 'expo-status-bar'
 import * as Brightness from 'expo-brightness'
 import * as NavigationBar from 'expo-navigation-bar'
-import { getDownload } from '../services/downloads'
+import { enqueueDownloads, getDownload, isSmartDownloads, removeDownload } from '../services/downloads'
 import { castAvailable, castToCurrentSession, onCastSessionStarted, showCastPicker, type CastControls } from '../services/cast'
 import { nextEpisodeAfter, type QueuedEpisode } from '../services/episodeQueue'
 import { getEntry, resumePosition, saveSample, type ProgressKind } from '../services/progress'
@@ -544,6 +544,23 @@ export default function Player() {
 
     useEventListener(player, 'playToEnd', () => {
         if (kind !== 'episode' || !trackable) return
+        // Smart downloads: visto baixado sai; o próximo entra na fila sozinho.
+        void (async () => {
+            if (!(await isSmartDownloads())) return
+            const downloaded = await getDownload(String(pid))
+            if (!downloaded) return
+            await removeDownload(String(pid))
+            const nextEp = nextEpisodeAfter(String(pid))
+            const client = await getClient()
+            if (!nextEp || !client) return
+            await enqueueDownloads([{
+                id: nextEp.pid,
+                url: client.seriesStreamUrl(nextEp.sid, nextEp.container),
+                title: nextEp.title,
+                cover: nextEp.cover,
+                container: nextEp.container,
+            }])
+        })()
         if (stopAfterRef.current) {
             stopAfterRef.current = false
             setStopAfter(false)

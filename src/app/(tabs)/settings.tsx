@@ -8,7 +8,7 @@ import * as FileSystem from 'expo-file-system/legacy'
 import { disableAppLock, enableAppLock, loadAppLock } from '../../services/appLock'
 import { applyCapturePolicy } from '../../services/privacy'
 import { isDataSaverEnabled, setDataSaver } from '../../services/dataSaver'
-import { getDownloadLimitGb, isWifiOnly, listDownloads, setDownloadLimitGb, setWifiOnly } from '../../services/downloads'
+import { getDownloadLimitGb, isSmartDownloads, isWifiOnly, listDownloads, setDownloadLimitGb, setSmartDownloads, setWifiOnly } from '../../services/downloads'
 import { captureRef } from 'react-native-view-shot'
 import * as Sharing from 'expo-sharing'
 import { listAutoBackups, readAutoBackup, type AutoBackupFile } from '../../services/autoBackup'
@@ -79,6 +79,7 @@ export default function SettingsTab() {
     const [tmdbDraft, setTmdbDraft] = useState('')
     const [speedMsg, setSpeedMsg] = useState('')
     const [wifiOnly, setWifiOnlyState] = useState(false)
+    const [smartDl, setSmartDlState] = useState(false)
     const [kidsCatCount, setKidsCatCount] = useState(0)
     const [amoled, setAmoled] = useState(themeVariant() === 'amoled')
 
@@ -102,6 +103,7 @@ export default function SettingsTab() {
         void getDownloadLimitGb().then(setDlLimit)
         void isDataSaverEnabled().then(setDataSaverState)
         void isWifiOnly().then(setWifiOnlyState)
+        void isSmartDownloads().then(setSmartDlState)
         refreshStorage()
         void loadUsage().then(map => {
             const today = dayKey(Date.now())
@@ -585,6 +587,18 @@ export default function SettingsTab() {
                     <Text style={[styles.kidsText, wifiOnly && { color: colors.accent }]}>{t('wifiOnlyLabel')}</Text>
                 </TvTouchable>
                 {wifiOnly ? <Text style={styles.parentalHint}>{t('wifiOnlyHint')}</Text> : null}
+                <TvTouchable
+                    style={styles.kidsRow}
+                    onPress={() => {
+                        const next = !smartDl
+                        setSmartDlState(next)
+                        void setSmartDownloads(next)
+                    }}
+                >
+                    <Ionicons name={smartDl ? 'sparkles' : 'sparkles-outline'} size={18} color={smartDl ? colors.accent : colors.textDim} />
+                    <Text style={[styles.kidsText, smartDl && { color: colors.accent }]}>{t('smartDlLabel')}</Text>
+                </TvTouchable>
+                {smartDl ? <Text style={styles.parentalHint}>{t('smartDlHint')}</Text> : null}
                 <TvTouchable
                     style={styles.saverRow}
                     onPress={() => {

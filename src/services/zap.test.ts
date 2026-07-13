@@ -1,5 +1,5 @@
 import { describe, it, expect, beforeEach } from 'vitest'
-import { clearZapContext, hasZapContext, setZapContext, wrapIndex, zapBy, rankChannels } from './zap'
+import { channelNumber, clearZapContext, hasZapContext, setZapContext, wrapIndex, zapBy, zapToNumber, rankChannels } from './zap'
 
 describe('wrapIndex (vizinho com volta)', () => {
     it('anda pra frente e pra trás com wrap', () => {
@@ -53,5 +53,23 @@ describe('rankChannels (gaveta esperta)', () => {
     it('sem favoritos nem recentes, mantém a ordem', () => {
         const list = [ch('a'), ch('b')]
         expect(rankChannels(list, new Set(), []).map(c => c.id)).toEqual(['a', 'b'])
+    })
+})
+
+describe('zap por número', () => {
+    it('pula pra posição 1-based e informa o número do canal', () => {
+        setZapContext([{ id: 'a', name: 'A' }, { id: 'b', name: 'B' }, { id: 'c', name: 'C' }], 'a')
+        expect(zapToNumber(2)?.id).toBe('b')
+        expect(zapBy(1)?.id).toBe('c') // o índice andou junto
+        expect(channelNumber('c')).toBe(3)
+        expect(channelNumber('x')).toBe(0)
+    })
+
+    it('rejeita números fora do alcance', () => {
+        setZapContext([{ id: 'a', name: 'A' }], 'a')
+        expect(zapToNumber(0)).toBeNull()
+        expect(zapToNumber(2)).toBeNull()
+        expect(zapToNumber(1.5)).toBeNull()
+        clearZapContext()
     })
 })

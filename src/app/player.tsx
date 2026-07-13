@@ -19,7 +19,7 @@ import { cachedFetch, getClient, resolvePlayableUrl } from '../services/session'
 import { tapLight } from '../services/haptics'
 import { alternateLiveUrl } from '../services/xtream'
 import { recordWatchMinute } from '../services/usage'
-import { hasZapContext, rankChannels, zapBy, zapList, zapTo, type ZapChannel } from '../services/zap'
+import { hasZapContext, rankChannels, zapBy, zapList, zapTo, zapToNumber, type ZapChannel } from '../services/zap'
 import { TvTouchable } from '../ui/components'
 import { colors, spacing } from '../ui/theme'
 import { t, tf } from '../i18n/strings'
@@ -313,6 +313,29 @@ export default function Player() {
             switchChannel(channel)
         }
     }
+
+    // Zap por número: teclado na tela; commit após 1,5s parado (ou no ✓).
+    const [numPadOpen, setNumPadOpen] = useState(false)
+    const [numBuffer, setNumBuffer] = useState('')
+
+    const commitNumber = (raw: string) => {
+        setNumBuffer('')
+        setNumPadOpen(false)
+        const channel = zapToNumber(Number(raw))
+        if (channel) {
+            tapLight()
+            switchChannel(channel)
+        } else if (raw) {
+            showTrackToast(`✖ ${raw}`)
+        }
+    }
+
+    useEffect(() => {
+        if (!numBuffer) return
+        const timer = setTimeout(() => commitNumber(numBuffer), 1500)
+        return () => clearTimeout(timer)
+        // eslint-disable-next-line react-hooks/exhaustive-deps
+    }, [numBuffer])
 
     // Gaveta de canais: lista do contexto de zap com filtro; toque troca direto.
     // Favoritos e recentes sobem pro topo (carregados ao abrir a gaveta).
@@ -666,6 +689,34 @@ export default function Player() {
                     <TvTouchable style={styles.zapBtn} accessibilityLabel={t('a11yZapPrev')} onPress={() => zap(-1)}>
                         <Ionicons name="chevron-down" size={26} color={colors.text} />
                     </TvTouchable>
+                    <TvTouchable
+                        style={styles.zapBtn}
+                        accessibilityLabel={t('a11yNumPad')}
+                        onPress={() => { setNumBuffer(''); setNumPadOpen(open => !open) }}
+                    >
+                        <Text style={styles.numPadIcon}>123</Text>
+                    </TvTouchable>
+                </View>
+            ) : null}
+
+            {numPadOpen ? (
+                <View style={styles.numPad}>
+                    <Text style={styles.numDisplay}>{numBuffer || '—'}</Text>
+                    <View style={styles.numGrid}>
+                        {['1', '2', '3', '4', '5', '6', '7', '8', '9', '⌫', '0', '✓'].map(key => (
+                            <TvTouchable
+                                key={key}
+                                style={styles.numKey}
+                                onPress={() => {
+                                    if (key === '✓') { commitNumber(numBuffer); return }
+                                    if (key === '⌫') { setNumBuffer(current => current.slice(0, -1)); return }
+                                    setNumBuffer(current => (current + key).slice(0, 4))
+                                }}
+                            >
+                                <Text style={styles.numKeyText}>{key}</Text>
+                            </TvTouchable>
+                        ))}
+                    </View>
                 </View>
             ) : null}
 
@@ -817,6 +868,31 @@ const styles = StyleSheet.create({
         top: '38%',
         gap: spacing.md,
     },
+    numPadIcon: { color: colors.text, fontSize: 13, fontWeight: '700' },
+    numPad: {
+        position: 'absolute',
+        right: 64,
+        top: '22%',
+        backgroundColor: 'rgba(11,11,16,0.95)',
+        borderColor: colors.border,
+        borderWidth: 1,
+        borderRadius: 14,
+        padding: spacing.md,
+        gap: spacing.sm,
+        alignItems: 'center',
+    },
+    numDisplay: { color: colors.text, fontSize: 22, fontWeight: '700', letterSpacing: 4 },
+    numGrid: { flexDirection: 'row', flexWrap: 'wrap', width: 3 * 52, justifyContent: 'center' },
+    numKey: {
+        width: 48,
+        height: 44,
+        margin: 2,
+        alignItems: 'center',
+        justifyContent: 'center',
+        backgroundColor: colors.card,
+        borderRadius: 8,
+    },
+    numKeyText: { color: colors.text, fontSize: 17, fontWeight: '600' },
     zapBtn: {
         backgroundColor: 'rgba(0,0,0,0.45)',
         borderRadius: 22,

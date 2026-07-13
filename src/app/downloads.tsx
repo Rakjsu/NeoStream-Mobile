@@ -8,6 +8,7 @@ import {
     listDownloads, listInterrupted, pauseDownload, removeDownload, renameDownload, resumeDownload,
     startDownload, subscribeDownloads, type DownloadItem, type DownloadRequest,
 } from '../services/downloads'
+import * as Sharing from 'expo-sharing'
 import { recordingTitle, stopRecording } from '../services/recorder'
 import { listScheduledRecs, removeScheduledRec, type ScheduledRec } from '../services/schedRec'
 import { colors, spacing } from '../ui/theme'
@@ -226,8 +227,33 @@ export default function Downloads() {
                         onPress={() => play(item)}
                         onLongPress={() => {
                             if (!item.id.startsWith('rec:')) return
-                            setRenameDraft(item.title.replace(/^⏺ /, ''))
-                            setRenameId(item.id)
+                            // Ficha da gravação: data + tamanho e as ações juntas.
+                            Alert.alert(
+                                item.title,
+                                tf('recInfoMsg', {
+                                    date: new Date(item.downloadedAt).toLocaleString(),
+                                    mb: Math.max(1, Math.round(item.sizeBytes / 1048576)),
+                                }),
+                                [
+                                    { text: t('cancel'), style: 'cancel' },
+                                    {
+                                        text: t('recRename'),
+                                        onPress: () => {
+                                            setRenameDraft(item.title.replace(/^⏺ /, ''))
+                                            setRenameId(item.id)
+                                        },
+                                    },
+                                    {
+                                        text: t('exportBtn'),
+                                        onPress: () => {
+                                            void Sharing.isAvailableAsync().then(ok => {
+                                                if (ok) void Sharing.shareAsync(item.fileUri).catch(() => undefined)
+                                            })
+                                        },
+                                    },
+                                    { text: t('delete'), style: 'destructive', onPress: () => void removeDownload(item.id) },
+                                ],
+                            )
                         }}
                         delayLongPress={400}
                     >

@@ -3,8 +3,8 @@ import { Stack, router } from 'expo-router'
 import { useEffect, useState } from 'react'
 import { Alert, StyleSheet, Text, TextInput, View } from 'react-native'
 import {
-    DEFAULT_PROFILE_ID, GUEST_PROFILE_ID, activeProfileId, addProfile, listProfiles,
-    markProfilePicked, removeProfile, switchProfile, type Profile,
+    DEFAULT_PROFILE_ID, GUEST_PROFILE_ID, activeProfileId, addProfile, copyCurrentDataTo, listProfiles,
+    markProfilePicked, removeProfile, switchProfile, updateProfile, type Profile,
 } from '../services/profiles'
 import { TvTouchable } from '../ui/components'
 import { colors, spacing } from '../ui/theme'
@@ -22,6 +22,7 @@ export default function Profiles() {
     // Perfil com PIN: guarda o alvo até o PIN certo liberar.
     const [pinFor, setPinFor] = useState<Profile | null>(null)
     const [pinTry, setPinTry] = useState('')
+    const [editing, setEditing] = useState<Profile | null>(null)
     const [activeId, setActiveId] = useState(DEFAULT_PROFILE_ID)
 
     const refresh = () => {
@@ -47,8 +48,17 @@ export default function Profiles() {
 
     const confirmRemove = (profile: Profile) => {
         if (profile.id === DEFAULT_PROFILE_ID || profile.id === GUEST_PROFILE_ID) return
-        Alert.alert(t('profileRemoveTitle'), tf('profileRemoveMsg', { name: profile.name }), [
+        Alert.alert(profile.name, '', [
             { text: t('cancel'), style: 'cancel' },
+            {
+                text: t('profileEdit'),
+                onPress: () => {
+                    setNameDraft(profile.name)
+                    setPinDraft(profile.pin ?? '')
+                    setEditing(profile)
+                    setAdding(false)
+                },
+            },
             { text: t('remove'), style: 'destructive', onPress: () => { void removeProfile(profile.id).then(refresh) } },
         ])
     }
@@ -94,7 +104,7 @@ export default function Profiles() {
                 </TvTouchable>
             </View>
 
-            {adding ? (
+            {adding || editing ? (
                 <View style={styles.addRow}>
                     <TextInput
                         style={styles.input}
@@ -118,12 +128,26 @@ export default function Profiles() {
                     <TvTouchable
                         style={styles.addBtn}
                         onPress={() => {
+                            if (editing) {
+                                void updateProfile(editing.id, { name: nameDraft, pin: pinDraft }).then(() => {
+                                    setEditing(null)
+                                    setNameDraft('')
+                                    setPinDraft('')
+                                    refresh()
+                                })
+                                return
+                            }
                             void addProfile(nameDraft, pinDraft || undefined).then(created => {
                                 if (!created) return
                                 setNameDraft('')
                                 setPinDraft('')
                                 setAdding(false)
                                 refresh()
+                                // Opcional: já nascer com os favoritos/lista do perfil atual.
+                                Alert.alert(t('profileCopyTitle'), t('profileCopyMsg'), [
+                                    { text: t('cancel'), style: 'cancel' },
+                                    { text: t('copyBtn'), onPress: () => { void copyCurrentDataTo(created.id) } },
+                                ])
                             })
                         }}
                     >

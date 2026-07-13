@@ -136,6 +136,10 @@ export default function HomeTab() {
             setNewMovies([...visibleVod].sort((a, b) => epoch(b.added) - epoch(a.added)).slice(0, RAIL_MAX).map(movieRail))
             setNewSeries([...visibleShows].sort((a, b) => epoch(b.last_modified) - epoch(a.last_modified)).slice(0, RAIL_MAX).map(seriesRail))
 
+            // Primeiro paint AGORA — o resto (recomendações, hábitos, checagens)
+            // é enfeite e roda depois, sem segurar a tela em catálogo gigante.
+            setReady(true)
+
             // Rail personalizado: top do "Seu uso" × categoria do catálogo.
             const tops = topTitles(await loadTitleUsage(), dayKey(Date.now()), ['movie', 'episode'], 5)
             const candidates: RecCandidate[] = [

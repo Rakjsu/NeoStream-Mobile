@@ -56,6 +56,18 @@ export function zapList(): ZapChannel[] {
     return list
 }
 
+/** Canal na posição `n` (1-based, como número de canal de TV); null fora. */
+export function zapToNumber(n: number): ZapChannel | null {
+    if (!Number.isInteger(n) || n < 1 || n > list.length) return null
+    index = n - 1
+    return list[index] ?? null
+}
+
+/** Posição 1-based de um canal na lista (0 = fora da lista). */
+export function channelNumber(id: string): number {
+    return list.findIndex(c => c.id === id) + 1
+}
+
 /** Pula direto pra um canal da lista (gaveta) e devolve ele. */
 export function zapTo(id: string): ZapChannel | null {
     const target = list.findIndex(c => c.id === id)

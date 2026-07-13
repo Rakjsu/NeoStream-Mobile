@@ -19,6 +19,8 @@ export interface StalkerChannel {
     logo: string
     genreId: string
     cmd: string
+    /** O portal grava esse canal (replay disponível). */
+    tvArchive?: boolean
 }
 
 /** `http://portal.tv/c/` → `http://portal.tv` (o /c é a página do STB). */
@@ -60,7 +62,10 @@ export function parseStalkerChannels(data: unknown): StalkerChannel[] {
     const js = parseJs<{ data?: unknown[] }>(data)
     const rows = Array.isArray(js?.data) ? js.data : []
     return rows.flatMap(row => {
-        const item = row as { id?: unknown; name?: unknown; logo?: unknown; tv_genre_id?: unknown; cmd?: unknown }
+        const item = row as {
+            id?: unknown; name?: unknown; logo?: unknown; tv_genre_id?: unknown
+            cmd?: unknown; enable_tv_archive?: unknown
+        }
         if (item?.id === undefined || typeof item.name !== 'string' || !item.name) return []
         return [{
             id: String(item.id),
@@ -68,6 +73,7 @@ export function parseStalkerChannels(data: unknown): StalkerChannel[] {
             logo: typeof item.logo === 'string' ? item.logo : '',
             genreId: item.tv_genre_id === undefined ? '' : String(item.tv_genre_id),
             cmd: typeof item.cmd === 'string' ? item.cmd : '',
+            tvArchive: Number(item.enable_tv_archive) === 1,
         }]
     })
 }
@@ -116,16 +122,19 @@ export function parseStalkerVodPage(data: unknown): { items: StalkerVod[]; total
     return { items, totalItems: Number.isFinite(total) ? total : items.length }
 }
 
-/** Programas crus do get_short_epg (PURO). */
+/** Programas crus do get_short_epg, com o id (replay via tv_archive) (PURO). */
 export function parseStalkerPrograms(data: unknown): EpgProgram[] {
     const js = parseJs<unknown[]>(data)
     const rows = Array.isArray(js) ? js : []
     return rows.flatMap(row => {
-        const item = row as { name?: unknown; start_timestamp?: unknown; stop_timestamp?: unknown }
+        const item = row as { id?: unknown; name?: unknown; start_timestamp?: unknown; stop_timestamp?: unknown }
         const start = Number(item?.start_timestamp) * 1000
         const stop = Number(item?.stop_timestamp) * 1000
         if (typeof item?.name !== 'string' || !item.name || !Number.isFinite(start) || !Number.isFinite(stop)) return []
-        return [{ title: item.name, startMs: start, endMs: stop }]
+        return [{
+            title: item.name, startMs: start, endMs: stop,
+            id: item.id === undefined ? undefined : String(item.id),
+        }]
     }).sort((a, b) => a.startMs - b.startMs)
 }
 
@@ -178,6 +187,16 @@ export function seasonNumberFromName(name: string, fallback: number): number {
  */
 export function encodeStalkerEpisode(seasonId: string, episode: number): string {
     return `stalker://ep/${encodeURIComponent(seasonId)}/${episode}`
+}
+
+/** Replay de programa gravado pelo portal — resolvido na hora do play. */
+export function encodeStalkerArchive(programId: string): string {
+    return `stalker://archive/${encodeURIComponent(programId)}`
+}
+
+export function decodeStalkerArchive(url: string): string | null {
+    const match = /^stalker:\/\/archive\/(.+)$/.exec(url)
+    return match ? decodeURIComponent(match[1]) : null
 }
 
 export function decodeStalkerEpisode(url: string): { seasonId: string; episode: number } | null {
@@ -278,6 +297,7 @@ export class StalkerClient implements CatalogClient {
             name: channel.name,
             stream_icon: channel.logo,
             category_id: channel.genreId,
+            tv_archive: channel.tvArchive ? 1 : 0,
         }))
     }
 
@@ -371,6 +391,15 @@ export class StalkerClient implements CatalogClient {
 
     /** Resolve a URL adiada de um episódio via create_link (na hora do play). */
     async resolveStalkerUrl(url: string): Promise<string> {
+        // Replay do tv_archive: convenção Ministra (auto /media/<id>.mpg).
+        const programId = decodeStalkerArchive(url)
+        if (programId) {
+            await this.ensureToken()
+            const data = await this.request({
+                type: 'tv_archive', action: 'create_link', cmd: `auto /media/${programId}.mpg`,
+            }).catch(() => null)
+            return data ? parseCreateLink(data) : ''
+        }
         const decoded = decodeStalkerEpisode(url)
         if (!decoded) return url
         const cmd = this.seasonCmdById.get(decoded.seasonId)
@@ -401,6 +430,11 @@ export class StalkerClient implements CatalogClient {
             type: 'itv', action: 'get_short_epg', ch_id: String(streamId), size: '10',
         })
         return parseStalkerPrograms(data)
+    }
+
+    /** Replay: só com o id do programa (vem do get_short_epg) — senão ''. */
+    catchupUrl(_streamId: number | string, _startMs: number, _durationMin: number, programId?: string): string {
+        return programId ? encodeStalkerArchive(programId) : ''
     }
 
     liveStreamUrl(streamId: number | string): string {

@@ -31,6 +31,8 @@ export interface CatalogClient {
     getShortEpg(streamId: number | string): Promise<NowNext>
     /** Grade do dia do canal (opcional — nem todo tipo de conta tem). */
     getDaySchedule?(streamId: number | string): Promise<EpgProgram[]>
+    /** Catch-up: URL do programa que já passou ('' quando não dá). */
+    catchupUrl?(streamId: number | string, startMs: number, durationMin: number, programId?: string): string
     liveStreamUrl(streamId: number | string): string
     vodStreamUrl(streamId: number | string, container?: string): string
     seriesStreamUrl(episodeId: number | string, container?: string): string
@@ -51,6 +53,14 @@ export interface LiveChannel {
     name: string
     stream_icon?: string
     category_id?: string
+    /** 1 = provedor grava o canal (catch-up/replay disponível). */
+    tv_archive?: number | string
+    tv_archive_duration?: number | string
+}
+
+/** O canal tem catch-up? (o provedor manda 1/'1'/0/'0'/ausente). */
+export function hasCatchup(channel: LiveChannel): boolean {
+    return Number(channel.tv_archive) === 1
 }
 
 export interface VodMovie {
@@ -118,6 +128,8 @@ export interface EpgProgram {
     title: string
     startMs: number
     endMs: number
+    /** id do programa no portal (Stalker) — habilita o replay por create_link. */
+    id?: string
 }
 
 export interface NowNext {
@@ -210,20 +222,35 @@ export function parseAuthResponse(data: unknown): UserInfo {
 }
 
 /** exp_date do Xtream é epoch em segundos (string); null/ausente = sem expiração. */
-/** get_simple_data_table → programas das próximas 24h, ordenados (PURO). */
+/**
+ * get_simple_data_table → grade do canal, ordenada (PURO). Janela: 12h pra
+ * trás (candidatos a replay/catch-up) e 24h pra frente.
+ */
 export function parseDaySchedule(data: unknown, nowMs: number): EpgProgram[] {
     const obj = (data ?? {}) as { epg_listings?: unknown[] }
     const rows = Array.isArray(obj.epg_listings) ? obj.epg_listings : []
+    const pastLimit = nowMs - 12 * 3600_000
     const horizon = nowMs + 24 * 3600_000
     return rows.flatMap(row => {
         const item = row as { title?: unknown; start_timestamp?: unknown; stop_timestamp?: unknown }
         const startMs = Number(item?.start_timestamp) * 1000
         const endMs = Number(item?.stop_timestamp) * 1000
         if (typeof item?.title !== 'string' || !Number.isFinite(startMs) || !Number.isFinite(endMs)) return []
-        if (endMs <= nowMs || startMs > horizon) return []
+        if (endMs <= pastLimit || startMs > horizon) return []
         const title = decodeBase64Utf8(item.title).trim() || item.title
         return [{ title, startMs, endMs }]
     }).sort((a, b) => a.startMs - b.startMs)
+}
+
+/**
+ * Início do timeshift no formato do Xtream: "YYYY-MM-DD:HH-MM", no fuso do
+ * aparelho (mesma convenção dos players IPTV consagrados).
+ */
+export function catchupStartStamp(startMs: number): string {
+    const date = new Date(startMs)
+    const pad = (n: number) => String(n).padStart(2, '0')
+    return `${date.getFullYear()}-${pad(date.getMonth() + 1)}-${pad(date.getDate())}` +
+        `:${pad(date.getHours())}-${pad(date.getMinutes())}`
 }
 
 /** Dias inteiros até a data (0 = hoje; negativo = venceu; null = sem data). */
@@ -385,6 +412,12 @@ export class XtreamClient implements CatalogClient {
             await this.request('get_short_epg', { stream_id: String(streamId), limit: '4' }),
             Date.now(),
         )
+    }
+
+    /** Replay de programa gravado pelo provedor (canal com tv_archive=1). */
+    catchupUrl(streamId: number | string, startMs: number, durationMin: number): string {
+        return `${this.baseUrl}/timeshift/${this.username}/${this.password}` +
+            `/${durationMin}/${catchupStartStamp(startMs)}/${streamId}.ts`
     }
 
     /** TV ao vivo em HLS — o ExoPlayer toca .m3u8 nativamente. */

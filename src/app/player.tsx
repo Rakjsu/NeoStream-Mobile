@@ -4,9 +4,10 @@ import { useKeepAwake } from 'expo-keep-awake'
 import { router, useLocalSearchParams } from 'expo-router'
 import { useVideoPlayer, VideoView, type AudioTrack, type SubtitleTrack } from 'expo-video'
 import { useEffect, useRef, useState } from 'react'
-import { FlatList, Platform, StyleSheet, Text, TextInput, View } from 'react-native'
+import { FlatList, PanResponder, Platform, StyleSheet, Text, TextInput, View } from 'react-native'
 import { useSafeAreaInsets } from 'react-native-safe-area-context'
 import { StatusBar } from 'expo-status-bar'
+import * as Brightness from 'expo-brightness'
 import * as NavigationBar from 'expo-navigation-bar'
 import { getDownload } from '../services/downloads'
 import { castAvailable, castToCurrentSession, onCastSessionStarted, showCastPicker, type CastControls } from '../services/cast'
@@ -18,7 +19,7 @@ import { cachedFetch, getClient, resolvePlayableUrl } from '../services/session'
 import { tapLight } from '../services/haptics'
 import { alternateLiveUrl } from '../services/xtream'
 import { recordWatchMinute } from '../services/usage'
-import { hasZapContext, rankChannels, zapBy, zapList, zapTo, type ZapChannel } from '../services/zap'
+import { hasZapContext, rankChannels, zapBy, zapList, zapTo, zapToNumber, type ZapChannel } from '../services/zap'
 import { TvTouchable } from '../ui/components'
 import { colors, spacing } from '../ui/theme'
 import { t, tf } from '../i18n/strings'
@@ -42,6 +43,63 @@ function applyBackgroundMode(
 ) {
     target.staysActiveInBackground = enabled
     target.showNowPlayingNotification = enabled
+}
+function applyVolume(target: { volume: number }, volume: number) {
+    target.volume = volume
+}
+function applySeek(target: { currentTime: number }, deltaSec: number) {
+    target.currentTime = Math.max(0, target.currentTime + deltaSec)
+}
+
+const clamp01 = (value: number) => Math.min(1, Math.max(0, value))
+
+interface GestureRefs {
+    player: React.MutableRefObject<{ volume: number; currentTime: number }>
+    live: React.MutableRefObject<boolean>
+    toast: React.MutableRefObject<(text: string) => void>
+}
+
+/**
+ * Gestos estilo MX Player nas faixas laterais: arrasto vertical ajusta brilho
+ * (esquerda) ou volume (direita); toque duplo pula ±10s no VOD. Criado uma
+ * única vez — tudo que muda entre renders chega via refs.
+ */
+function createGesturePan(side: 'left' | 'right', refs: GestureRefs) {
+    let startValue = -1
+    let lastTapAt = 0
+    return PanResponder.create({
+        onStartShouldSetPanResponder: () => true,
+        onPanResponderGrant: () => {
+            if (side === 'right') {
+                try { startValue = refs.player.current.volume } catch { startValue = 1 }
+            } else {
+                startValue = -1
+                void Brightness.getBrightnessAsync()
+                    .then(value => { startValue = value })
+                    .catch(() => { startValue = 0.5 })
+            }
+        },
+        onPanResponderMove: (_event, gesture) => {
+            if (Math.abs(gesture.dy) < 12 || startValue < 0) return
+            const next = clamp01(startValue - gesture.dy / 250)
+            if (side === 'right') {
+                try { applyVolume(refs.player.current, next) } catch { return }
+                refs.toast.current(`🔊 ${Math.round(next * 100)}%`)
+            } else {
+                void Brightness.setBrightnessAsync(next).catch(() => undefined)
+                refs.toast.current(`☀️ ${Math.round(next * 100)}%`)
+            }
+        },
+        onPanResponderRelease: (_event, gesture) => {
+            if (Math.abs(gesture.dx) > 10 || Math.abs(gesture.dy) > 10) return // foi arrasto
+            const now = Date.now()
+            const doubleTap = now - lastTapAt < 300
+            lastTapAt = doubleTap ? 0 : now
+            if (!doubleTap || refs.live.current) return
+            try { applySeek(refs.player.current, side === 'left' ? -10 : 10) } catch { return }
+            refs.toast.current(side === 'left' ? '⏪ -10s' : '⏩ +10s')
+        },
+    })
 }
 
 export default function Player() {
@@ -169,6 +227,23 @@ export default function Player() {
         // eslint-disable-next-line react-hooks/exhaustive-deps
     }, [sleepMin])
 
+    // Gestos laterais (brilho/volume/±10s): o PanResponder nasce uma vez;
+    // player/live/toast atuais chegam por refs sincronizadas a cada render.
+    const gesturePlayerRef = useRef<{ volume: number; currentTime: number }>(player)
+    const gestureLiveRef = useRef(live === '1')
+    const gestureToastRef = useRef<(text: string) => void>(() => undefined)
+    useEffect(() => {
+        gesturePlayerRef.current = player
+        gestureLiveRef.current = live === '1'
+        gestureToastRef.current = showTrackToast
+    })
+    // A fábrica só GUARDA as refs — nenhum .current é lido aqui no render.
+    // eslint-disable-next-line react-hooks/refs
+    const [pans] = useState(() => ({
+        left: createGesturePan('left', { player: gesturePlayerRef, live: gestureLiveRef, toast: gestureToastRef }),
+        right: createGesturePan('right', { player: gesturePlayerRef, live: gestureLiveRef, toast: gestureToastRef }),
+    }))
+
     // A barra do topo (e o zap) some após 5s sem toque; um toque no topo traz de volta.
     const [chrome, setChrome] = useState(true)
     useEffect(() => {
@@ -238,6 +313,29 @@ export default function Player() {
             switchChannel(channel)
         }
     }
+
+    // Zap por número: teclado na tela; commit após 1,5s parado (ou no ✓).
+    const [numPadOpen, setNumPadOpen] = useState(false)
+    const [numBuffer, setNumBuffer] = useState('')
+
+    const commitNumber = (raw: string) => {
+        setNumBuffer('')
+        setNumPadOpen(false)
+        const channel = zapToNumber(Number(raw))
+        if (channel) {
+            tapLight()
+            switchChannel(channel)
+        } else if (raw) {
+            showTrackToast(`✖ ${raw}`)
+        }
+    }
+
+    useEffect(() => {
+        if (!numBuffer) return
+        const timer = setTimeout(() => commitNumber(numBuffer), 1500)
+        return () => clearTimeout(timer)
+        // eslint-disable-next-line react-hooks/exhaustive-deps
+    }, [numBuffer])
 
     // Gaveta de canais: lista do contexto de zap com filtro; toque troca direto.
     // Favoritos e recentes sobem pro topo (carregados ao abrir a gaveta).
@@ -502,6 +600,9 @@ export default function Player() {
                 startsPictureInPictureAutomatically
             />
 
+            <View style={[styles.gestureZone, styles.gestureLeft]} {...pans.left.panHandlers} />
+            <View style={[styles.gestureZone, styles.gestureRight]} {...pans.right.panHandlers} />
+
             {!chrome ? (
                 <TvTouchable
                     style={[styles.chromeStrip, { height: insets.top + 56 }]}
@@ -588,6 +689,34 @@ export default function Player() {
                     <TvTouchable style={styles.zapBtn} accessibilityLabel={t('a11yZapPrev')} onPress={() => zap(-1)}>
                         <Ionicons name="chevron-down" size={26} color={colors.text} />
                     </TvTouchable>
+                    <TvTouchable
+                        style={styles.zapBtn}
+                        accessibilityLabel={t('a11yNumPad')}
+                        onPress={() => { setNumBuffer(''); setNumPadOpen(open => !open) }}
+                    >
+                        <Text style={styles.numPadIcon}>123</Text>
+                    </TvTouchable>
+                </View>
+            ) : null}
+
+            {numPadOpen ? (
+                <View style={styles.numPad}>
+                    <Text style={styles.numDisplay}>{numBuffer || '—'}</Text>
+                    <View style={styles.numGrid}>
+                        {['1', '2', '3', '4', '5', '6', '7', '8', '9', '⌫', '0', '✓'].map(key => (
+                            <TvTouchable
+                                key={key}
+                                style={styles.numKey}
+                                onPress={() => {
+                                    if (key === '✓') { commitNumber(numBuffer); return }
+                                    if (key === '⌫') { setNumBuffer(current => current.slice(0, -1)); return }
+                                    setNumBuffer(current => (current + key).slice(0, 4))
+                                }}
+                            >
+                                <Text style={styles.numKeyText}>{key}</Text>
+                            </TvTouchable>
+                        ))}
+                    </View>
                 </View>
             ) : null}
 
@@ -719,6 +848,14 @@ const styles = StyleSheet.create({
         paddingVertical: 8,
     },
     trackToastText: { color: colors.text, fontSize: 14, fontWeight: '600' },
+    gestureZone: {
+        position: 'absolute',
+        top: 130,
+        bottom: 130,
+        width: '22%',
+    },
+    gestureLeft: { left: 0 },
+    gestureRight: { right: 0 },
     chromeStrip: {
         position: 'absolute',
         top: 0,
@@ -731,6 +868,31 @@ const styles = StyleSheet.create({
         top: '38%',
         gap: spacing.md,
     },
+    numPadIcon: { color: colors.text, fontSize: 13, fontWeight: '700' },
+    numPad: {
+        position: 'absolute',
+        right: 64,
+        top: '22%',
+        backgroundColor: 'rgba(11,11,16,0.95)',
+        borderColor: colors.border,
+        borderWidth: 1,
+        borderRadius: 14,
+        padding: spacing.md,
+        gap: spacing.sm,
+        alignItems: 'center',
+    },
+    numDisplay: { color: colors.text, fontSize: 22, fontWeight: '700', letterSpacing: 4 },
+    numGrid: { flexDirection: 'row', flexWrap: 'wrap', width: 3 * 52, justifyContent: 'center' },
+    numKey: {
+        width: 48,
+        height: 44,
+        margin: 2,
+        alignItems: 'center',
+        justifyContent: 'center',
+        backgroundColor: colors.card,
+        borderRadius: 8,
+    },
+    numKeyText: { color: colors.text, fontSize: 17, fontWeight: '600' },
     zapBtn: {
         backgroundColor: 'rgba(0,0,0,0.45)',
         borderRadius: 22,

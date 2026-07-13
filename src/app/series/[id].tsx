@@ -12,10 +12,12 @@ import {
     progressPct, removeEntry, unmarkWatched, type ProgressEntry,
 } from '../../services/progress'
 import { getClient, resolvePlayableUrl } from '../../services/session'
+import { fetchTmdbDetails } from '../../services/tmdb'
+import { hasItem, loadWatchlist, toggleWatchlist } from '../../services/watchlist'
 import type { Episode } from '../../services/xtream'
 import { EmptyState, Loading } from '../../ui/components'
 import { colors, spacing } from '../../ui/theme'
-import { t, tf } from '../../i18n/strings'
+import { currentLang, t, tf } from '../../i18n/strings'
 
 interface Season {
     title: string
@@ -37,10 +39,12 @@ export default function SeriesDetail() {
     const [activeDl, setActiveDl] = useState<Record<string, number>>({})
     const [queued, setQueued] = useState<Set<string>>(new Set())
     const [hideSeen, setHideSeen] = useState(false)
+    const [inList, setInList] = useState(false)
 
     useEffect(() => {
         let alive = true
         void loadFavorites().then(favs => { if (alive) setFavorites(favs) })
+        void loadWatchlist().then(list => { if (alive) setInList(hasItem(list, 'series', String(id))) })
         void (async () => {
             try {
                 const client = await getClient()
@@ -55,6 +59,12 @@ export default function SeriesDetail() {
                     setPlot(info.info?.plot?.trim() ?? '')
                     setInfoCover(info.info?.cover ?? '')
                 }
+                // TMDB (opcional): sinopse/capa quando o provedor não manda.
+                const tmdb = await fetchTmdbDetails('tv', String(name ?? ''), currentLang())
+                if (alive && tmdb) {
+                    setPlot(current => current || tmdb.plot)
+                    setInfoCover(current => current || tmdb.cover)
+                }
             } catch (err) {
                 if (alive) {
                     setError(err instanceof Error ? err.message : t('failSeries'))
@@ -63,7 +73,7 @@ export default function SeriesDetail() {
             }
         })()
         return () => { alive = false }
-    }, [id])
+    }, [id, name])
 
     useEffect(() => {
         const refreshDl = () => {
@@ -232,6 +242,19 @@ export default function SeriesDetail() {
                         <TouchableOpacity style={styles.seenBtn} onPress={() => setHideSeen(current => !current)}>
                             <Ionicons name={hideSeen ? 'eye-off' : 'eye-outline'} size={16} color={colors.textDim} />
                             <Text style={styles.seenText}>{hideSeen ? t('showSeen') : t('hideSeen')}</Text>
+                        </TouchableOpacity>
+                        <TouchableOpacity
+                            style={styles.seenBtn}
+                            accessibilityLabel={t('watchlistBtn')}
+                            onPress={() => {
+                                tapLight()
+                                void toggleWatchlist({
+                                    kind: 'series', id: String(id), name: name ?? '',
+                                    cover: infoCover || cover || '', addedAt: Date.now(),
+                                }).then(list => setInList(hasItem(list, 'series', String(id))))
+                            }}
+                        >
+                            <Ionicons name={inList ? 'bookmark' : 'bookmark-outline'} size={16} color={inList ? colors.accent : colors.textDim} />
                         </TouchableOpacity>
                     </View>
                 </View>

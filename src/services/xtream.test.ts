@@ -10,7 +10,8 @@ import {
     sanitizeCategories,
     sanitizeList,
     XtreamClient,
-    type LiveChannel, alternateLiveUrl, daysUntil } from './xtream'
+    type LiveChannel, alternateLiveUrl, daysUntil,
+    parseDaySchedule, catchupStartStamp, hasCatchup } from './xtream'
 
 const b64 = (text: string) => Buffer.from(text, 'utf-8').toString('base64')
 
@@ -190,5 +191,50 @@ describe('expiração e resgate ao vivo', () => {
         expect(alternateLiveUrl('http://s/live/u/p/9.m3u8')).toBe('http://s/live/u/p/9.ts')
         expect(alternateLiveUrl('http://s/live/u/p/9.ts')).toBe('http://s/live/u/p/9.m3u8')
         expect(alternateLiveUrl('http://s/movie/u/p/9.mp4')).toBeNull()
+    })
+})
+
+describe('grade do dia e catch-up', () => {
+    it('parseDaySchedule: janela de 12h atrás a 24h à frente, ordenada, títulos base64', () => {
+        const now = Date.UTC(2026, 6, 12, 12, 0)
+        const h = 3600_000
+        const sec = (ms: number) => String(ms / 1000)
+        const row = (title: string, startMs: number, endMs: number) =>
+            ({ title: b64(title), start_timestamp: sec(startMs), stop_timestamp: sec(endMs) })
+        const programs = parseDaySchedule({ epg_listings: [
+            row('Futuro demais', now + 25 * h, now + 26 * h),
+            row('Agora', now - h, now + h),
+            row('Replay', now - 3 * h, now - 2 * h),
+            row('Velho demais', now - 15 * h, now - 14 * h),
+        ] }, now)
+        expect(programs.map(p => p.title)).toEqual(['Replay', 'Agora'])
+    })
+
+    it('parseDaySchedule tolera lixo', () => {
+        expect(parseDaySchedule(null, 0)).toEqual([])
+        expect(parseDaySchedule({ epg_listings: [{}, { title: 5 }] }, 0)).toEqual([])
+    })
+
+    it('catchupStartStamp formata YYYY-MM-DD:HH-MM no fuso local', () => {
+        const startMs = Date.UTC(2026, 0, 5, 14, 30)
+        const d = new Date(startMs)
+        const pad = (n: number) => String(n).padStart(2, '0')
+        const expected = `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}:${pad(d.getHours())}-${pad(d.getMinutes())}`
+        expect(catchupStartStamp(startMs)).toBe(expected)
+    })
+
+    it('catchupUrl monta o /timeshift com duração e início', () => {
+        const client = new XtreamClient({ url: 'http://prov.tv:8080', username: 'user', password: 'p@ss' })
+        const startMs = Date.UTC(2026, 0, 5, 14, 30)
+        expect(client.catchupUrl(9, startMs, 60))
+            .toBe(`http://prov.tv:8080/timeshift/user/p@ss/60/${catchupStartStamp(startMs)}/9.ts`)
+    })
+
+    it('hasCatchup lê tv_archive numérico ou string', () => {
+        const ch = (tv?: number | string): LiveChannel => ({ stream_id: 1, name: 'C', tv_archive: tv })
+        expect(hasCatchup(ch(1))).toBe(true)
+        expect(hasCatchup(ch('1'))).toBe(true)
+        expect(hasCatchup(ch(0))).toBe(false)
+        expect(hasCatchup(ch())).toBe(false)
     })
 })

@@ -8,8 +8,20 @@ import { progressPct } from '../services/progress'
 import type { Category } from '../services/xtream'
 import { t } from '../i18n/strings'
 import { useState } from 'react'
+import { useNetworkState } from 'expo-network'
 import { skipImages } from '../services/dataSaver'
 import { colors, spacing } from './theme'
+
+/** Faixa discreta quando o aparelho está sem rede (some sozinha ao voltar). */
+export function OfflineBanner() {
+    const network = useNetworkState()
+    if (network.isConnected !== false) return null
+    return (
+        <View style={styles.offlineBanner}>
+            <Text style={styles.offlineText}>{t('offlineBanner')}</Text>
+        </View>
+    )
+}
 
 export function SearchBar({ value, onChange, placeholder }: {
     value: string
@@ -276,6 +288,8 @@ const styles = StyleSheet.create({
     posterImg: { width: '100%', aspectRatio: 2 / 3, borderRadius: 8, backgroundColor: colors.card },
     posterSelected: { opacity: 0.85, borderColor: colors.accent, borderWidth: 2, borderRadius: 10 },
     tvFocus: { backgroundColor: colors.accentSoft, borderRadius: 10 },
+    offlineBanner: { backgroundColor: colors.card, borderBottomColor: colors.border, borderBottomWidth: 1, paddingVertical: 5 },
+    offlineText: { color: colors.textDim, fontSize: 12, textAlign: 'center' },
     selBadge: {
         position: 'absolute',
         top: 6,

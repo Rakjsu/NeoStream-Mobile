@@ -8,6 +8,7 @@ import { allowedCategoryIds, loadParental } from '../services/parental'
 import { listRecentChannels, recordRecentChannel } from '../services/recents'
 import { notifyAt } from '../services/notify'
 import { cachedFetch, getClient } from '../services/session'
+import { hasCatchup } from '../services/xtream'
 import type { Category, EpgProgram, LiveChannel, NowNext } from '../services/xtream'
 import { rankChannels, setZapContext } from '../services/zap'
 import { EmptyState, Loading, TvTouchable } from '../ui/components'
@@ -31,7 +32,7 @@ function nowPct(nowNext: NowNext | undefined, nowMs: number): number {
 export default function NowOnTv() {
     const [channels, setChannels] = useState<LiveChannel[] | null>(null)
     const [epgMap, setEpgMap] = useState<Record<string, NowNext>>({})
-    const [schedule, setSchedule] = useState<{ name: string; programs: EpgProgram[] } | null>(null)
+    const [schedule, setSchedule] = useState<{ name: string; channelId: string; archive: boolean; programs: EpgProgram[] } | null>(null)
     const epgInFlight = useRef(new Set<string>())
 
     useEffect(() => {
@@ -84,7 +85,28 @@ export default function NowOnTv() {
             const client = await getClient()
             if (!client?.getDaySchedule) return
             const programs = await client.getDaySchedule(String(channel.stream_id)).catch(() => [] as EpgProgram[])
-            setSchedule({ name: channel.name, programs })
+            setSchedule({
+                name: channel.name,
+                channelId: String(channel.stream_id),
+                archive: hasCatchup(channel) && !!client.catchupUrl,
+                programs,
+            })
+        })()
+    }
+
+    /** Replay: programa que já passou num canal com tv_archive → toca o catch-up. */
+    const playCatchup = (program: EpgProgram) => {
+        if (!schedule) return
+        void (async () => {
+            const client = await getClient()
+            if (!client?.catchupUrl) return
+            const durationMin = Math.max(1, Math.round((program.endMs - program.startMs) / 60_000))
+            const url = client.catchupUrl(schedule.channelId, program.startMs, durationMin, program.id)
+            if (!url) return
+            router.push({
+                pathname: '/player',
+                params: { url, title: `⏪ ${program.title}` },
+            })
         })()
     }
 
@@ -131,7 +153,16 @@ export default function NowOnTv() {
 
     return (
         <View style={styles.root}>
-            <Stack.Screen options={{ title: t('nowTitle') }} />
+            <Stack.Screen
+                options={{
+                    title: t('nowTitle'),
+                    headerRight: () => (
+                        <TouchableOpacity accessibilityLabel={t('guideTitle')} onPress={() => router.push('/guide')}>
+                            <Ionicons name="grid-outline" size={20} color={colors.text} />
+                        </TouchableOpacity>
+                    ),
+                }}
+            />
             {schedule ? (
                 <View style={styles.scheduleOverlay}>
                     <View style={styles.scheduleBox}>
@@ -147,6 +178,7 @@ export default function NowOnTv() {
                             ListEmptyComponent={<Text style={styles.scheduleEmpty}>{t('scheduleEmpty')}</Text>}
                             renderItem={({ item: program }) => {
                                 const live = program.startMs <= nowMs && nowMs < program.endMs
+                                const replayable = schedule.archive && program.endMs <= nowMs
                                 const hh = (ms: number) => {
                                     const date = new Date(ms)
                                     return `${String(date.getHours()).padStart(2, '0')}:${String(date.getMinutes()).padStart(2, '0')}`
@@ -154,6 +186,8 @@ export default function NowOnTv() {
                                 return (
                                     <TouchableOpacity
                                         style={styles.scheduleRow}
+                                        accessibilityLabel={replayable ? t('catchupPlay') : undefined}
+                                        onPress={replayable ? () => playCatchup(program) : undefined}
                                         onLongPress={() => {
                                             void notifyAt(tf('remindNotif', { title: program.title }), schedule.name, '/now', program.startMs)
                                                 .then(ok => { if (ok) Alert.alert(t('remindSet')) })
@@ -165,6 +199,7 @@ export default function NowOnTv() {
                                             {program.title}
                                         </Text>
                                         {live ? <Ionicons name="radio-outline" size={14} color={colors.accent} /> : null}
+                                        {replayable ? <Ionicons name="play-back-circle-outline" size={16} color={colors.accent} /> : null}
                                     </TouchableOpacity>
                                 )
                             }}

@@ -8,9 +8,11 @@ import { tapLight } from '../../services/haptics'
 import { emptyFavorites, isFavorite, loadFavorites, persistToggle, type Favorites } from '../../services/favorites'
 import { buildProgressId, getEntry, progressPct, resumePosition } from '../../services/progress'
 import { getClient, resolvePlayableUrl } from '../../services/session'
+import { emptyVodDetails, fetchTmdbDetails, mergeDetails } from '../../services/tmdb'
+import { hasItem, loadWatchlist, toggleWatchlist } from '../../services/watchlist'
 import type { VodDetails } from '../../services/xtream'
 import { colors, spacing } from '../../ui/theme'
-import { t, tf } from '../../i18n/strings'
+import { currentLang, t, tf } from '../../i18n/strings'
 
 /** Ficha do filme: capa, sinopse e metadados antes de dar o play. */
 export default function MovieDetail() {
@@ -25,6 +27,7 @@ export default function MovieDetail() {
     const [resumePct, setResumePct] = useState(0)
     const [dlState, setDlState] = useState<'none' | 'active' | 'done'>('none')
     const [dlPct, setDlPct] = useState(0)
+    const [inList, setInList] = useState(false)
 
     const pid = buildProgressId('movie', String(id))
     const canCast = castAvailable()
@@ -73,14 +76,18 @@ export default function MovieDetail() {
                 setResumePct(progressPct(entry.position, entry.duration))
             }
         })
+        void loadWatchlist().then(list => { if (alive) setInList(hasItem(list, 'movie', String(id))) })
         void (async () => {
             const client = await getClient()
             if (!client) { router.replace('/login'); return }
             const info = await client.getVodDetails(String(id)).catch(() => null)
             if (alive && info) setDetails(info)
+            // TMDB (opcional): preenche o que o provedor deixou em branco.
+            const tmdb = await fetchTmdbDetails('movie', String(name ?? ''), currentLang())
+            if (alive && tmdb) setDetails(current => mergeDetails(current ?? info ?? emptyVodDetails(), tmdb))
         })()
         return () => { alive = false }
-    }, [id, pid])
+    }, [id, pid, name])
 
     const play = async () => {
         const client = await getClient()
@@ -154,6 +161,20 @@ export default function MovieDetail() {
                     onPress={() => { tapLight(); void persistToggle('movie', String(id)).then(setFavorites) }}
                 >
                     <Ionicons name={fav ? 'heart' : 'heart-outline'} size={20} color={fav ? '#fff' : colors.danger} />
+                </TouchableOpacity>
+                <TouchableOpacity
+                    style={[styles.listBtn, inList && styles.listBtnOn]}
+                    accessibilityLabel={t('watchlistBtn')}
+                    onPress={() => {
+                        tapLight()
+                        void toggleWatchlist({
+                            kind: 'movie', id: String(id), name: name ?? '',
+                            cover: details?.cover || cover || '', container: String(container || 'mp4'),
+                            addedAt: Date.now(),
+                        }).then(list => setInList(hasItem(list, 'movie', String(id))))
+                    }}
+                >
+                    <Ionicons name={inList ? 'bookmark' : 'bookmark-outline'} size={20} color={inList ? '#fff' : colors.accent} />
                 </TouchableOpacity>
             </View>
 
@@ -243,6 +264,15 @@ const styles = StyleSheet.create({
         borderColor: colors.danger,
     },
     favBtnOn: { backgroundColor: colors.danger },
+    listBtn: {
+        width: 48,
+        alignItems: 'center',
+        justifyContent: 'center',
+        borderRadius: 10,
+        borderWidth: 1,
+        borderColor: colors.accent,
+    },
+    listBtnOn: { backgroundColor: colors.accent },
     plot: { color: colors.text, fontSize: 14, lineHeight: 21 },
     plotDim: { color: colors.textDim, fontSize: 14 },
     trailerBtn: {

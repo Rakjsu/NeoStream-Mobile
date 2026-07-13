@@ -7,11 +7,11 @@
  * temporada (mesma heurística do NeoStream desktop).
  */
 import type {
-    CatalogClient, Category, Episode, LiveChannel, NowNext, SeriesInfo,
+    CatalogClient, Category, EpgProgram, Episode, LiveChannel, NowNext, SeriesInfo,
     SeriesItem, UserInfo, VodDetails, VodMovie,
 } from './xtream'
 import { withRetry } from './net'
-import { lookupNowNext, parseXmltv, type XmltvGuide } from './xmltv'
+import { lookupDaySchedule, lookupNowNext, parseXmltv, type XmltvGuide } from './xmltv'
 
 export interface M3uChannel {
     id: string
@@ -326,6 +326,16 @@ export class M3uClient implements CatalogClient {
         const guide = await this.loadGuide()
         if (!guide) return { now: null, next: null }
         return lookupNowNext(guide, channel.tvgId ?? '', channel.name)
+    }
+
+    /** Grade do canal a partir do MESMO XMLTV do agora/a seguir. */
+    async getDaySchedule(streamId: number | string): Promise<EpgProgram[]> {
+        await this.load()
+        const channel = this.liveById.get(String(streamId))
+        if (!channel) return []
+        const guide = await this.loadGuide()
+        if (!guide) return []
+        return lookupDaySchedule(guide, channel.tvgId ?? '', channel.name)
     }
 
     liveStreamUrl(streamId: number | string): string {

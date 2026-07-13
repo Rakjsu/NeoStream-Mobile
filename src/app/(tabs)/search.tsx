@@ -258,7 +258,7 @@ export default function SearchTab() {
                                     onPress={() => pressGuideHit(channel, program)}
                                 >
                                     <Ionicons
-                                        name={liveNow ? 'radio-outline' : program.endMs <= now ? 'play-back-circle-outline' : 'alarm-outline'}
+                                        name={liveNow ? 'radio-outline' : program.endMs <= nowMs ? 'play-back-circle-outline' : 'alarm-outline'}
                                         size={16}
                                         color={liveNow ? colors.accent : colors.textDim}
                                     />

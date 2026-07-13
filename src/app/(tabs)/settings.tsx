@@ -11,7 +11,7 @@ import { isDataSaverEnabled, setDataSaver } from '../../services/dataSaver'
 import { getDownloadLimitGb, isSmartDownloads, isWifiOnly, listDownloads, setDownloadLimitGb, setSmartDownloads, setWifiOnly } from '../../services/downloads'
 import { captureRef } from 'react-native-view-shot'
 import * as Sharing from 'expo-sharing'
-import { listAutoBackups, readAutoBackup, type AutoBackupFile } from '../../services/autoBackup'
+import { chooseCloudBackupDir, clearCloudBackupDir, getCloudBackupDir, listAutoBackups, readAutoBackup, type AutoBackupFile } from '../../services/autoBackup'
 import { listErrors, type LoggedError } from '../../services/errorLog'
 import { cancelScheduled, listScheduled, type ScheduledReminder } from '../../services/notify'
 import { listRecurring, removeRecurring, type RecurringReminder } from '../../services/recurring'
@@ -80,6 +80,7 @@ export default function SettingsTab() {
     const [speedMsg, setSpeedMsg] = useState('')
     const [wifiOnly, setWifiOnlyState] = useState(false)
     const [smartDl, setSmartDlState] = useState(false)
+    const [cloudDir, setCloudDir] = useState('')
     const [kidsCatCount, setKidsCatCount] = useState(0)
     const [amoled, setAmoled] = useState(themeVariant() === 'amoled')
 
@@ -104,6 +105,7 @@ export default function SettingsTab() {
         void isDataSaverEnabled().then(setDataSaverState)
         void isWifiOnly().then(setWifiOnlyState)
         void isSmartDownloads().then(setSmartDlState)
+        void getCloudBackupDir().then(setCloudDir)
         refreshStorage()
         void loadUsage().then(map => {
             const today = dayKey(Date.now())
@@ -816,6 +818,22 @@ export default function SettingsTab() {
             </View>
 
 
+            <TvTouchable
+                style={[styles.backupBtn, styles.restoreBtn, { marginBottom: spacing.sm }]}
+                onPress={() => {
+                    void (async () => {
+                        if (cloudDir) {
+                            await clearCloudBackupDir()
+                            setCloudDir('')
+                            return
+                        }
+                        if (await chooseCloudBackupDir()) setCloudDir(await getCloudBackupDir())
+                    })()
+                }}
+            >
+                <Ionicons name={cloudDir ? 'cloud-done-outline' : 'cloud-upload-outline'} size={16} color="#fff" />
+                <Text style={styles.backupBtnText}>{cloudDir ? t('cloudBackupOn') : t('cloudBackupBtn')}</Text>
+            </TvTouchable>
             <TvTouchable
                 style={[styles.backupBtn, { marginBottom: spacing.md }]}
                 onPress={() => {

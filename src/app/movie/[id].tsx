@@ -1,4 +1,5 @@
 import { Ionicons } from '@expo/vector-icons'
+import { WebView } from 'react-native-webview'
 import { Image } from 'expo-image'
 import { Stack, router, useLocalSearchParams } from 'expo-router'
 import { useEffect, useRef, useState } from 'react'
@@ -31,6 +32,7 @@ export default function MovieDetail() {
     const [dlPct, setDlPct] = useState(0)
     const [inList, setInList] = useState(false)
     const [versions, setVersions] = useState<MovieVersion<VodMovie>[]>([])
+    const [trailerOpen, setTrailerOpen] = useState(false)
 
     const pid = buildProgressId('movie', String(id))
     const canCast = castAvailable()
@@ -249,10 +251,33 @@ export default function MovieDetail() {
             ) : null}
 
             {details?.trailer ? (
-                <TouchableOpacity style={styles.trailerBtn} onPress={() => void Linking.openURL(details.trailer)}>
+                <TouchableOpacity
+                    style={styles.trailerBtn}
+                    onPress={() => setTrailerOpen(true)}
+                    onLongPress={() => void Linking.openURL(details.trailer)}
+                    delayLongPress={400}
+                >
                     <Ionicons name="logo-youtube" size={18} color={colors.text} />
                     <Text style={styles.trailerText}>{t('trailerBtn')}</Text>
                 </TouchableOpacity>
+            ) : null}
+
+            {trailerOpen && details?.trailer ? (
+                <View style={styles.trailerModal}>
+                    <WebView
+                        style={styles.trailerWeb}
+                        // Truque do desktop: referer PRÓPRIO (nunca youtube.com) evita o erro 153.
+                        source={{
+                            uri: details.trailer.replace(/.*(?:v=|youtu\.be\/)([\w-]{6,})[^\w-]?.*/, 'https://www.youtube.com/embed/$1?autoplay=1'),
+                            headers: { Referer: 'https://neostream.app/' },
+                        }}
+                        allowsFullscreenVideo
+                        mediaPlaybackRequiresUserAction={false}
+                    />
+                    <TouchableOpacity style={styles.trailerClose} accessibilityLabel={t('trailerClose')} onPress={() => setTrailerOpen(false)}>
+                        <Ionicons name="close-circle" size={34} color="#fff" />
+                    </TouchableOpacity>
+                </View>
             ) : null}
 
             {details === null ? (
@@ -335,6 +360,14 @@ const styles = StyleSheet.create({
     versionChipOn: { backgroundColor: colors.accentSoft, borderColor: colors.accent },
     versionText: { color: colors.textDim, fontSize: 12, fontWeight: '600' },
     versionTextOn: { color: colors.accent },
+    trailerModal: {
+        position: 'absolute',
+        top: 0, left: 0, right: 0, bottom: 0,
+        backgroundColor: '#000',
+        zIndex: 20,
+    },
+    trailerWeb: { flex: 1, backgroundColor: '#000' },
+    trailerClose: { position: 'absolute', top: 40, right: 16 },
     credits: { color: colors.textDim, fontSize: 13, lineHeight: 19 },
     creditsLabel: { color: colors.text, fontWeight: '600' },
 })

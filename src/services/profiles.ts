@@ -10,6 +10,8 @@ export interface Profile {
     id: string
     name: string
     color: string
+    /** Emoji de avatar opcional (vence a letra inicial do nome). */
+    icon?: string
     /** PIN de 4 dígitos opcional — protege o perfil (ex.: o dos adultos). */
     pin?: string
 }
@@ -147,14 +149,16 @@ async function persistExtras(): Promise<void> {
     } catch { /* best-effort */ }
 }
 
-/** Edita nome/cor/PIN de um perfil extra (pin: '' remove o PIN). */
-export async function updateProfile(id: string, changes: { name?: string; pin?: string }): Promise<void> {
+/** Edita nome/cor/avatar/PIN de um perfil extra (pin/icon: '' remove). */
+export async function updateProfile(id: string, changes: { name?: string; pin?: string; color?: string; icon?: string }): Promise<void> {
     if (id === DEFAULT_PROFILE_ID || id === GUEST_PROFILE_ID) return
     listCache = (await listProfiles()).map(profile => {
         if (profile.id !== id) return profile
         return {
             ...profile,
             name: changes.name?.trim() || profile.name,
+            color: changes.color || profile.color,
+            icon: changes.icon === '' ? undefined : changes.icon ?? profile.icon,
             pin: changes.pin === '' ? undefined
                 : changes.pin && /^\d{4}$/.test(changes.pin) ? changes.pin : profile.pin,
         }

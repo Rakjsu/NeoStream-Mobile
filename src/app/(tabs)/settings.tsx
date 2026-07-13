@@ -2,9 +2,10 @@ import AsyncStorage from '@react-native-async-storage/async-storage'
 import { Ionicons } from '@expo/vector-icons'
 import Constants from 'expo-constants'
 import { router, useFocusEffect } from 'expo-router'
-import { useCallback, useRef, useState } from 'react'
+import { useCallback, useEffect, useRef, useState } from 'react'
 import { Alert, Linking, ScrollView, Share, StyleSheet, Text, TextInput, TouchableOpacity, View } from 'react-native'
 import * as DocumentPicker from 'expo-document-picker'
+import * as LocalAuthentication from 'expo-local-authentication'
 import * as FileSystem from 'expo-file-system/legacy'
 import { disableAppLock, enableAppLock, loadAppLock } from '../../services/appLock'
 import { applyCapturePolicy } from '../../services/privacy'
@@ -22,6 +23,8 @@ import { listHiddenChannels, unhideChannel, type HiddenChannel } from '../../ser
 import { applyBackup, collectBackup, parseBackup, serializeBackup } from '../../services/backup'
 import { disableParental, enableParental, isValidPin, listBlockedCategories, loadParental } from '../../services/parental'
 import { isKidsMode, listKidsCategories, setKidsMode } from '../../services/kids'
+import { getExtEpgUrl, setExtEpgUrl } from '../../services/extEpg'
+import { defaultRailPrefs, loadRailPrefs, moveRail, railOrderAll, saveRailPrefs, toggleRail, type RailKey, type RailPrefs } from '../../services/homeRails'
 import { M3uClient } from '../../services/m3u'
 import { loadSpeedHistory, runSpeedTest, saveSpeedSample, type SpeedSample, type SpeedVerdict } from '../../services/speedtest'
 import { clearHistory } from '../../services/progress'
@@ -50,6 +53,48 @@ function SectionNav({ sectionY, onJump }: { sectionY: Record<string, number>; on
                     <Text style={styles.navChipText}>{icon} {t(key)}</Text>
                 </TouchableOpacity>
             ))}
+        </View>
+    )
+}
+
+// Rótulo de cada rail configurável (reusa as strings das próprias rails).
+function railLabel(key: RailKey): string {
+    switch (key) {
+        case 'watchlist': return t('watchlistRail')
+        case 'freshEpisodes': return t('newEpisodesRail')
+        case 'favPosters': return t('favRail')
+        case 'because': return tf('becauseRail', { title: '…' })
+        case 'praAgora': return t('praAgoraRail')
+        case 'recentChannels': return t('recentChannelsRail')
+        case 'favChannels': return t('favChannelsRail')
+        case 'newMovies': return t('newMoviesRail')
+        case 'newSeries': return t('newSeriesRail')
+    }
+}
+
+// Componente próprio (como o SectionNav): map lendo estado dentro do
+// SettingsTab gigante faz o React Compiler pular o arquivo inteiro.
+function HomeRailsConfig({ prefs, onChange }: { prefs: RailPrefs; onChange: (next: RailPrefs) => void }) {
+    return (
+        <View style={{ gap: 2 }}>
+            <Text style={styles.parentalHint}>{t('homeRailsTitle')}</Text>
+            {railOrderAll(prefs).map(key => {
+                const hiddenRail = prefs.hidden.includes(key)
+                return (
+                    <View key={key} style={styles.diagRow}>
+                        <TouchableOpacity style={{ padding: 4 }} accessibilityLabel={railLabel(key)} onPress={() => onChange(toggleRail(prefs, key))}>
+                            <Ionicons name={hiddenRail ? 'eye-off-outline' : 'eye-outline'} size={16} color={hiddenRail ? colors.textDim : colors.accent} />
+                        </TouchableOpacity>
+                        <Text style={[styles.diagLabel, hiddenRail && { color: colors.textDim }]} numberOfLines={1}>{railLabel(key)}</Text>
+                        <TouchableOpacity style={{ padding: 4 }} accessibilityLabel={t('favUp')} onPress={() => onChange(moveRail(prefs, key, -1))}>
+                            <Ionicons name="chevron-up" size={14} color={colors.textDim} />
+                        </TouchableOpacity>
+                        <TouchableOpacity style={{ padding: 4 }} accessibilityLabel={t('favDown')} onPress={() => onChange(moveRail(prefs, key, 1))}>
+                            <Ionicons name="chevron-down" size={14} color={colors.textDim} />
+                        </TouchableOpacity>
+                    </View>
+                )
+            })}
         </View>
     )
 }
@@ -83,6 +128,9 @@ export default function SettingsTab() {
     const [streak, setStreak] = useState(0)
     const [weekDiff, setWeekDiff] = useState<number | null>(null)
     const [epgCov, setEpgCov] = useState<{ matched: number; total: number; misses: { id: string; name: string }[] } | null>(null)
+    const [extEpgDraft, setExtEpgDraft] = useState('')
+    const [railPrefs, setRailPrefs] = useState<RailPrefs>(defaultRailPrefs())
+    const [bioOk, setBioOk] = useState(false)
     const [topLive, setTopLive] = useState<TopTitle[]>([])
     const [topShows, setTopShows] = useState<TopTitle[]>([])
     const usageShotRef = useRef<View>(null)
@@ -119,6 +167,15 @@ export default function SettingsTab() {
         void listDownloads().then(items => setDlBytes(items.reduce((sum, item) => sum + item.sizeBytes, 0)))
     }, [])
 
+    // Biometria disponível? (digital/rosto cadastrado) — atalho no gate do PIN.
+    useEffect(() => {
+        queueMicrotask(() => {
+            void Promise.all([LocalAuthentication.hasHardwareAsync(), LocalAuthentication.isEnrolledAsync()])
+                .then(([hw, enrolled]) => setBioOk(hw && enrolled))
+                .catch(() => undefined)
+        })
+    }, [])
+
     const refresh = useCallback(() => {
         void listAccounts().then(setAccounts)
         void loadAccount().then(setActive)
@@ -139,6 +196,8 @@ export default function SettingsTab() {
         void isSmartDownloads().then(setSmartDlState)
         void getCloudBackupDir().then(setCloudDir)
         void loadSpeedHistory().then(setSpeedHist)
+        void getExtEpgUrl().then(setExtEpgDraft)
+        void loadRailPrefs().then(setRailPrefs)
         void AsyncStorage.getItem('neostream_boot_tab').then(v => setBootLive(v === 'live')).catch(() => undefined)
         refreshStorage()
         void loadUsage().then(map => {
@@ -260,6 +319,21 @@ export default function SettingsTab() {
                 >
                     <Text style={styles.parentalBtnText}>{t('enable')}</Text>
                 </TvTouchable>
+                {bioOk ? (
+                    <TvTouchable
+                        style={[styles.parentalBtn, { backgroundColor: colors.card }]}
+                        onPress={() => {
+                            void LocalAuthentication.authenticateAsync({ cancelLabel: 'PIN' }).then(result => {
+                                if (result.success) {
+                                    setKidsGate(false)
+                                    setGatePin('')
+                                }
+                            }).catch(() => undefined)
+                        }}
+                    >
+                        <Text style={styles.parentalBtnText}>👆 {t('bioUnlock')}</Text>
+                    </TvTouchable>
+                ) : null}
                 {gateError ? <Text style={styles.pinError}>{gateError}</Text> : null}
             </View>
         )
@@ -407,6 +481,27 @@ export default function SettingsTab() {
                         <Ionicons name="document-text-outline" size={16} color="#fff" />
                         <Text style={styles.backupBtnText}>{t('diagCopyBtn')}</Text>
                     </TvTouchable>
+                    <Text style={styles.parentalHint}>{t('extEpgHint')}</Text>
+                    <View style={styles.accountRow}>
+                        <TextInput
+                            style={styles.aliasInput}
+                            value={extEpgDraft}
+                            onChangeText={setExtEpgDraft}
+                            placeholder="https://…/epg.xml"
+                            placeholderTextColor={colors.textDim}
+                            autoCapitalize="none"
+                            autoCorrect={false}
+                        />
+                        <TvTouchable
+                            style={styles.trash}
+                            accessibilityLabel={t('a11yConfirm')}
+                            onPress={() => {
+                                void setExtEpgUrl(extEpgDraft).then(() => Alert.alert(t('extEpgSaved')))
+                            }}
+                        >
+                            <Ionicons name="checkmark" size={20} color={colors.accent} />
+                        </TvTouchable>
+                    </View>
                     <TvTouchable
                         style={[styles.backupBtn, styles.restoreBtn]}
                         onPress={() => {
@@ -727,6 +822,7 @@ export default function SettingsTab() {
                     <Ionicons name={bootLive ? 'tv' : 'tv-outline'} size={18} color={bootLive ? colors.accent : colors.textDim} />
                     <Text style={[styles.kidsText, bootLive && { color: colors.accent }]}>{t('bootLive')}</Text>
                 </TvTouchable>
+                <HomeRailsConfig prefs={railPrefs} onChange={next => { setRailPrefs(next); void saveRailPrefs(next) }} />
                 <TvTouchable
                     style={styles.kidsRow}
                     onPress={() => {

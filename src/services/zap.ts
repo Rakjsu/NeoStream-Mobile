@@ -7,6 +7,8 @@
 export interface ZapChannel {
     id: string
     name: string
+    /** Número real do canal no provedor (campo num do Xtream). */
+    num?: number | string
 }
 
 /** Índice vizinho com volta (último → primeiro, como zapping de TV). */
@@ -69,14 +71,24 @@ export function peekZap(delta: number): ZapChannel | null {
 
 /** Canal na posição `n` (1-based, como número de canal de TV); null fora. */
 export function zapToNumber(n: number): ZapChannel | null {
-    if (!Number.isInteger(n) || n < 1 || n > list.length) return null
+    if (!Number.isInteger(n) || n < 1) return null
+    // Número REAL do provedor tem prioridade; sem match, vale a posição na lista.
+    const real = list.findIndex(c => Number(c.num) === n)
+    if (real >= 0) {
+        index = real
+        return list[real] ?? null
+    }
+    if (n > list.length) return null
     index = n - 1
     return list[index] ?? null
 }
 
 /** Posição 1-based de um canal na lista (0 = fora da lista). */
 export function channelNumber(id: string): number {
-    return list.findIndex(c => c.id === id) + 1
+    const position = list.findIndex(c => c.id === id)
+    const real = position >= 0 ? Number(list[position]?.num) : NaN
+    if (Number.isFinite(real) && real > 0) return real
+    return position + 1
 }
 
 /** Pula direto pra um canal da lista (gaveta) e devolve ele. */

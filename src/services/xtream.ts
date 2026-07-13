@@ -53,6 +53,8 @@ export interface LiveChannel {
     name: string
     stream_icon?: string
     category_id?: string
+    /** Número do canal no provedor — aparece na lista e guia o zap numérico. */
+    num?: number | string
     /** 1 = provedor grava o canal (catch-up/replay disponível). */
     tv_archive?: number | string
     tv_archive_duration?: number | string

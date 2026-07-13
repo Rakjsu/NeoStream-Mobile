@@ -117,7 +117,7 @@ export default function Guide() {
         void (async () => {
             const client = await getClient()
             if (!client || !channels) return
-            setZapContext(channels.map(c => ({ id: String(c.stream_id), name: c.name })), String(channel.stream_id))
+            setZapContext(channels.map(c => ({ id: String(c.stream_id), name: c.name, num: c.num })), String(channel.stream_id))
             void recordRecentChannel({ id: String(channel.stream_id), name: channel.name, logo: channel.stream_icon || '' })
             router.push({
                 pathname: '/player',
@@ -271,7 +271,7 @@ export default function Guide() {
                             return (
                                 <View style={styles.row}>
                                     <TvTouchable style={styles.nameCell} hasTVPreferredFocus={index === 0} onPress={() => play(item)}>
-                                        <Text style={styles.name} numberOfLines={2}>{item.name}</Text>
+                                        <Text style={styles.name} numberOfLines={2}>{item.num ? `${item.num} · ` : ''}{item.name}</Text>
                                     </TvTouchable>
                                     <View style={styles.timeline}>
                                         {programs === undefined ? (

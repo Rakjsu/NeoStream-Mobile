@@ -91,7 +91,7 @@ export default function LiveTab() {
         const client = await getClient()
         if (!client) return
         // A lista FILTRADA vira o contexto de zapping (⏮/⏭ no player).
-        setZapContext(filtered.map(c => ({ id: String(c.stream_id), name: c.name })), String(channel.stream_id))
+        setZapContext(filtered.map(c => ({ id: String(c.stream_id), name: c.name, num: c.num })), String(channel.stream_id))
         void recordRecentChannel({ id: String(channel.stream_id), name: channel.name, logo: channel.stream_icon || '' })
         router.push({
             pathname: '/player',
@@ -188,7 +188,7 @@ export default function LiveTab() {
                                 </View>
                             )}
                             <View style={styles.nameBlock}>
-                                <Text style={styles.name} numberOfLines={1}>{item.name}</Text>
+                                <Text style={styles.name} numberOfLines={1}>{item.num ? <Text style={styles.chNum}>{item.num}  </Text> : null}{item.name}</Text>
                                 {epgLine ? <Text style={styles.epg} numberOfLines={1}>{epgLine}</Text> : null}
                             </View>
                             {category === 'fav' ? (
@@ -291,6 +291,7 @@ const styles = StyleSheet.create({
     logoFallback: { alignItems: 'center', justifyContent: 'center' },
     nameBlock: { flex: 1, gap: 1 },
     name: { color: colors.text, fontSize: 15 },
+    chNum: { color: colors.textDim, fontSize: 12, fontWeight: '700' },
     epg: { color: colors.textDim, fontSize: 12 },
     favBtn: { padding: spacing.xs },
     reorderCol: { justifyContent: 'center' },

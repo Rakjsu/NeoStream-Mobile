@@ -11,6 +11,7 @@ import { listRecentChannels, recordRecentChannel } from '../../services/recents'
 import { checkRecurringReminders } from '../../services/recurring'
 import { scheduleWeeklySummary } from '../../services/weekly'
 import { hourBucketOf, loadHabits, topHabitKeys } from '../../services/habit'
+import { defaultRailPrefs, loadRailPrefs, orderedRails, type RailPrefs } from '../../services/homeRails'
 import { loadParental } from '../../services/parental'
 import { guardedCategoryIds } from '../../services/kids'
 import { listContinue, loadProgress, removeEntry, saveSample, type ProgressEntry } from '../../services/progress'
@@ -59,6 +60,7 @@ export default function HomeTab() {
     const [cloudNudge, setCloudNudge] = useState(false)
     const [praAgora, setPraAgora] = useState<{ id: string; name: string; logo: string }[]>([])
     const [expiryDays, setExpiryDays] = useState<number | null>(null)
+    const [railPrefs, setRailPrefs] = useState<RailPrefs>(defaultRailPrefs())
 
     const load = useCallback(async (force = false) => {
         try {
@@ -77,6 +79,7 @@ export default function HomeTab() {
                 listRecentChannels(),
             ])
 
+            setRailPrefs(await loadRailPrefs())
             const allowedLive = await guardedCategoryIds(liveCats, parental.enabled)
             const allowedVod = await guardedCategoryIds(vodCats, parental.enabled)
             const allowedSeries = await guardedCategoryIds(seriesCats, parental.enabled)
@@ -368,17 +371,21 @@ export default function HomeTab() {
             ) : (
                 <View style={{ gap: spacing.md }}>
                     <ContinueRail entries={continueList} onPlay={entry => void resume(entry)} onRemove={confirmRemoveContinue} />
-                    <PosterRail title={t('watchlistRail')} items={watchRail} onPress={openRailItem} />
-                    <PosterRail title={t('newEpisodesRail')} items={freshEpisodes} onPress={openRailItem} />
-                    <PosterRail title={t('favRail')} items={favPosters} onPress={openRailItem} />
-                    {because ? (
-                        <PosterRail title={tf('becauseRail', { title: because.title })} items={because.items} onPress={openRailItem} />
-                    ) : null}
-                    <ChannelRail title={t('praAgoraRail')} items={praAgora} onPress={item => void playChannel(item, praAgora)} />
-                    <ChannelRail title={t('recentChannelsRail')} items={recentChannels} onPress={item => void playChannel(item, recentChannels)} />
-                    <ChannelRail title={t('favChannelsRail')} items={favChannels} onPress={item => void playChannel(item, favChannels)} />
-                    <PosterRail title={t('newMoviesRail')} items={newMovies} onPress={openRailItem} />
-                    <PosterRail title={t('newSeriesRail')} items={newSeries} onPress={openRailItem} />
+                    {orderedRails(railPrefs).map(key => {
+                        switch (key) {
+                            case 'watchlist': return <PosterRail key={key} title={t('watchlistRail')} items={watchRail} onPress={openRailItem} />
+                            case 'freshEpisodes': return <PosterRail key={key} title={t('newEpisodesRail')} items={freshEpisodes} onPress={openRailItem} />
+                            case 'favPosters': return <PosterRail key={key} title={t('favRail')} items={favPosters} onPress={openRailItem} />
+                            case 'because': return because
+                                ? <PosterRail key={key} title={tf('becauseRail', { title: because.title })} items={because.items} onPress={openRailItem} />
+                                : null
+                            case 'praAgora': return <ChannelRail key={key} title={t('praAgoraRail')} items={praAgora} onPress={item => void playChannel(item, praAgora)} />
+                            case 'recentChannels': return <ChannelRail key={key} title={t('recentChannelsRail')} items={recentChannels} onPress={item => void playChannel(item, recentChannels)} />
+                            case 'favChannels': return <ChannelRail key={key} title={t('favChannelsRail')} items={favChannels} onPress={item => void playChannel(item, favChannels)} />
+                            case 'newMovies': return <PosterRail key={key} title={t('newMoviesRail')} items={newMovies} onPress={openRailItem} />
+                            case 'newSeries': return <PosterRail key={key} title={t('newSeriesRail')} items={newSeries} onPress={openRailItem} />
+                        }
+                    })}
                 </View>
             )}
             {cloudNudge ? (

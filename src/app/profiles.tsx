@@ -1,14 +1,18 @@
 import { Ionicons } from '@expo/vector-icons'
+import * as LocalAuthentication from 'expo-local-authentication'
 import { Stack, router } from 'expo-router'
 import { useEffect, useState } from 'react'
 import { Alert, StyleSheet, Text, TextInput, View } from 'react-native'
 import {
-    DEFAULT_PROFILE_ID, GUEST_PROFILE_ID, activeProfileId, addProfile, copyCurrentDataTo, listProfiles,
+    DEFAULT_PROFILE_ID, GUEST_PROFILE_ID, PROFILE_COLORS, activeProfileId, addProfile, copyCurrentDataTo, listProfiles,
     markProfilePicked, removeProfile, switchProfile, updateProfile, type Profile,
 } from '../services/profiles'
 import { TvTouchable } from '../ui/components'
 import { colors, spacing } from '../ui/theme'
 import { t, tf } from '../i18n/strings'
+
+// Avatares prontos (emoji) — o perfil pode trocar a letra inicial por um deles.
+const AVATAR_EMOJIS = ['😀', '😎', '🧒', '🦖', '🐱', '⚽', '🎮', '🍿']
 
 /**
  * "Quem está assistindo?" — toque troca o perfil (favoritos, Minha lista e
@@ -23,6 +27,9 @@ export default function Profiles() {
     const [pinFor, setPinFor] = useState<Profile | null>(null)
     const [pinTry, setPinTry] = useState('')
     const [editing, setEditing] = useState<Profile | null>(null)
+    const [iconDraft, setIconDraft] = useState('')
+    const [colorDraft, setColorDraft] = useState('')
+    const [bioOk, setBioOk] = useState(false)
     const [activeId, setActiveId] = useState(DEFAULT_PROFILE_ID)
 
     const refresh = () => {
@@ -33,6 +40,15 @@ export default function Profiles() {
     }
 
     useEffect(() => { queueMicrotask(refresh) }, [])
+
+    // Biometria disponível? (digital/rosto cadastrado) — atalho no gate de PIN.
+    useEffect(() => {
+        queueMicrotask(() => {
+            void Promise.all([LocalAuthentication.hasHardwareAsync(), LocalAuthentication.isEnrolledAsync()])
+                .then(([hw, enrolled]) => setBioOk(hw && enrolled))
+                .catch(() => undefined)
+        })
+    }, [])
 
     const enter = (profile: Profile) => {
         void switchProfile(profile.id).then(() => {
@@ -55,6 +71,8 @@ export default function Profiles() {
                 onPress: () => {
                     setNameDraft(profile.name)
                     setPinDraft(profile.pin ?? '')
+                    setIconDraft(profile.icon ?? '')
+                    setColorDraft(profile.color)
                     setEditing(profile)
                     setAdding(false)
                 },
@@ -84,6 +102,8 @@ export default function Profiles() {
                             profile.id === activeId && styles.avatarActive]}>
                             {profile.id === GUEST_PROFILE_ID ? (
                                 <Ionicons name="glasses-outline" size={30} color="#fff" />
+                            ) : profile.icon ? (
+                                <Text style={styles.avatarEmoji}>{profile.icon}</Text>
                             ) : (
                                 <Text style={styles.avatarLetter}>{displayName(profile).slice(0, 1).toUpperCase()}</Text>
                             )}
@@ -129,18 +149,24 @@ export default function Profiles() {
                         style={styles.addBtn}
                         onPress={() => {
                             if (editing) {
-                                void updateProfile(editing.id, { name: nameDraft, pin: pinDraft }).then(() => {
+                                void updateProfile(editing.id, { name: nameDraft, pin: pinDraft, icon: iconDraft, color: colorDraft }).then(() => {
                                     setEditing(null)
                                     setNameDraft('')
                                     setPinDraft('')
+                                    setIconDraft('')
+                                    setColorDraft('')
                                     refresh()
                                 })
                                 return
                             }
                             void addProfile(nameDraft, pinDraft || undefined).then(created => {
                                 if (!created) return
+                                // Avatar/cor escolhidos já valem pro perfil recém-criado.
+                                if (iconDraft || colorDraft) void updateProfile(created.id, { icon: iconDraft, color: colorDraft }).then(refresh)
                                 setNameDraft('')
                                 setPinDraft('')
+                                setIconDraft('')
+                                setColorDraft('')
                                 setAdding(false)
                                 refresh()
                                 // Opcional: já nascer com os favoritos/lista do perfil atual.
@@ -153,6 +179,27 @@ export default function Profiles() {
                     >
                         <Ionicons name="checkmark" size={20} color="#fff" />
                     </TvTouchable>
+                </View>
+            ) : null}
+            {adding || editing ? (
+                <View style={styles.pickRow}>
+                    {AVATAR_EMOJIS.map(emoji => (
+                        <TvTouchable
+                            key={emoji}
+                            style={[styles.pickChip, iconDraft === emoji && styles.pickChipOn]}
+                            onPress={() => setIconDraft(current => (current === emoji ? '' : emoji))}
+                        >
+                            <Text style={{ fontSize: 18 }}>{emoji}</Text>
+                        </TvTouchable>
+                    ))}
+                    {PROFILE_COLORS.map(color => (
+                        <TvTouchable
+                            key={color}
+                            accessibilityLabel={color}
+                            style={[styles.colorDot, { backgroundColor: color }, colorDraft === color && styles.pickChipOn]}
+                            onPress={() => setColorDraft(current => (current === color ? '' : color))}
+                        />
+                    ))}
                 </View>
             ) : null}
             {pinFor ? (
@@ -176,6 +223,23 @@ export default function Profiles() {
                         maxLength={4}
                         autoFocus
                     />
+                    {bioOk ? (
+                        <TvTouchable
+                            style={styles.addBtn}
+                            accessibilityLabel={t('bioUnlock')}
+                            onPress={() => {
+                                void LocalAuthentication.authenticateAsync({ cancelLabel: 'PIN' }).then(result => {
+                                    if (result.success && pinFor) {
+                                        const target = pinFor
+                                        setPinFor(null)
+                                        enter(target)
+                                    }
+                                }).catch(() => undefined)
+                            }}
+                        >
+                            <Ionicons name="finger-print" size={20} color="#fff" />
+                        </TvTouchable>
+                    ) : null}
                 </View>
             ) : null}
             <Text style={styles.hint}>{t('profilesHint')}</Text>
@@ -219,5 +283,19 @@ const styles = StyleSheet.create({
         paddingVertical: 8,
     },
     addBtn: { backgroundColor: colors.accent, borderRadius: 10, padding: 9 },
+    pickRow: { flexDirection: 'row', flexWrap: 'wrap', gap: spacing.sm, justifyContent: 'center', maxWidth: 420 },
+    pickChip: {
+        width: 36,
+        height: 36,
+        borderRadius: 18,
+        alignItems: 'center',
+        justifyContent: 'center',
+        backgroundColor: colors.card,
+        borderWidth: 1,
+        borderColor: colors.border,
+    },
+    pickChipOn: { borderColor: colors.accent, borderWidth: 2 },
+    colorDot: { width: 30, height: 30, borderRadius: 15, borderWidth: 1, borderColor: colors.border },
+    avatarEmoji: { fontSize: 32 },
     hint: { color: colors.textDim, fontSize: 12, textAlign: 'center' },
 })

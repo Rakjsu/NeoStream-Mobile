@@ -179,7 +179,7 @@ export default function SearchTab() {
         const client = await getClient()
         if (!client) return
         remember()
-        setZapContext(results.channels.map(c => ({ id: String(c.stream_id), name: c.name })), String(channel.stream_id))
+        setZapContext(results.channels.map(c => ({ id: String(c.stream_id), name: c.name, num: c.num })), String(channel.stream_id))
         void recordRecentChannel({ id: String(channel.stream_id), name: channel.name, logo: channel.stream_icon || '' })
         router.push({
             pathname: '/player',

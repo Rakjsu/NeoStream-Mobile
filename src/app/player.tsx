@@ -19,7 +19,9 @@ import { cachedFetch, getClient, resolvePlayableUrl } from '../services/session'
 import { tapLight } from '../services/haptics'
 import { alternateLiveUrl } from '../services/xtream'
 import { getAspect, nextAspect, setAspect, type AspectMode } from '../services/aspect'
-import { recordWatchMinute } from '../services/usage'
+import { dayKey, loadUsage, recordWatchMinute, summarize } from '../services/usage'
+import { getKidsTimeLimit, isKidsMode } from '../services/kids'
+import { loadParental } from '../services/parental'
 import { recordHabitMinute } from '../services/habit'
 import { canRecordUrl, recordingTitle, startRecording, stopRecording } from '../services/recorder'
 import { currentZapChannel, hasZapContext, peekZap, rankChannels, zapBy, zapList, zapTo, zapToNumber, type ZapChannel } from '../services/zap'
@@ -49,6 +51,12 @@ function applyBackgroundMode(
 }
 function applyVolume(target: { volume: number }, volume: number) {
     target.volume = volume
+}
+// Conexão instável = 3 rebuffers em 90s (Date.now fora do componente — purity).
+function recordRebuffer(ref: { current: number[] }): boolean {
+    const now = Date.now()
+    ref.current = [...ref.current.filter(at => now - at < 90_000), now]
+    return ref.current.length >= 3
 }
 function applySeek(target: { currentTime: number }, deltaSec: number) {
     target.currentTime = Math.max(0, target.currentTime + deltaSec)
@@ -143,6 +151,11 @@ export default function Player() {
     })
 
     const trackable = live !== '1' && !!pid && !!sid
+
+    // ⏳ Limite diário do modo infantil: estourou → trava atrás do PIN parental.
+    const [timeUp, setTimeUp] = useState(false)
+    const [timeUpPin, setTimeUpPin] = useState('')
+    const limitOverrideRef = useRef(false)
 
     // Proporção lembrada por conteúdo (pid no VOD; título no ao vivo).
     const [aspect, setAspectState] = useState<AspectMode>('contain')
@@ -242,6 +255,18 @@ export default function Player() {
         if (toastTimer.current) clearTimeout(toastTimer.current)
         toastTimer.current = setTimeout(() => setTrackToast(''), 2000)
     }
+
+    // 📶 Rebuffering repetido = conexão instável — avisa uma vez por sessão.
+    const bufferTimesRef = useRef<number[]>([])
+    const netWarnedRef = useRef(false)
+    useEffect(() => {
+        if (status !== 'loading' || netWarnedRef.current) return
+        if (recordRebuffer(bufferTimesRef)) {
+            netWarnedRef.current = true
+            showTrackToast(t('unstableNet'))
+        }
+    }, [status])
+
 
     // Tela cheia de verdade: barra de navegação some enquanto o player vive.
     useEffect(() => {
@@ -698,6 +723,18 @@ export default function Player() {
             if (playing) {
                 void recordWatchMinute(usageKind, Date.now(), usageTitle)
                 void recordHabitMinute(usageKind, usageTitle, Date.now())
+                // Limite do modo infantil: checa junto com a contagem do minuto.
+                void (async () => {
+                    if (limitOverrideRef.current) return
+                    if (!(await isKidsMode())) return
+                    const limit = await getKidsTimeLimit()
+                    if (limit <= 0) return
+                    const todayMinutes = summarize(await loadUsage(), dayKey(Date.now())).totalMinutes
+                    if (todayMinutes >= limit) {
+                        setTimeUp(true)
+                        try { player.pause() } catch { /* player já liberado */ }
+                    }
+                })()
             }
         }, 60_000)
         return () => clearInterval(timer)
@@ -1019,6 +1056,42 @@ export default function Player() {
                 </View>
             ) : null}
 
+            {timeUp ? (
+                <View style={styles.timeUpOverlay}>
+                    <Ionicons name="hourglass-outline" size={44} color={colors.accent} />
+                    <Text style={styles.timeUpTitle}>{t('kidsTimeUp')}</Text>
+                    <Text style={styles.timeUpHint}>{t('kidsTimeUpHint')}</Text>
+                    <TextInput
+                        style={styles.timeUpPin}
+                        value={timeUpPin}
+                        onChangeText={text => {
+                            const digits = text.replace(/[^0-9]/g, '')
+                            setTimeUpPin(digits)
+                            if (digits.length === 4) {
+                                void loadParental().then(state => {
+                                    if (state.pin && digits === state.pin) {
+                                        limitOverrideRef.current = true
+                                        setTimeUp(false)
+                                        setTimeUpPin('')
+                                        try { player.play() } catch { /* player já liberado */ }
+                                    } else {
+                                        setTimeUpPin('')
+                                    }
+                                })
+                            }
+                        }}
+                        placeholder="••••"
+                        placeholderTextColor="rgba(244,244,248,0.4)"
+                        keyboardType="number-pad"
+                        secureTextEntry
+                        maxLength={4}
+                    />
+                    <TvTouchable style={styles.timeUpExit} onPress={() => router.back()}>
+                        <Text style={styles.timeUpExitText}>{t('kidsTimeUpExit')}</Text>
+                    </TvTouchable>
+                </View>
+            ) : null}
+
             {status === 'error' ? (
                 <View style={styles.errorBox}>
                     <Ionicons name="warning" size={28} color={colors.danger} />
@@ -1083,6 +1156,31 @@ const styles = StyleSheet.create({
         zIndex: 30,
     },
     lockIcon: { position: 'absolute', top: 48, right: 18 },
+    timeUpOverlay: {
+        position: 'absolute',
+        top: 0, left: 0, right: 0, bottom: 0,
+        zIndex: 40,
+        backgroundColor: 'rgba(0,0,0,0.94)',
+        alignItems: 'center',
+        justifyContent: 'center',
+        gap: 12,
+        padding: 24,
+    },
+    timeUpTitle: { color: colors.text, fontSize: 18, fontWeight: '700', textAlign: 'center' },
+    timeUpHint: { color: colors.textDim, fontSize: 13, textAlign: 'center' },
+    timeUpPin: {
+        width: 140,
+        textAlign: 'center',
+        backgroundColor: colors.card,
+        borderColor: colors.border,
+        borderWidth: 1,
+        borderRadius: 10,
+        color: colors.text,
+        fontSize: 18,
+        paddingVertical: 8,
+    },
+    timeUpExit: { paddingHorizontal: 18, paddingVertical: 8 },
+    timeUpExitText: { color: colors.accent, fontSize: 14, fontWeight: '700' },
     zapCol: {
         position: 'absolute',
         right: spacing.sm,

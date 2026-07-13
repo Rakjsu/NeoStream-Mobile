@@ -22,7 +22,8 @@ import { getTmdbKey, setTmdbKey } from '../../services/tmdb'
 import { listHiddenChannels, unhideChannel, type HiddenChannel } from '../../services/hidden'
 import { applyBackup, collectBackup, parseBackup, serializeBackup } from '../../services/backup'
 import { disableParental, enableParental, isValidPin, listBlockedCategories, loadParental } from '../../services/parental'
-import { isKidsMode, listKidsCategories, setKidsMode } from '../../services/kids'
+import { getKidsTimeLimit, isKidsMode, listKidsCategories, setKidsMode, setKidsTimeLimit } from '../../services/kids'
+import { disconnectTrakt, getTraktCreds, isTraktConnected, pollDeviceToken, setTraktCreds, startDeviceAuth } from '../../services/trakt'
 import { getExtEpgUrl, setExtEpgUrl } from '../../services/extEpg'
 import { defaultRailPrefs, loadRailPrefs, moveRail, railOrderAll, saveRailPrefs, toggleRail, type RailKey, type RailPrefs } from '../../services/homeRails'
 import { M3uClient } from '../../services/m3u'
@@ -131,6 +132,11 @@ export default function SettingsTab() {
     const [extEpgDraft, setExtEpgDraft] = useState('')
     const [railPrefs, setRailPrefs] = useState<RailPrefs>(defaultRailPrefs())
     const [bioOk, setBioOk] = useState(false)
+    const [kidsLimit, setKidsLimit] = useState(0)
+    const [traktCid, setTraktCid] = useState('')
+    const [traktCsec, setTraktCsec] = useState('')
+    const [traktOn, setTraktOn] = useState(false)
+    const [traktMsg, setTraktMsg] = useState('')
     const [topLive, setTopLive] = useState<TopTitle[]>([])
     const [topShows, setTopShows] = useState<TopTitle[]>([])
     const usageShotRef = useRef<View>(null)
@@ -198,6 +204,9 @@ export default function SettingsTab() {
         void loadSpeedHistory().then(setSpeedHist)
         void getExtEpgUrl().then(setExtEpgDraft)
         void loadRailPrefs().then(setRailPrefs)
+        void getKidsTimeLimit().then(setKidsLimit)
+        void getTraktCreds().then(creds => { setTraktCid(creds.clientId); setTraktCsec(creds.clientSecret) })
+        void isTraktConnected().then(setTraktOn)
         void AsyncStorage.getItem('neostream_boot_tab').then(v => setBootLive(v === 'live')).catch(() => undefined)
         refreshStorage()
         void loadUsage().then(map => {
@@ -284,6 +293,33 @@ export default function SettingsTab() {
             }
             setDiag(rows)
         })()
+    }
+
+    // Trakt: salva as credenciais, mostra o código e fica perguntando até
+    // o usuário autorizar no site (device code — intervalo vem da API).
+    const connectTrakt = async () => {
+        await setTraktCreds({ clientId: traktCid, clientSecret: traktCsec })
+        const auth = await startDeviceAuth()
+        if (!auth) { Alert.alert(t('traktFail')); return }
+        setTraktMsg(tf('traktWaiting', { code: auth.userCode }))
+        Alert.alert('Trakt', tf('traktCodeMsg', { code: auth.userCode }), [
+            { text: t('cancel'), style: 'cancel' },
+            { text: t('traktOpenSite'), onPress: () => { void Linking.openURL(auth.verificationUrl) } },
+        ])
+        const deadline = Date.now() + auth.expiresIn * 1000
+        const tick = async () => {
+            if (Date.now() > deadline) { setTraktMsg(''); return }
+            const result = await pollDeviceToken(auth.deviceCode)
+            if (result === 'ok') {
+                setTraktOn(true)
+                setTraktMsg('')
+                Alert.alert(t('traktConnected'))
+                return
+            }
+            if (result === 'error') { setTraktMsg(''); Alert.alert(t('traktFail')); return }
+            setTimeout(() => { void tick() }, auth.intervalSec * 1000)
+        }
+        setTimeout(() => { void tick() }, auth.intervalSec * 1000)
     }
 
     const expiry = parseExpiry(active?.userInfo?.exp_date)
@@ -624,6 +660,20 @@ export default function SettingsTab() {
                 <TvTouchable style={styles.kidsRow} onPress={() => router.push('/kidscats')}>
                     <Ionicons name="albums-outline" size={18} color={colors.textDim} />
                     <Text style={styles.kidsText}>{tf('kidsCatsBtn', { n: kidsCatCount })}</Text>
+                </TvTouchable>
+                <TvTouchable
+                    style={styles.kidsRow}
+                    onPress={() => {
+                        // Off → 30 → 60 → 90 → 120 → off.
+                        const next = kidsLimit === 0 ? 30 : kidsLimit >= 120 ? 0 : kidsLimit + 30
+                        setKidsLimit(next)
+                        void setKidsTimeLimit(next)
+                    }}
+                >
+                    <Ionicons name="hourglass-outline" size={18} color={kidsLimit > 0 ? colors.accent : colors.textDim} />
+                    <Text style={[styles.kidsText, kidsLimit > 0 && { color: colors.accent }]}>
+                        {kidsLimit > 0 ? tf('kidsLimitLabel', { n: kidsLimit }) : t('kidsLimitOff')}
+                    </Text>
                 </TvTouchable>
             </View>
 
@@ -1114,6 +1164,48 @@ export default function SettingsTab() {
                         <Text style={styles.parentalBtnText}>{t('saveBtn')}</Text>
                     </TvTouchable>
                 </View>
+                <Text style={styles.parentalHint}>{t('traktHint')}</Text>
+                <View style={styles.accountRow}>
+                    <TextInput
+                        style={styles.aliasInput}
+                        value={traktCid}
+                        onChangeText={setTraktCid}
+                        placeholder="Trakt Client ID"
+                        placeholderTextColor={colors.textDim}
+                        autoCapitalize="none"
+                        autoCorrect={false}
+                    />
+                </View>
+                <View style={styles.accountRow}>
+                    <TextInput
+                        style={styles.aliasInput}
+                        value={traktCsec}
+                        onChangeText={setTraktCsec}
+                        placeholder="Trakt Client Secret"
+                        placeholderTextColor={colors.textDim}
+                        autoCapitalize="none"
+                        autoCorrect={false}
+                        secureTextEntry
+                    />
+                </View>
+                {traktOn ? (
+                    <TvTouchable
+                        style={[styles.backupBtn, styles.restoreBtn]}
+                        onPress={() => { void disconnectTrakt().then(() => setTraktOn(false)) }}
+                    >
+                        <Ionicons name="link" size={16} color="#fff" />
+                        <Text style={styles.backupBtnText}>{t('traktConnected')} — {t('traktDisconnect')}</Text>
+                    </TvTouchable>
+                ) : (
+                    <TvTouchable
+                        style={[styles.backupBtn, styles.restoreBtn, (!traktCid.trim() || !traktCsec.trim()) && { opacity: 0.5 }]}
+                        disabled={!traktCid.trim() || !traktCsec.trim()}
+                        onPress={() => { void connectTrakt() }}
+                    >
+                        <Ionicons name="link-outline" size={16} color="#fff" />
+                        <Text style={styles.backupBtnText}>{traktMsg || t('traktConnect')}</Text>
+                    </TvTouchable>
+                )}
             </View>
 
             <Text style={styles.section} onLayout={e => { const y = e.nativeEvent.layout.y; setSectionY(prev => ({ ...prev, ['secAbout']: y })) }}>{t('secAbout')}</Text>

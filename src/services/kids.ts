@@ -88,3 +88,25 @@ export function resetKidsCache(): void {
     cache = null
     catsCache = null
 }
+
+// ------------------------------------------------------ limite de tempo --
+
+const LIMIT_KEY = 'neostream_kids_limit_min'
+
+/** Limite diário do modo infantil em minutos (0 = desligado). */
+export async function getKidsTimeLimit(): Promise<number> {
+    try {
+        const raw = await AsyncStorage.getItem(LIMIT_KEY)
+        const minutes = Number(raw)
+        return Number.isFinite(minutes) && minutes > 0 ? minutes : 0
+    } catch {
+        return 0
+    }
+}
+
+export async function setKidsTimeLimit(minutes: number): Promise<void> {
+    try {
+        if (minutes > 0) await AsyncStorage.setItem(LIMIT_KEY, String(minutes))
+        else await AsyncStorage.removeItem(LIMIT_KEY)
+    } catch { /* best-effort */ }
+}

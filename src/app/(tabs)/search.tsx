@@ -1,4 +1,5 @@
 import { Ionicons } from '@expo/vector-icons'
+import { ExpoSpeechRecognitionModule, useSpeechRecognitionEvent } from 'expo-speech-recognition'
 import { Image } from 'expo-image'
 import { router } from 'expo-router'
 import { useCallback, useEffect, useMemo, useState } from 'react'
@@ -18,7 +19,7 @@ import type { Category, EpgProgram, LiveChannel, SeriesItem, VodMovie } from '..
 import { setZapContext } from '../../services/zap'
 import { EmptyState, Loading, SearchBar } from '../../ui/components'
 import { colors, spacing } from '../../ui/theme'
-import { t, tf } from '../../i18n/strings'
+import { currentLang, t, tf } from '../../i18n/strings'
 
 const MAX_PER_SECTION = 10
 
@@ -42,6 +43,26 @@ export default function SearchTab() {
         const timer = setInterval(() => setNowMs(Date.now()), 60_000)
         return () => clearInterval(timer)
     }, [])
+    // 🎤 Busca por voz: transcrição parcial já vai preenchendo o campo.
+    const [listening, setListening] = useState(false)
+    useSpeechRecognitionEvent('result', event => {
+        const transcript = event.results?.[0]?.transcript ?? ''
+        if (transcript) setQuery(transcript)
+    })
+    useSpeechRecognitionEvent('end', () => setListening(false))
+    useSpeechRecognitionEvent('error', () => setListening(false))
+    const startVoice = () => {
+        void (async () => {
+            const permission = await ExpoSpeechRecognitionModule.requestPermissionsAsync()
+            if (!permission.granted) return
+            setListening(true)
+            ExpoSpeechRecognitionModule.start({
+                lang: currentLang() === 'pt' ? 'pt-BR' : currentLang() === 'es' ? 'es-ES' : 'en-US',
+                interimResults: true,
+            })
+        })()
+    }
+
     // Filtros por tipo: todos ligados por padrão; um toque foca.
     const [kinds, setKinds] = useState({ channels: true, movies: true, series: true })
     const toggleKind = (key: keyof typeof kinds) => {
@@ -194,7 +215,18 @@ export default function SearchTab() {
 
     return (
         <View style={styles.root}>
-            <SearchBar value={query} onChange={setQuery} placeholder={t('searchAll')} />
+            <View style={styles.searchRow}>
+                <View style={{ flex: 1 }}>
+                    <SearchBar value={query} onChange={setQuery} placeholder={t('searchAll')} />
+                </View>
+                <TouchableOpacity
+                    style={[styles.micBtn, listening && styles.micBtnOn]}
+                    accessibilityLabel={t('voiceSearch')}
+                    onPress={startVoice}
+                >
+                    <Ionicons name={listening ? 'mic' : 'mic-outline'} size={20} color={listening ? '#fff' : colors.textDim} />
+                </TouchableOpacity>
+            </View>
             <View style={styles.kindRow}>
                 {([
                     ['channels', t('secChannels')],
@@ -389,6 +421,18 @@ const styles = StyleSheet.create({
     guideMeta: { color: colors.textDim, fontSize: 12 },
     historyBox: { paddingBottom: spacing.lg },
     kindRow: { flexDirection: 'row', gap: spacing.sm, paddingHorizontal: spacing.lg, paddingBottom: spacing.sm },
+    searchRow: { flexDirection: 'row', alignItems: 'center', paddingRight: spacing.lg, gap: spacing.sm },
+    micBtn: {
+        width: 40,
+        height: 40,
+        borderRadius: 20,
+        alignItems: 'center',
+        justifyContent: 'center',
+        borderWidth: 1,
+        borderColor: colors.border,
+        backgroundColor: colors.card,
+    },
+    micBtnOn: { backgroundColor: colors.accent, borderColor: colors.accent },
     kindChip: {
         borderColor: colors.border,
         borderWidth: 1,

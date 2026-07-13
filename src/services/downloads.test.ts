@@ -1,5 +1,5 @@
 import { describe, it, expect, vi } from 'vitest'
-import { groupDownloads, pickEvictions, pickPending, safeFileName } from './downloads'
+import { groupDownloads, pickEvictions, pickPending, safeFileName , networkAllows } from './downloads'
 
 // Hoisted pelo vitest — evita os imports reais (que puxam react-native).
 vi.mock('@react-native-async-storage/async-storage', () => ({
@@ -72,5 +72,19 @@ describe('groupDownloads', () => {
 
     it('lista vazia → sem grupos', () => {
         expect(groupDownloads([], 'Filmes')).toEqual([])
+    })
+})
+
+describe('networkAllows (só no Wi-Fi)', () => {
+    it('sem trava, qualquer rede conectada serve', () => {
+        expect(networkAllows(false, 'CELLULAR', true)).toBe(true)
+        expect(networkAllows(false, 'WIFI', false)).toBe(false)
+    })
+
+    it('com trava, só Wi-Fi/cabo passam', () => {
+        expect(networkAllows(true, 'WIFI', true)).toBe(true)
+        expect(networkAllows(true, 'ETHERNET', true)).toBe(true)
+        expect(networkAllows(true, 'CELLULAR', true)).toBe(false)
+        expect(networkAllows(true, undefined, true)).toBe(false)
     })
 })

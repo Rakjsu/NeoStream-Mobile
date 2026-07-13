@@ -8,7 +8,7 @@ import * as FileSystem from 'expo-file-system/legacy'
 import { disableAppLock, enableAppLock, loadAppLock } from '../../services/appLock'
 import { applyCapturePolicy } from '../../services/privacy'
 import { isDataSaverEnabled, setDataSaver } from '../../services/dataSaver'
-import { getDownloadLimitGb, listDownloads, setDownloadLimitGb } from '../../services/downloads'
+import { getDownloadLimitGb, isWifiOnly, listDownloads, setDownloadLimitGb, setWifiOnly } from '../../services/downloads'
 import { captureRef } from 'react-native-view-shot'
 import * as Sharing from 'expo-sharing'
 import { listAutoBackups, readAutoBackup, type AutoBackupFile } from '../../services/autoBackup'
@@ -74,6 +74,7 @@ export default function SettingsTab() {
     const [gateError, setGateError] = useState('')
     const [tmdbDraft, setTmdbDraft] = useState('')
     const [speedMsg, setSpeedMsg] = useState('')
+    const [wifiOnly, setWifiOnlyState] = useState(false)
 
     const refreshStorage = useCallback(() => {
         void listDownloads().then(items => setDlBytes(items.reduce((sum, item) => sum + item.sizeBytes, 0)))
@@ -92,6 +93,7 @@ export default function SettingsTab() {
         void listScheduled().then(setReminders)
         void getDownloadLimitGb().then(setDlLimit)
         void isDataSaverEnabled().then(setDataSaverState)
+        void isWifiOnly().then(setWifiOnlyState)
         refreshStorage()
         void loadUsage().then(map => {
             const today = dayKey(Date.now())
@@ -520,6 +522,18 @@ export default function SettingsTab() {
                     ))}
                 </View>
                 <Text style={styles.parentalHint}>{tf('usedSpace', { mb: Math.round(dlBytes / 1048576) })}</Text>
+                <TvTouchable
+                    style={styles.kidsRow}
+                    onPress={() => {
+                        const next = !wifiOnly
+                        setWifiOnlyState(next)
+                        void setWifiOnly(next)
+                    }}
+                >
+                    <Ionicons name={wifiOnly ? 'wifi' : 'wifi-outline'} size={18} color={wifiOnly ? colors.accent : colors.textDim} />
+                    <Text style={[styles.kidsText, wifiOnly && { color: colors.accent }]}>{t('wifiOnlyLabel')}</Text>
+                </TvTouchable>
+                {wifiOnly ? <Text style={styles.parentalHint}>{t('wifiOnlyHint')}</Text> : null}
                 <TvTouchable
                     style={styles.saverRow}
                     onPress={() => {

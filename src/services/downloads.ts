@@ -31,6 +31,7 @@ export interface DownloadRequest {
 
 const STORAGE_KEY = 'neostream_downloads'
 const LIMIT_KEY = 'neostream_dl_limit_gb'
+const WIFI_ONLY_KEY = 'neostream_dl_wifi_only'
 const PENDING_KEY = 'neostream_dl_pending'
 const DIR = `${FileSystem.documentDirectory}downloads/`
 
@@ -94,6 +95,47 @@ export function pickEvictions(items: DownloadItem[], watched: Set<string>, limit
         total -= item.sizeBytes
     }
     return evictions
+}
+
+/** Pode baixar nesta rede? (PURO — Wi-Fi/cabo liberam; celular só sem trava.) */
+export function networkAllows(wifiOnly: boolean, type: string | undefined, isConnected: boolean | undefined): boolean {
+    if (isConnected === false) return false
+    if (!wifiOnly) return true
+    return type === 'WIFI' || type === 'ETHERNET'
+}
+
+export async function isWifiOnly(): Promise<boolean> {
+    try {
+        return (await AsyncStorage.getItem(WIFI_ONLY_KEY)) === '1'
+    } catch {
+        return false
+    }
+}
+
+export async function setWifiOnly(on: boolean): Promise<void> {
+    try {
+        if (on) await AsyncStorage.setItem(WIFI_ONLY_KEY, '1')
+        else await AsyncStorage.removeItem(WIFI_ONLY_KEY)
+    } catch { /* best-effort */ }
+}
+
+/**
+ * Com "só no Wi-Fi" ligado e rede errada, o download ESPERA (checa a cada
+ * 15s) — a fila não morre, só aguarda a rede certa voltar.
+ */
+async function waitForAllowedNetwork(): Promise<void> {
+    for (;;) {
+        try {
+            // Import dinâmico: expo-network não existe no vitest.
+            const Network = await import('expo-network')
+            const state = await Network.getNetworkStateAsync()
+            if (networkAllows(await isWifiOnly(), state.type as string | undefined, state.isConnected)) return
+        } catch {
+            return // sem como medir → não bloqueia
+        }
+        await new Promise(resolve => setTimeout(resolve, 15_000))
+        notify()
+    }
 }
 
 /** Teto em GB (0 = sem teto). */
@@ -253,6 +295,7 @@ export async function startDownload(request: DownloadRequest): Promise<void> {
     pending[request.id] = request
     await writePending(pending)
 
+    await waitForAllowedNetwork()
     await FileSystem.makeDirectoryAsync(DIR, { intermediates: true }).catch(() => undefined)
     const fileUri = DIR + safeFileName(request.id, request.container)
     // URL adiada de portal resolve agora (create_link é de uso único).

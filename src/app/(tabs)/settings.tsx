@@ -17,6 +17,7 @@ import { cancelScheduled, listScheduled, type ScheduledReminder } from '../../se
 import { listHiddenChannels, unhideChannel, type HiddenChannel } from '../../services/hidden'
 import { applyBackup, collectBackup, parseBackup, serializeBackup } from '../../services/backup'
 import { disableParental, enableParental, isValidPin, loadParental } from '../../services/parental'
+import { isKidsMode, setKidsMode } from '../../services/kids'
 import { clearHistory } from '../../services/progress'
 import { checkForUpdate } from '../../services/updates'
 import {
@@ -64,6 +65,11 @@ export default function SettingsTab() {
     const [hiddenList, setHiddenList] = useState<HiddenChannel[]>([])
     const [errorList, setErrorList] = useState<LoggedError[]>([])
     const [reminders, setReminders] = useState<ScheduledReminder[]>([])
+    // Modo infantil: kidsGate cobre a tela até o PIN do parental liberar.
+    const [kidsOn, setKidsOn] = useState(false)
+    const [kidsGate, setKidsGate] = useState(false)
+    const [gatePin, setGatePin] = useState('')
+    const [gateError, setGateError] = useState('')
 
     const refreshStorage = useCallback(() => {
         void listDownloads().then(items => setDlBytes(items.reduce((sum, item) => sum + item.sizeBytes, 0)))
@@ -73,6 +79,7 @@ export default function SettingsTab() {
         void listAccounts().then(setAccounts)
         void loadAccount().then(setActive)
         void loadParental().then(state => setParentalOn(state.enabled))
+        void isKidsMode().then(on => { setKidsOn(on); setKidsGate(on) })
         void loadAppLock().then(state => setLockOn(state.enabled))
         void listAutoBackups().then(setAutoCopies)
         void listHiddenChannels().then(setHiddenList)
@@ -164,6 +171,42 @@ export default function SettingsTab() {
     }
 
     const expiry = parseExpiry(active?.userInfo?.exp_date)
+
+    if (kidsGate) {
+        return (
+            <View style={styles.gateRoot}>
+                <Ionicons name="lock-closed" size={44} color={colors.accent} />
+                <Text style={styles.gateTitle}>{t('kidsGateTitle')}</Text>
+                <Text style={styles.parentalHint}>{t('kidsGateHint')}</Text>
+                <TextInput
+                    style={[styles.pinInput, { alignSelf: 'stretch' }]}
+                    value={gatePin}
+                    onChangeText={text => { setGatePin(text.replace(/[^0-9]/g, '')); setGateError('') }}
+                    placeholder={t('pinPh')}
+                    placeholderTextColor={colors.textDim}
+                    keyboardType="number-pad"
+                    secureTextEntry
+                    maxLength={4}
+                />
+                <TvTouchable
+                    style={styles.parentalBtn}
+                    onPress={() => {
+                        void loadParental().then(state => {
+                            if (state.pin && gatePin === state.pin) {
+                                setKidsGate(false)
+                                setGatePin('')
+                            } else {
+                                setGateError(t('pinWrong'))
+                            }
+                        })
+                    }}
+                >
+                    <Text style={styles.parentalBtnText}>{t('enable')}</Text>
+                </TvTouchable>
+                {gateError ? <Text style={styles.pinError}>{gateError}</Text> : null}
+            </View>
+        )
+    }
 
     return (
         <ScrollView style={styles.root} contentContainerStyle={{ padding: spacing.lg }}>
@@ -313,6 +356,29 @@ export default function SettingsTab() {
                     </TvTouchable>
                 </View>
                 {pinError ? <Text style={styles.pinError}>{pinError}</Text> : null}
+                <TvTouchable
+                    style={styles.kidsRow}
+                    onPress={() => {
+                        void (async () => {
+                            if (kidsOn) {
+                                // Já passou pelo PIN pra chegar aqui — desliga direto.
+                                await setKidsMode(false)
+                                setKidsOn(false)
+                                return
+                            }
+                            const state = await loadParental()
+                            if (!state.enabled) { Alert.alert(t('kidsNeedsParental')); return }
+                            await setKidsMode(true)
+                            setKidsOn(true)
+                            Alert.alert(t('kidsOnMsg'))
+                        })()
+                    }}
+                >
+                    <Ionicons name={kidsOn ? 'happy' : 'happy-outline'} size={18} color={kidsOn ? colors.accent : colors.textDim} />
+                    <Text style={[styles.kidsText, kidsOn && { color: colors.accent }]}>
+                        {kidsOn ? t('kidsOn') : t('kidsOff')}
+                    </Text>
+                </TvTouchable>
             </View>
 
             <Text style={styles.section}>{t('secAppLock')}</Text>
@@ -726,6 +792,17 @@ const styles = StyleSheet.create({
     version: { color: colors.textDim, fontSize: 12, textAlign: 'center', marginTop: spacing.xl },
     parentalHint: { color: colors.textDim, fontSize: 13, lineHeight: 18 },
     pinRow: { flexDirection: 'row', gap: spacing.md },
+    gateRoot: {
+        flex: 1,
+        backgroundColor: colors.bg,
+        alignItems: 'center',
+        justifyContent: 'center',
+        gap: spacing.md,
+        padding: spacing.xl,
+    },
+    gateTitle: { color: colors.text, fontSize: 18, fontWeight: '700' },
+    kidsRow: { flexDirection: 'row', alignItems: 'center', gap: spacing.sm, paddingTop: spacing.xs },
+    kidsText: { color: colors.textDim, fontSize: 13, fontWeight: '600', flex: 1 },
     pinInput: {
         flex: 1,
         backgroundColor: colors.bg,

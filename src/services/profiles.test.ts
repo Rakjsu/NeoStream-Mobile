@@ -4,6 +4,9 @@ import {
     profileKey, removeProfile, resetProfilesCache, shouldPickProfile, switchProfile,
 } from './profiles'
 
+// Hoisted pelo vitest.
+import AsyncStorage from '@react-native-async-storage/async-storage'
+
 vi.mock('@react-native-async-storage/async-storage', () => {
     const store = new Map<string, string>()
     return {
@@ -17,9 +20,6 @@ vi.mock('@react-native-async-storage/async-storage', () => {
         },
     }
 })
-
-// Hoisted pelo vitest.
-import AsyncStorage from '@react-native-async-storage/async-storage'
 
 describe('perfis', () => {
     beforeEach(() => {

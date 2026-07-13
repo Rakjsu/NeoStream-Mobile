@@ -10,11 +10,12 @@ import { notifyNow } from '../../services/notify'
 import { listRecentChannels, recordRecentChannel } from '../../services/recents'
 import { allowedCategoryIds, loadParental } from '../../services/parental'
 import { listContinue, loadProgress, removeEntry, type ProgressEntry } from '../../services/progress'
-import { accountLabel, cachedFetch, getClient, loadAccount } from '../../services/session'
+import { becauseYouWatched, type RecCandidate } from '../../services/recommend'
+import { accountLabel, cachedFetch, catalogFetchedAt, getClient, loadAccount } from '../../services/session'
 import { daysUntil, parseExpiry } from '../../services/xtream'
 import type { Category, SeriesItem, VodMovie } from '../../services/xtream'
 import { setZapContext } from '../../services/zap'
-import { dayKey } from '../../services/usage'
+import { dayKey, formatMinutes, loadTitleUsage, topTitles } from '../../services/usage'
 import { checkForUpdate, type UpdateInfo } from '../../services/updates'
 import { ChannelRail, ContinueRail, EmptyState, Loading, PosterRail, type RailItem } from '../../ui/components'
 import { colors, spacing } from '../../ui/theme'
@@ -40,6 +41,8 @@ export default function HomeTab() {
     const [newSeries, setNewSeries] = useState<RailItem[]>([])
     const [freshEpisodes, setFreshEpisodes] = useState<RailItem[]>([])
     const [update, setUpdate] = useState<UpdateInfo | null>(null)
+    const [because, setBecause] = useState<{ title: string; items: RailItem[] } | null>(null)
+    const [catalogAge, setCatalogAge] = useState('')
     const [expiryDays, setExpiryDays] = useState<number | null>(null)
 
     const load = useCallback(async (force = false) => {
@@ -108,6 +111,34 @@ export default function HomeTab() {
 
             setNewMovies([...visibleVod].sort((a, b) => epoch(b.added) - epoch(a.added)).slice(0, RAIL_MAX).map(movieRail))
             setNewSeries([...visibleShows].sort((a, b) => epoch(b.last_modified) - epoch(a.last_modified)).slice(0, RAIL_MAX).map(seriesRail))
+
+            // Rail personalizado: top do "Seu uso" × categoria do catálogo.
+            const tops = topTitles(await loadTitleUsage(), dayKey(Date.now()), ['movie', 'episode'], 5)
+            const candidates: RecCandidate[] = [
+                ...visibleVod.map(m => ({
+                    id: String(m.stream_id), name: m.name, kind: 'movie' as const,
+                    category: m.category_id ?? '', cover: m.stream_icon || '', container: m.container_extension || 'mp4',
+                })),
+                ...visibleShows.map(s => ({
+                    id: String(s.series_id), name: s.name, kind: 'series' as const,
+                    category: s.category_id ?? '', cover: s.cover || '',
+                })),
+            ]
+            const rec = becauseYouWatched(tops, candidates, RAIL_MAX)
+            setBecause(rec ? {
+                title: rec.anchor,
+                items: rec.items.map(c => ({
+                    key: `${c.kind === 'movie' ? 'm' : 's'}${c.id}`, kind: c.kind,
+                    id: c.id, name: c.name, cover: c.cover, container: c.container,
+                })),
+            } : null)
+
+            // "Atualizado há Xh" — o pull-to-refresh força a rede.
+            const fetchedMs = catalogFetchedAt('live') ?? catalogFetchedAt('vod') ?? catalogFetchedAt('series')
+            if (fetchedMs) {
+                const ageMin = Math.floor((Date.now() - fetchedMs) / 60_000)
+                setCatalogAge(ageMin < 1 ? t('catalogAgeNow') : tf('catalogAge', { age: formatMinutes(ageMin) }))
+            }
             setError('')
         } catch (err) {
             setError(err instanceof Error ? err.message : t('failHome'))
@@ -238,6 +269,7 @@ export default function HomeTab() {
                 </View>
             ) : null}
             {error ? <Text style={styles.error}>{error}</Text> : null}
+            {catalogAge ? <Text style={styles.ageText}>{catalogAge}</Text> : null}
             {empty ? (
                 <EmptyState icon="home-outline" label={t('homeEmpty')} />
             ) : (
@@ -245,6 +277,9 @@ export default function HomeTab() {
                     <ContinueRail entries={continueList} onPlay={entry => void resume(entry)} onRemove={confirmRemoveContinue} />
                     <PosterRail title={t('newEpisodesRail')} items={freshEpisodes} onPress={openRailItem} />
                     <PosterRail title={t('favRail')} items={favPosters} onPress={openRailItem} />
+                    {because ? (
+                        <PosterRail title={tf('becauseRail', { title: because.title })} items={because.items} onPress={openRailItem} />
+                    ) : null}
                     <ChannelRail title={t('recentChannelsRail')} items={recentChannels} onPress={item => void playChannel(item, recentChannels)} />
                     <ChannelRail title={t('favChannelsRail')} items={favChannels} onPress={item => void playChannel(item, favChannels)} />
                     <PosterRail title={t('newMoviesRail')} items={newMovies} onPress={openRailItem} />
@@ -258,6 +293,7 @@ export default function HomeTab() {
 const styles = StyleSheet.create({
     root: { flex: 1, backgroundColor: colors.bg },
     error: { color: colors.danger, marginHorizontal: spacing.lg, marginVertical: spacing.sm },
+    ageText: { color: colors.textDim, fontSize: 11, marginHorizontal: spacing.lg, marginBottom: spacing.xs },
     updateBanner: {
         flexDirection: 'row',
         alignItems: 'center',

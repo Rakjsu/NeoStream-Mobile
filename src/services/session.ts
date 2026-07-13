@@ -228,6 +228,8 @@ export function resetSessionCache(): void {
 // ----------------------------------------------------------- catálogo (SWR) --
 
 const catalog = new Map<string, unknown>()
+// Quando cada chave foi obtida (epoch ms) — alimenta o "atualizado há Xh".
+const fetchedAt = new Map<string, number>()
 
 /** Só as listas grandes valem disco — EPG e afins ficam na sessão. */
 const PERSISTABLE_KEYS = new Set(['live', 'vod', 'series', 'live-cats', 'vod-cats', 'series-cats'])
@@ -272,6 +274,12 @@ async function dropPersistedCatalog(id: string): Promise<void> {
 
 export function invalidateCatalog(): void {
     catalog.clear()
+    fetchedAt.clear()
+}
+
+/** Epoch ms de quando a chave foi buscada (null = nunca nesta sessão). */
+export function catalogFetchedAt(key: string): number | null {
+    return fetchedAt.get(key) ?? null
 }
 
 /** "Desligou e ligou": zera memória + disco do catálogo da conta ativa. */
@@ -299,9 +307,11 @@ export async function cachedFetch<T>(key: string, fetcher: () => Promise<T>, for
 
     if (persisted && Date.now() - persisted.t < FRESH_MS) {
         catalog.set(key, persisted.data)
+        fetchedAt.set(key, persisted.t)
         void fetcher()
             .then(fresh => {
                 catalog.set(key, fresh)
+                fetchedAt.set(key, Date.now())
                 if (storageKey) void writePersisted(storageKey, fresh)
             })
             .catch(() => undefined)
@@ -311,11 +321,13 @@ export async function cachedFetch<T>(key: string, fetcher: () => Promise<T>, for
     try {
         const data = await fetcher()
         catalog.set(key, data)
+        fetchedAt.set(key, Date.now())
         if (storageKey) void writePersisted(storageKey, data)
         return data
     } catch (error) {
         if (persisted) {
             catalog.set(key, persisted.data)
+            fetchedAt.set(key, persisted.t)
             return persisted.data as T
         }
         throw error

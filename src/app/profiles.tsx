@@ -3,7 +3,7 @@ import { Stack, router } from 'expo-router'
 import { useEffect, useState } from 'react'
 import { Alert, StyleSheet, Text, TextInput, View } from 'react-native'
 import {
-    DEFAULT_PROFILE_ID, activeProfileId, addProfile, listProfiles,
+    DEFAULT_PROFILE_ID, GUEST_PROFILE_ID, activeProfileId, addProfile, listProfiles,
     markProfilePicked, removeProfile, switchProfile, type Profile,
 } from '../services/profiles'
 import { TvTouchable } from '../ui/components'
@@ -18,6 +18,10 @@ export default function Profiles() {
     const [profiles, setProfiles] = useState<Profile[]>([])
     const [adding, setAdding] = useState(false)
     const [nameDraft, setNameDraft] = useState('')
+    const [pinDraft, setPinDraft] = useState('')
+    // Perfil com PIN: guarda o alvo até o PIN certo liberar.
+    const [pinFor, setPinFor] = useState<Profile | null>(null)
+    const [pinTry, setPinTry] = useState('')
     const [activeId, setActiveId] = useState(DEFAULT_PROFILE_ID)
 
     const refresh = () => {
@@ -29,15 +33,20 @@ export default function Profiles() {
 
     useEffect(() => { queueMicrotask(refresh) }, [])
 
-    const pick = (profile: Profile) => {
+    const enter = (profile: Profile) => {
         void switchProfile(profile.id).then(() => {
             markProfilePicked()
             router.replace('/(tabs)/home')
         })
     }
 
+    const pick = (profile: Profile) => {
+        if (profile.pin) { setPinTry(''); setPinFor(profile); return }
+        enter(profile)
+    }
+
     const confirmRemove = (profile: Profile) => {
-        if (profile.id === DEFAULT_PROFILE_ID) return
+        if (profile.id === DEFAULT_PROFILE_ID || profile.id === GUEST_PROFILE_ID) return
         Alert.alert(t('profileRemoveTitle'), tf('profileRemoveMsg', { name: profile.name }), [
             { text: t('cancel'), style: 'cancel' },
             { text: t('remove'), style: 'destructive', onPress: () => { void removeProfile(profile.id).then(refresh) } },
@@ -45,7 +54,8 @@ export default function Profiles() {
     }
 
     const displayName = (profile: Profile) =>
-        profile.id === DEFAULT_PROFILE_ID ? t('profileDefault') : profile.name
+        profile.id === DEFAULT_PROFILE_ID ? t('profileDefault')
+            : profile.id === GUEST_PROFILE_ID ? t('profileGuest') : profile.name
 
     return (
         <View style={styles.root}>
@@ -62,7 +72,16 @@ export default function Profiles() {
                     >
                         <View style={[styles.avatar, { backgroundColor: profile.color },
                             profile.id === activeId && styles.avatarActive]}>
-                            <Text style={styles.avatarLetter}>{displayName(profile).slice(0, 1).toUpperCase()}</Text>
+                            {profile.id === GUEST_PROFILE_ID ? (
+                                <Ionicons name="glasses-outline" size={30} color="#fff" />
+                            ) : (
+                                <Text style={styles.avatarLetter}>{displayName(profile).slice(0, 1).toUpperCase()}</Text>
+                            )}
+                            {profile.pin ? (
+                                <View style={styles.pinBadge}>
+                                    <Ionicons name="lock-closed" size={11} color="#fff" />
+                                </View>
+                            ) : null}
                         </View>
                         <Text style={styles.name} numberOfLines={1}>{displayName(profile)}</Text>
                     </TvTouchable>
@@ -86,12 +105,23 @@ export default function Profiles() {
                         maxLength={16}
                         autoFocus
                     />
+                    <TextInput
+                        style={[styles.input, { width: 110 }]}
+                        value={pinDraft}
+                        onChangeText={text => setPinDraft(text.replace(/[^0-9]/g, ''))}
+                        placeholder={t('profilePinPh')}
+                        placeholderTextColor={colors.textDim}
+                        keyboardType="number-pad"
+                        secureTextEntry
+                        maxLength={4}
+                    />
                     <TvTouchable
                         style={styles.addBtn}
                         onPress={() => {
-                            void addProfile(nameDraft).then(created => {
+                            void addProfile(nameDraft, pinDraft || undefined).then(created => {
                                 if (!created) return
                                 setNameDraft('')
+                                setPinDraft('')
                                 setAdding(false)
                                 refresh()
                             })
@@ -99,6 +129,29 @@ export default function Profiles() {
                     >
                         <Ionicons name="checkmark" size={20} color="#fff" />
                     </TvTouchable>
+                </View>
+            ) : null}
+            {pinFor ? (
+                <View style={styles.addRow}>
+                    <Text style={styles.hint}>{tf('profilePinAsk', { name: displayName(pinFor) })}</Text>
+                    <TextInput
+                        style={[styles.input, { width: 110 }]}
+                        value={pinTry}
+                        onChangeText={text => {
+                            const digits = text.replace(/[^0-9]/g, '')
+                            setPinTry(digits)
+                            if (digits.length === 4) {
+                                if (digits === pinFor.pin) { setPinFor(null); enter(pinFor) }
+                                else setPinTry('')
+                            }
+                        }}
+                        placeholder="••••"
+                        placeholderTextColor={colors.textDim}
+                        keyboardType="number-pad"
+                        secureTextEntry
+                        maxLength={4}
+                        autoFocus
+                    />
                 </View>
             ) : null}
             <Text style={styles.hint}>{t('profilesHint')}</Text>
@@ -121,6 +174,14 @@ const styles = StyleSheet.create({
     avatarActive: { borderWidth: 3, borderColor: colors.text },
     avatarAdd: { backgroundColor: colors.card, borderWidth: 1, borderColor: colors.border },
     avatarLetter: { color: '#fff', fontSize: 28, fontWeight: '700' },
+    pinBadge: {
+        position: 'absolute',
+        right: -2,
+        bottom: -2,
+        backgroundColor: colors.accent,
+        borderRadius: 9,
+        padding: 3,
+    },
     name: { color: colors.text, fontSize: 13, fontWeight: '600' },
     addRow: { flexDirection: 'row', gap: spacing.sm, alignItems: 'center' },
     input: {

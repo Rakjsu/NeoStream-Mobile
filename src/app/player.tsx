@@ -9,7 +9,7 @@ import { useSafeAreaInsets } from 'react-native-safe-area-context'
 import { StatusBar } from 'expo-status-bar'
 import * as Brightness from 'expo-brightness'
 import * as NavigationBar from 'expo-navigation-bar'
-import { getDownload } from '../services/downloads'
+import { enqueueDownloads, getDownload, isSmartDownloads, removeDownload } from '../services/downloads'
 import { castAvailable, castToCurrentSession, onCastSessionStarted, showCastPicker, type CastControls } from '../services/cast'
 import { nextEpisodeAfter, type QueuedEpisode } from '../services/episodeQueue'
 import { getEntry, resumePosition, saveSample, type ProgressKind } from '../services/progress'
@@ -18,7 +18,10 @@ import { loadFavorites } from '../services/favorites'
 import { cachedFetch, getClient, resolvePlayableUrl } from '../services/session'
 import { tapLight } from '../services/haptics'
 import { alternateLiveUrl } from '../services/xtream'
+import { getAspect, nextAspect, setAspect, type AspectMode } from '../services/aspect'
 import { recordWatchMinute } from '../services/usage'
+import { recordHabitMinute } from '../services/habit'
+import { canRecordUrl, recordingTitle, startRecording, stopRecording } from '../services/recorder'
 import { currentZapChannel, hasZapContext, rankChannels, zapBy, zapList, zapTo, zapToNumber, type ZapChannel } from '../services/zap'
 import { TvTouchable } from '../ui/components'
 import { colors, spacing } from '../ui/theme'
@@ -132,6 +135,39 @@ export default function Player() {
     })
 
     const trackable = live !== '1' && !!pid && !!sid
+
+    // Proporção lembrada por conteúdo (pid no VOD; título no ao vivo).
+    const [aspect, setAspectState] = useState<AspectMode>('contain')
+    const aspectKey = trackable ? String(pid) : `live:${String(title ?? '')}`
+    useEffect(() => {
+        let alive = true
+        void getAspect(aspectKey).then(saved => { if (alive) setAspectState(saved) })
+        return () => { alive = false }
+    }, [aspectKey])
+
+    const cycleAspect = () => {
+        const next = nextAspect(aspect)
+        setAspectState(next)
+        void setAspect(aspectKey, next)
+        showTrackToast(t(next === 'contain' ? 'aspectContain' : next === 'cover' ? 'aspectCover' : 'aspectFill'))
+    }
+
+    // REC: despeja o stream .ts em disco até o stop (vira item offline).
+    const [recording, setRecording] = useState(recordingTitle() !== null)
+    const toggleRecording = () => {
+        void (async () => {
+            if (recording || recordingTitle()) {
+                const saved = await stopRecording()
+                setRecording(false)
+                showTrackToast(saved ? t('recSaved') : t('recFail'))
+                return
+            }
+            if (!canRecordUrl(source)) { showTrackToast(t('recFail')); return }
+            const ok = await startRecording(source, liveTitle || String(title ?? ''))
+            setRecording(ok)
+            showTrackToast(ok ? t('recStart') : t('recFail'))
+        })()
+    }
 
     // Resgate ao vivo: erro num canal Xtream → tenta .ts↔.m3u8 UMA vez.
     const rescueTriedRef = useRef(false)
@@ -508,6 +544,23 @@ export default function Player() {
 
     useEventListener(player, 'playToEnd', () => {
         if (kind !== 'episode' || !trackable) return
+        // Smart downloads: visto baixado sai; o próximo entra na fila sozinho.
+        void (async () => {
+            if (!(await isSmartDownloads())) return
+            const downloaded = await getDownload(String(pid))
+            if (!downloaded) return
+            await removeDownload(String(pid))
+            const nextEp = nextEpisodeAfter(String(pid))
+            const client = await getClient()
+            if (!nextEp || !client) return
+            await enqueueDownloads([{
+                id: nextEp.pid,
+                url: client.seriesStreamUrl(nextEp.sid, nextEp.container),
+                title: nextEp.title,
+                cover: nextEp.cover,
+                container: nextEp.container,
+            }])
+        })()
         if (stopAfterRef.current) {
             stopAfterRef.current = false
             setStopAfter(false)
@@ -572,7 +625,10 @@ export default function Player() {
             if (!playing) {
                 try { playing = player.playing } catch { return } // player já liberado
             }
-            if (playing) void recordWatchMinute(usageKind, Date.now(), usageTitle)
+            if (playing) {
+                void recordWatchMinute(usageKind, Date.now(), usageTitle)
+                void recordHabitMinute(usageKind, usageTitle, Date.now())
+            }
         }, 60_000)
         return () => clearInterval(timer)
         // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -620,7 +676,7 @@ export default function Player() {
                 ref={videoRef}
                 player={player}
                 style={styles.video}
-                contentFit="contain"
+                contentFit={aspect}
                 nativeControls
                 allowsPictureInPicture
                 startsPictureInPictureAutomatically
@@ -648,6 +704,15 @@ export default function Player() {
                         <Text style={styles.epg} numberOfLines={1}>{liveEpg}</Text>
                     ) : null}
                 </View>
+                {live === '1' ? (
+                    <TvTouchable style={styles.trackBtn} accessibilityLabel={t('a11yRec')} onPress={toggleRecording}>
+                        <Ionicons
+                            name={recording ? 'stop-circle' : 'radio-button-on'}
+                            size={20}
+                            color={recording ? colors.danger : colors.text}
+                        />
+                    </TvTouchable>
+                ) : null}
                 {canCast ? (
                     <TvTouchable style={styles.trackBtn} accessibilityLabel={t('a11yCast')} onPress={() => void showCastPicker()}>
                         <Ionicons name="tv-outline" size={20} color={colors.text} />
@@ -674,6 +739,9 @@ export default function Player() {
                         <Text style={styles.rateText}>{rate}x</Text>
                     </TvTouchable>
                 ) : null}
+                <TvTouchable style={styles.trackBtn} accessibilityLabel={t('a11yAspect')} onPress={cycleAspect}>
+                    <Ionicons name="expand-outline" size={20} color={aspect !== 'contain' ? colors.accent : colors.text} />
+                </TvTouchable>
                 <TvTouchable
                     style={styles.trackBtn}
                     accessibilityLabel={t('a11yPip')}

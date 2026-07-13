@@ -183,6 +183,7 @@ export class M3uClient implements CatalogClient {
     private urlById = new Map<string, string>()
     private liveById = new Map<string, M3uChannel>()
     private tvgUrl = ''
+    private epgOverrides: Record<string, string> = {}
     private guidePromise: Promise<XmltvGuide | null> | null = null
 
     constructor(playlistUrl: string) {
@@ -319,13 +320,26 @@ export class M3uClient implements CatalogClient {
         return this.guidePromise
     }
 
+    /** Correções manuais (canal → id do XMLTV) vindas das Configurações. */
+    applyEpgOverrides(map: Record<string, string>): void {
+        this.epgOverrides = map ?? {}
+    }
+
+    /** Canais do guia XMLTV (pra tela de correção manual). */
+    async listGuideChannels(): Promise<{ id: string; name: string }[]> {
+        await this.load()
+        const guide = await this.loadGuide()
+        if (!guide) return []
+        return [...guide.idByName.entries()].map(([name, id]) => ({ id, name }))
+    }
+
     async getShortEpg(streamId: number | string): Promise<NowNext> {
         await this.load()
         const channel = this.liveById.get(String(streamId))
         if (!channel) return { now: null, next: null }
         const guide = await this.loadGuide()
         if (!guide) return { now: null, next: null }
-        return lookupNowNext(guide, channel.tvgId ?? '', channel.name)
+        return lookupNowNext(guide, this.epgOverrides[channel.id] ?? channel.tvgId ?? '', channel.name)
     }
 
     /** Grade do canal a partir do MESMO XMLTV do agora/a seguir. */
@@ -335,7 +349,7 @@ export class M3uClient implements CatalogClient {
         if (!channel) return []
         const guide = await this.loadGuide()
         if (!guide) return []
-        return lookupDaySchedule(guide, channel.tvgId ?? '', channel.name)
+        return lookupDaySchedule(guide, this.epgOverrides[channel.id] ?? channel.tvgId ?? '', channel.name)
     }
 
     liveStreamUrl(streamId: number | string): string {

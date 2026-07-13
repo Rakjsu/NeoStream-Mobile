@@ -34,6 +34,7 @@ export interface DownloadRequest {
 const STORAGE_KEY = 'neostream_downloads'
 const LIMIT_KEY = 'neostream_dl_limit_gb'
 const WIFI_ONLY_KEY = 'neostream_dl_wifi_only'
+const SMART_KEY = 'neostream_dl_smart'
 const PENDING_KEY = 'neostream_dl_pending'
 const DIR = `${FileSystem.documentDirectory}downloads/`
 
@@ -104,6 +105,21 @@ export function networkAllows(wifiOnly: boolean, type: string | undefined, isCon
     if (isConnected === false) return false
     if (!wifiOnly) return true
     return type === 'WIFI' || type === 'ETHERNET'
+}
+
+export async function isSmartDownloads(): Promise<boolean> {
+    try {
+        return (await AsyncStorage.getItem(SMART_KEY)) === '1'
+    } catch {
+        return false
+    }
+}
+
+export async function setSmartDownloads(on: boolean): Promise<void> {
+    try {
+        if (on) await AsyncStorage.setItem(SMART_KEY, '1')
+        else await AsyncStorage.removeItem(SMART_KEY)
+    } catch { /* best-effort */ }
 }
 
 export async function isWifiOnly(): Promise<boolean> {
@@ -421,6 +437,15 @@ export async function cancelDownload(id: string): Promise<void> {
     await entry.task.cancelAsync().catch(() => undefined)
     entry.wake?.() // download pausado precisa acordar pra morrer
     active.delete(id)
+    notify()
+}
+
+/** Gravações (REC) entram direto no registro como item offline. */
+export async function addLocalDownload(item: DownloadItem): Promise<void> {
+    const map = await loadRegistry()
+    map[item.id] = item
+    registry = map
+    await persistRegistry()
     notify()
 }
 

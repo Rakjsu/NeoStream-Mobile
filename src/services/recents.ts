@@ -3,6 +3,7 @@
  * Início. A ordenação é PURA (testável); load/save tocam o AsyncStorage.
  */
 import AsyncStorage from '@react-native-async-storage/async-storage'
+import { isGuestProfile } from './profiles'
 import { getActiveAccountId } from './session'
 
 export interface RecentChannel {
@@ -47,6 +48,7 @@ export async function listRecentChannels(): Promise<RecentChannel[]> {
 
 /** Chamado por quem dá o play num canal (abas, busca, zapping). */
 export async function recordRecentChannel(channel: RecentChannel): Promise<void> {
+    if (isGuestProfile()) return // convidado não deixa rastro
     const accountId = await getActiveAccountId()
     if (!accountId) return
     try {

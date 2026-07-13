@@ -57,13 +57,13 @@ describe('perfis', () => {
         expect(shouldPickProfile()).toBe(false)
         await removeProfile(extra!.id)
         expect(activeProfileId()).toBe('default')
-        expect((await listProfiles()).map(profile => profile.id)).toEqual(['default'])
+        expect((await listProfiles()).map(profile => profile.id)).toEqual(['default', 'guest'])
     })
 
     it('nome vazio não cria perfil; padrão não remove', async () => {
         await initProfiles()
         expect(await addProfile('   ')).toBeNull()
         await removeProfile('default')
-        expect((await listProfiles())).toHaveLength(1)
+        expect((await listProfiles())).toHaveLength(2) // padrão + convidado
     })
 })

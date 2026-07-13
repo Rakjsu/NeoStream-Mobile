@@ -222,7 +222,14 @@ export default function LiveTab() {
                                     )
                                 })}
                                 {daySchedules[String(item.stream_id)]?.length === 0 ? (
-                                    <Text style={styles.miniTime}>{t('scheduleEmpty')}</Text>
+                                    <TouchableOpacity
+                                        onPress={() => router.push({
+                                            pathname: '/epgfix',
+                                            params: { channel: String(item.stream_id), name: item.name },
+                                        })}
+                                    >
+                                        <Text style={styles.miniTime}>{t('scheduleEmpty')} · <Text style={{ color: colors.accent }}>{t('epgFixBtn')}</Text></Text>
+                                    </TouchableOpacity>
                                 ) : null}
                             </View>
                         ) : null}

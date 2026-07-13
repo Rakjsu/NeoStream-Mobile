@@ -9,6 +9,8 @@ import { checkNewEpisodes } from '../../services/newEpisodes'
 import { notifyNow } from '../../services/notify'
 import { listRecentChannels, recordRecentChannel } from '../../services/recents'
 import { checkRecurringReminders } from '../../services/recurring'
+import { scheduleWeeklySummary } from '../../services/weekly'
+import { hourBucketOf, loadHabits, topHabitKeys } from '../../services/habit'
 import { loadParental } from '../../services/parental'
 import { guardedCategoryIds } from '../../services/kids'
 import { listContinue, loadProgress, removeEntry, type ProgressEntry } from '../../services/progress'
@@ -48,6 +50,7 @@ export default function HomeTab() {
     const [because, setBecause] = useState<{ title: string; items: RailItem[] } | null>(null)
     const [catalogAge, setCatalogAge] = useState('')
     const [watchRail, setWatchRail] = useState<RailItem[]>([])
+    const [praAgora, setPraAgora] = useState<{ id: string; name: string; logo: string }[]>([])
     const [expiryDays, setExpiryDays] = useState<number | null>(null)
 
     const load = useCallback(async (force = false) => {
@@ -152,6 +155,21 @@ export default function HomeTab() {
             } : null)
 
             void checkRecurringReminders()
+            void scheduleWeeklySummary()
+
+            // "Pra agora": canais que você costuma ver NESTE dia/horário.
+            const habitNow = new Date()
+            const habitTops = topHabitKeys(await loadHabits(), habitNow.getDay(), hourBucketOf(habitNow.getHours()))
+            const liveByName = new Map(live.map(c => [c.name.toLowerCase(), c]))
+            setPraAgora(habitTops
+                .filter(key => key.startsWith('live|'))
+                .flatMap(key => {
+                    const channel = liveByName.get(key.slice(5).toLowerCase())
+                    return channel && pass(allowedLive, channel.category_id)
+                        ? [{ id: String(channel.stream_id), name: channel.name, logo: channel.stream_icon || '' }]
+                        : []
+                })
+                .slice(0, RAIL_MAX))
 
             // "Atualizado há Xh" — o pull-to-refresh força a rede.
             const fetchedMs = catalogFetchedAt('live') ?? catalogFetchedAt('vod') ?? catalogFetchedAt('series')
@@ -301,6 +319,7 @@ export default function HomeTab() {
                     {because ? (
                         <PosterRail title={tf('becauseRail', { title: because.title })} items={because.items} onPress={openRailItem} />
                     ) : null}
+                    <ChannelRail title={t('praAgoraRail')} items={praAgora} onPress={item => void playChannel(item, praAgora)} />
                     <ChannelRail title={t('recentChannelsRail')} items={recentChannels} onPress={item => void playChannel(item, recentChannels)} />
                     <ChannelRail title={t('favChannelsRail')} items={favChannels} onPress={item => void playChannel(item, favChannels)} />
                     <PosterRail title={t('newMoviesRail')} items={newMovies} onPress={openRailItem} />

@@ -10,9 +10,12 @@ export interface Profile {
     id: string
     name: string
     color: string
+    /** PIN de 4 dígitos opcional — protege o perfil (ex.: o dos adultos). */
+    pin?: string
 }
 
 export const DEFAULT_PROFILE_ID = 'default'
+export const GUEST_PROFILE_ID = 'guest'
 export const PROFILE_COLORS = ['#7c5cff', '#e0564b', '#3d9e6b', '#d3893a', '#4a90d9', '#c74f9e']
 
 const LIST_KEY = 'neostream_profiles'
@@ -53,7 +56,12 @@ export async function listProfiles(): Promise<Profile[]> {
             ? parsed.filter((p): p is Profile => !!p && typeof (p as Profile).id === 'string' && typeof (p as Profile).name === 'string')
             : []
     } catch { /* só o padrão */ }
-    listCache = [{ id: DEFAULT_PROFILE_ID, name: '', color: PROFILE_COLORS[0] }, ...extras]
+    listCache = [
+        { id: DEFAULT_PROFILE_ID, name: '', color: PROFILE_COLORS[0] },
+        ...extras,
+        // Convidado sempre existe: efêmero, zerado a cada entrada.
+        { id: GUEST_PROFILE_ID, name: '', color: '#6b7280' },
+    ]
     return listCache
 }
 
@@ -61,9 +69,26 @@ export function activeProfileId(): string {
     return activeId
 }
 
+/** Convidado ativo? (recentes/buscas não são gravados). */
+export function isGuestProfile(): boolean {
+    return activeId === GUEST_PROFILE_ID
+}
+
+/** Apaga os dados do convidado — chamado ao ENTRAR nele (sessão sempre limpa). */
+async function wipeGuestData(): Promise<void> {
+    try {
+        await AsyncStorage.multiRemove([
+            'neostream_favorites', 'neostream_progress', 'neostream_watched',
+            'neostream_watchlist', 'neostream_usage', 'neostream_usage_titles', 'neostream_usage_months', 'neostream_usage_habits',
+        ].map(base => `${base}_p_${GUEST_PROFILE_ID}`))
+    } catch { /* best-effort */ }
+}
+
 /** Um boot com 2+ perfis pergunta "quem está assistindo?" uma vez. */
 export function shouldPickProfile(): boolean {
-    return !pickedThisSession && (listCache?.length ?? 1) > 1
+    // O convidado sempre existe — só perfis "de verdade" disparam a pergunta.
+    const real = (listCache ?? []).filter(profile => profile.id !== GUEST_PROFILE_ID).length
+    return !pickedThisSession && real > 1
 }
 
 export function markProfilePicked(): void {
@@ -73,6 +98,7 @@ export function markProfilePicked(): void {
 export async function switchProfile(id: string): Promise<void> {
     const profiles = await listProfiles()
     if (!profiles.some(profile => profile.id === id)) return
+    if (id === GUEST_PROFILE_ID) await wipeGuestData()
     activeId = id
     pickedThisSession = true
     try {
@@ -81,16 +107,19 @@ export async function switchProfile(id: string): Promise<void> {
     for (const reset of resetters) reset()
 }
 
-export async function addProfile(name: string): Promise<Profile | null> {
+export async function addProfile(name: string, pin?: string): Promise<Profile | null> {
     const clean = name.trim()
     if (!clean) return null
     const profiles = await listProfiles()
     const profile: Profile = {
         id: `p${Date.now().toString(36)}`,
         name: clean,
-        color: PROFILE_COLORS[profiles.length % PROFILE_COLORS.length],
+        color: PROFILE_COLORS[(profiles.length - 1) % PROFILE_COLORS.length],
+        pin: pin && /^\d{4}$/.test(pin) ? pin : undefined,
     }
-    listCache = [...profiles, profile]
+    // Convidado fica sempre no fim da lista.
+    listCache = [...profiles.filter(p => p.id !== GUEST_PROFILE_ID), profile,
+        ...profiles.filter(p => p.id === GUEST_PROFILE_ID)]
     await persistExtras()
     return profile
 }
@@ -113,7 +142,8 @@ export async function removeProfile(id: string): Promise<void> {
 
 async function persistExtras(): Promise<void> {
     try {
-        await AsyncStorage.setItem(LIST_KEY, JSON.stringify((listCache ?? []).filter(p => p.id !== DEFAULT_PROFILE_ID)))
+        await AsyncStorage.setItem(LIST_KEY, JSON.stringify(
+            (listCache ?? []).filter(p => p.id !== DEFAULT_PROFILE_ID && p.id !== GUEST_PROFILE_ID)))
     } catch { /* best-effort */ }
 }
 

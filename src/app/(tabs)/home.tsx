@@ -8,6 +8,7 @@ import AsyncStorage from '@react-native-async-storage/async-storage'
 import { checkNewEpisodes } from '../../services/newEpisodes'
 import { notifyNow } from '../../services/notify'
 import { listRecentChannels, recordRecentChannel } from '../../services/recents'
+import { checkRecurringReminders } from '../../services/recurring'
 import { loadParental } from '../../services/parental'
 import { guardedCategoryIds } from '../../services/kids'
 import { listContinue, loadProgress, removeEntry, type ProgressEntry } from '../../services/progress'
@@ -149,6 +150,8 @@ export default function HomeTab() {
                     id: c.id, name: c.name, cover: c.cover, container: c.container,
                 })),
             } : null)
+
+            void checkRecurringReminders()
 
             // "Atualizado há Xh" — o pull-to-refresh força a rede.
             const fetchedMs = catalogFetchedAt('live') ?? catalogFetchedAt('vod') ?? catalogFetchedAt('series')

@@ -14,11 +14,13 @@ import * as Sharing from 'expo-sharing'
 import { listAutoBackups, readAutoBackup, type AutoBackupFile } from '../../services/autoBackup'
 import { listErrors, type LoggedError } from '../../services/errorLog'
 import { cancelScheduled, listScheduled, type ScheduledReminder } from '../../services/notify'
+import { listRecurring, removeRecurring, type RecurringReminder } from '../../services/recurring'
+import { buildSetupLink } from '../../services/setupLink'
+import { getTmdbKey as readTmdbKey , getTmdbKey, setTmdbKey } from '../../services/tmdb'
 import { listHiddenChannels, unhideChannel, type HiddenChannel } from '../../services/hidden'
 import { applyBackup, collectBackup, parseBackup, serializeBackup } from '../../services/backup'
 import { disableParental, enableParental, isValidPin, loadParental } from '../../services/parental'
 import { isKidsMode, listKidsCategories, setKidsMode } from '../../services/kids'
-import { getTmdbKey, setTmdbKey } from '../../services/tmdb'
 import { runSpeedTest, type SpeedVerdict } from '../../services/speedtest'
 import { clearHistory } from '../../services/progress'
 import { checkForUpdate } from '../../services/updates'
@@ -68,6 +70,7 @@ export default function SettingsTab() {
     const [hiddenList, setHiddenList] = useState<HiddenChannel[]>([])
     const [errorList, setErrorList] = useState<LoggedError[]>([])
     const [reminders, setReminders] = useState<ScheduledReminder[]>([])
+    const [recurring, setRecurring] = useState<RecurringReminder[]>([])
     // Modo infantil: kidsGate cobre a tela até o PIN do parental liberar.
     const [kidsOn, setKidsOn] = useState(false)
     const [kidsGate, setKidsGate] = useState(false)
@@ -95,6 +98,7 @@ export default function SettingsTab() {
         void listHiddenChannels().then(setHiddenList)
         void listErrors().then(setErrorList)
         void listScheduled().then(setReminders)
+        void listRecurring().then(setRecurring)
         void getDownloadLimitGb().then(setDlLimit)
         void isDataSaverEnabled().then(setDataSaverState)
         void isWifiOnly().then(setWifiOnlyState)
@@ -603,7 +607,19 @@ export default function SettingsTab() {
 
             <Text style={styles.section}>{t('remindersSection')}</Text>
             <View style={[styles.card, { paddingVertical: spacing.md, gap: spacing.sm }]}>
-                {reminders.length === 0 ? (
+                {recurring.map(reminder => (
+                    <View key={`r${reminder.channelId}${reminder.title}`} style={styles.diagRow}>
+                        <Ionicons name="repeat-outline" size={16} color={colors.accent} />
+                        <Text style={styles.diagLabel} numberOfLines={1}>{reminder.title} · {reminder.channelName}</Text>
+                        <TvTouchable
+                            accessibilityLabel={t('cancel')}
+                            onPress={() => { void removeRecurring(reminder).then(setRecurring) }}
+                        >
+                            <Ionicons name="close-circle-outline" size={18} color={colors.danger} />
+                        </TvTouchable>
+                    </View>
+                ))}
+                {reminders.length === 0 && recurring.length === 0 ? (
                     <Text style={styles.parentalHint}>{t('remindersNone')}</Text>
                 ) : reminders.map(reminder => (
                     <View key={reminder.id} style={styles.diagRow}>
@@ -785,6 +801,24 @@ export default function SettingsTab() {
                 ))}
             </View>
 
+
+            <TvTouchable
+                style={[styles.backupBtn, { marginBottom: spacing.md }]}
+                onPress={() => {
+                    void (async () => {
+                        const link = buildSetupLink({
+                            accounts,
+                            activeId: active?.id ?? null,
+                            tmdbKey: (await readTmdbKey()) || undefined,
+                            prefs: { downloadLimitGb: dlLimit, dataSaver },
+                        })
+                        void Share.share({ message: link }).catch(() => undefined)
+                    })()
+                }}
+            >
+                <Ionicons name="qr-code-outline" size={16} color="#fff" />
+                <Text style={styles.backupBtnText}>{t('shareSetupBtn')}</Text>
+            </TvTouchable>
 
             <Text style={styles.section}>{t('secApis')}</Text>
             <View style={[styles.card, { paddingVertical: spacing.md, gap: spacing.md }]}>

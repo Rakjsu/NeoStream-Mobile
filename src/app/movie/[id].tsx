@@ -1,7 +1,8 @@
 import { Ionicons } from '@expo/vector-icons'
+import { Image } from 'expo-image'
 import { Stack, router, useLocalSearchParams } from 'expo-router'
 import { useEffect, useRef, useState } from 'react'
-import { Alert, Image, Linking, ScrollView, Share, StyleSheet, Text, TouchableOpacity, View } from 'react-native'
+import { Alert, Linking, ScrollView, Share, StyleSheet, Text, TouchableOpacity, View } from 'react-native'
 import { castAvailable, castToCurrentSession, onCastSessionStarted, showCastPicker } from '../../services/cast'
 import { activeProgress, getDownload, removeDownload, startDownload, subscribeDownloads } from '../../services/downloads'
 import { tapLight } from '../../services/haptics'
@@ -118,7 +119,7 @@ export default function MovieDetail() {
             <Stack.Screen options={{ title: '' }} />
             <View style={styles.hero}>
                 {coverUri ? (
-                    <Image source={{ uri: coverUri }} style={styles.cover} resizeMode="cover" />
+                    <Image source={{ uri: coverUri }} style={styles.cover} contentFit="cover" transition={120} />
                 ) : (
                     <View style={[styles.cover, styles.coverFallback]}>
                         <Ionicons name="film-outline" size={40} color={colors.textDim} />

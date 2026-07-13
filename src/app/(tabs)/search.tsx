@@ -1,16 +1,21 @@
 import { Ionicons } from '@expo/vector-icons'
+import { Image } from 'expo-image'
 import { router } from 'expo-router'
 import { useCallback, useEffect, useMemo, useState } from 'react'
-import { Image, ScrollView, StyleSheet, Text, TouchableOpacity, View } from 'react-native'
+import { Alert, ScrollView, StyleSheet, Text, TouchableOpacity, View } from 'react-native'
+import { loadFavorites } from '../../services/favorites'
+import { notifyAt } from '../../services/notify'
+import { hasCatchup } from '../../services/xtream'
+import { loadWatchlist, type WatchItem } from '../../services/watchlist'
 import { allowedCategoryIds, loadParental } from '../../services/parental'
 import { recordRecentChannel } from '../../services/recents'
 import { clearSearchTerms, listSearchTerms, recordSearchTerm } from '../../services/searchHistory'
 import { cachedFetch, getClient } from '../../services/session'
-import type { Category, LiveChannel, SeriesItem, VodMovie } from '../../services/xtream'
+import type { Category, EpgProgram, LiveChannel, SeriesItem, VodMovie } from '../../services/xtream'
 import { setZapContext } from '../../services/zap'
 import { EmptyState, Loading, SearchBar } from '../../ui/components'
 import { colors, spacing } from '../../ui/theme'
-import { t } from '../../i18n/strings'
+import { t, tf } from '../../i18n/strings'
 
 const MAX_PER_SECTION = 10
 
@@ -25,6 +30,15 @@ export default function SearchTab() {
     })
     const [error, setError] = useState('')
     const [history, setHistory] = useState<string[]>([])
+    const [watchlist, setWatchlist] = useState<WatchItem[]>([])
+    const [favLive, setFavLive] = useState<string[]>([])
+    const [guideHits, setGuideHits] = useState<{ channel: LiveChannel; program: EpgProgram }[]>([])
+    // Relógio congelado por render (regra react-hooks/purity).
+    const [nowMs, setNowMs] = useState(() => Date.now())
+    useEffect(() => {
+        const timer = setInterval(() => setNowMs(Date.now()), 60_000)
+        return () => clearInterval(timer)
+    }, [])
     // Filtros por tipo: todos ligados por padrão; um toque foca.
     const [kinds, setKinds] = useState({ channels: true, movies: true, series: true })
     const toggleKind = (key: keyof typeof kinds) => {
@@ -47,6 +61,8 @@ export default function SearchTab() {
             setChannels(live)
             setMovies(vod)
             setSeries(shows)
+            setWatchlist(await loadWatchlist())
+            setFavLive((await loadFavorites()).live)
             setAllowed({
                 live: allowedCategoryIds(liveCats, parental.enabled),
                 vod: allowedCategoryIds(vodCats, parental.enabled),
@@ -62,13 +78,57 @@ export default function SearchTab() {
     useEffect(() => { queueMicrotask(() => { void load(); void listSearchTerms().then(setHistory) }) }, [load])
 
     const q = query.trim().toLowerCase()
+
+    // "No guia hoje": procura o termo na grade dos canais FAVORITOS (até 8),
+    // com debounce — cada grade vem do cache SWR (day:<id>).
+    useEffect(() => {
+        if (q.length < 3 || !channels || favLive.length === 0) { queueMicrotask(() => setGuideHits([])); return }
+        const timer = setTimeout(() => {
+            void (async () => {
+                const client = await getClient()
+                if (!client?.getDaySchedule) return
+                const targets = channels.filter(c => favLive.includes(String(c.stream_id))).slice(0, 8)
+                const perChannel = await Promise.all(targets.map(async channel => {
+                    const id = String(channel.stream_id)
+                    const programs = await cachedFetch(`day:${id}`, async () => await client.getDaySchedule?.(id) ?? [])
+                        .catch(() => [] as EpgProgram[])
+                    return programs
+                        .filter(program => program.title.toLowerCase().includes(q))
+                        .map(program => ({ channel, program }))
+                }))
+                setGuideHits(perChannel.flat().slice(0, 10))
+            })()
+        }, 500)
+        return () => clearTimeout(timer)
+    }, [q, channels, favLive])
+
+    const pressGuideHit = (channel: LiveChannel, program: EpgProgram) => {
+        const now = nowMs
+        if (program.startMs <= now && now < program.endMs) { void playChannel(channel); return }
+        if (program.endMs <= now) {
+            void (async () => {
+                const client = await getClient()
+                if (!client?.catchupUrl || !hasCatchup(channel)) return
+                const durationMin = Math.max(1, Math.round((program.endMs - program.startMs) / 60_000))
+                const url = client.catchupUrl(String(channel.stream_id), program.startMs, durationMin, program.id)
+                if (url) router.push({ pathname: '/player', params: { url, title: `⏪ ${program.title}` } })
+            })()
+            return
+        }
+        void notifyAt(tf('remindNotif', { title: program.title }), channel.name, '/(tabs)/search', program.startMs)
+            .then(ok => { if (ok) Alert.alert(t('remindSet')) })
+    }
     const results = useMemo(() => {
-        if (!q || !channels) return { channels: [], movies: [], series: [] }
+        if (!q || !channels) return { channels: [], movies: [], series: [], watchlist: [] as WatchItem[] }
         const inSet = (set: Set<string> | null, categoryId?: string) =>
             !set || !categoryId || set.has(categoryId)
         return {
             channels: !kinds.channels ? [] : channels
                 .filter(c => c.name.toLowerCase().includes(q) && inSet(allowed.live, c.category_id))
+                .slice(0, MAX_PER_SECTION),
+            watchlist: watchlist
+                .filter(item => item.name.toLowerCase().includes(q)
+                    && ((item.kind === 'movie' && kinds.movies) || (item.kind === 'series' && kinds.series)))
                 .slice(0, MAX_PER_SECTION),
             movies: !kinds.movies ? [] : movies
                 .filter(m => m.name.toLowerCase().includes(q) && inSet(allowed.vod, m.category_id))
@@ -77,7 +137,7 @@ export default function SearchTab() {
                 .filter(s => s.name.toLowerCase().includes(q) && inSet(allowed.series, s.category_id))
                 .slice(0, MAX_PER_SECTION),
         }
-    }, [q, channels, movies, series, allowed, kinds])
+    }, [q, channels, movies, series, allowed, kinds, watchlist])
 
     const remember = () => {
         void recordSearchTerm(query).then(listSearchTerms).then(setHistory)
@@ -98,6 +158,7 @@ export default function SearchTab() {
     if (channels === null) return <Loading label={t('loadingCatalog')} />
 
     const total = results.channels.length + results.movies.length + results.series.length
+        + results.watchlist.length + guideHits.length
 
     return (
         <View style={styles.root}>
@@ -151,7 +212,7 @@ export default function SearchTab() {
                         {results.channels.map(channel => (
                             <TouchableOpacity key={`c${channel.stream_id}`} style={styles.row} onPress={() => void playChannel(channel)}>
                                 {channel.stream_icon ? (
-                                    <Image source={{ uri: channel.stream_icon }} style={styles.thumb} resizeMode="contain" />
+                                    <Image source={{ uri: channel.stream_icon }} style={styles.thumb} contentFit="contain" transition={120} />
                                 ) : (
                                     <View style={[styles.thumb, styles.thumbFallback]}>
                                         <Ionicons name="tv-outline" size={16} color={colors.textDim} />
@@ -161,6 +222,54 @@ export default function SearchTab() {
                                 <Ionicons name="play" size={16} color={colors.accent} />
                             </TouchableOpacity>
                         ))}
+
+                        {results.watchlist.length > 0 ? <Text style={styles.section}>{t('watchlistRail')}</Text> : null}
+                        {results.watchlist.map(item => (
+                            <TouchableOpacity
+                                key={`w${item.kind}${item.id}`}
+                                style={styles.row}
+                                onPress={() => {
+                                    remember()
+                                    if (item.kind === 'movie') {
+                                        router.push({
+                                            pathname: '/movie/[id]',
+                                            params: { id: item.id, name: item.name, cover: item.cover, container: item.container || 'mp4' },
+                                        })
+                                    } else {
+                                        router.push({ pathname: '/series/[id]', params: { id: item.id, name: item.name, cover: item.cover } })
+                                    }
+                                }}
+                            >
+                                <Ionicons name="bookmark" size={16} color={colors.accent} />
+                                <Text style={styles.name} numberOfLines={1}>{item.name}</Text>
+                                <Ionicons name="chevron-forward" size={16} color={colors.textDim} />
+                            </TouchableOpacity>
+                        ))}
+
+                        {guideHits.length > 0 ? <Text style={styles.section}>{t('secGuideHits')}</Text> : null}
+                        {guideHits.map(({ channel, program }) => {
+                            const time = new Date(program.startMs)
+                            const hhmm = `${String(time.getHours()).padStart(2, '0')}:${String(time.getMinutes()).padStart(2, '0')}`
+                            const liveNow = program.startMs <= nowMs && nowMs < program.endMs
+                            return (
+                                <TouchableOpacity
+                                    key={`g${channel.stream_id}${program.startMs}`}
+                                    style={styles.row}
+                                    onPress={() => pressGuideHit(channel, program)}
+                                >
+                                    <Ionicons
+                                        name={liveNow ? 'radio-outline' : program.endMs <= nowMs ? 'play-back-circle-outline' : 'alarm-outline'}
+                                        size={16}
+                                        color={liveNow ? colors.accent : colors.textDim}
+                                    />
+                                    <View style={{ flex: 1 }}>
+                                        <Text style={styles.name} numberOfLines={1}>{program.title}</Text>
+                                        <Text style={styles.guideMeta} numberOfLines={1}>{hhmm} · {channel.name}</Text>
+                                    </View>
+                                    <Ionicons name="chevron-forward" size={16} color={colors.textDim} />
+                                </TouchableOpacity>
+                            )
+                        })}
 
                         {results.movies.length > 0 ? <Text style={styles.section}>{t('secMovies')}</Text> : null}
                         {results.movies.map(movie => (
@@ -179,7 +288,7 @@ export default function SearchTab() {
                                 }}
                             >
                                 {movie.stream_icon ? (
-                                    <Image source={{ uri: movie.stream_icon }} style={styles.poster} resizeMode="cover" />
+                                    <Image source={{ uri: movie.stream_icon }} style={styles.poster} contentFit="cover" transition={120} />
                                 ) : (
                                     <View style={[styles.poster, styles.thumbFallback]}>
                                         <Ionicons name="film-outline" size={16} color={colors.textDim} />
@@ -204,7 +313,7 @@ export default function SearchTab() {
                                 }}
                             >
                                 {show.cover ? (
-                                    <Image source={{ uri: show.cover }} style={styles.poster} resizeMode="cover" />
+                                    <Image source={{ uri: show.cover }} style={styles.poster} contentFit="cover" transition={120} />
                                 ) : (
                                     <View style={[styles.poster, styles.thumbFallback]}>
                                         <Ionicons name="albums-outline" size={16} color={colors.textDim} />
@@ -245,6 +354,7 @@ const styles = StyleSheet.create({
     poster: { width: 30, height: 45, borderRadius: 4, backgroundColor: colors.card },
     thumbFallback: { alignItems: 'center', justifyContent: 'center' },
     name: { flex: 1, color: colors.text, fontSize: 14 },
+    guideMeta: { color: colors.textDim, fontSize: 12 },
     historyBox: { paddingBottom: spacing.lg },
     kindRow: { flexDirection: 'row', gap: spacing.sm, paddingHorizontal: spacing.lg, paddingBottom: spacing.sm },
     kindChip: {

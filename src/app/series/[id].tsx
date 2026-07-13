@@ -1,7 +1,8 @@
 import { Ionicons } from '@expo/vector-icons'
+import { Image } from 'expo-image'
 import { Stack, router, useFocusEffect, useLocalSearchParams } from 'expo-router'
 import { useCallback, useEffect, useState } from 'react'
-import { Alert, Image, SectionList, Share, StyleSheet, Text, TouchableOpacity, View } from 'react-native'
+import { Alert, SectionList, Share, StyleSheet, Text, TouchableOpacity, View } from 'react-native'
 import { castAvailable, castToCurrentSession, showCastPicker } from '../../services/cast'
 import { activeProgress, enqueueDownloads, listActiveDownloads, listDownloads, listQueuedIds, removeDownload, startDownload, subscribeDownloads, type DownloadRequest } from '../../services/downloads'
 import { tapLight } from '../../services/haptics'
@@ -212,7 +213,7 @@ export default function SeriesDetail() {
         <View style={styles.header}>
             <View style={styles.hero}>
                 {headerCover ? (
-                    <Image source={{ uri: headerCover }} style={styles.cover} resizeMode="cover" />
+                    <Image source={{ uri: headerCover }} style={styles.cover} contentFit="cover" transition={120} />
                 ) : (
                     <View style={[styles.cover, styles.coverFallback]}>
                         <Ionicons name="albums-outline" size={32} color={colors.textDim} />

@@ -32,6 +32,13 @@ export async function recordSearchTerm(term: string): Promise<void> {
     } catch { /* best-effort */ }
 }
 
+/** Restauração de backup. */
+export async function restoreSearchTerms(terms: string[]): Promise<void> {
+    try {
+        await AsyncStorage.setItem(STORAGE_KEY, JSON.stringify(Array.isArray(terms) ? terms.slice(0, MAX_TERMS) : []))
+    } catch { /* best-effort */ }
+}
+
 export async function clearSearchTerms(): Promise<void> {
     try {
         await AsyncStorage.removeItem(STORAGE_KEY)

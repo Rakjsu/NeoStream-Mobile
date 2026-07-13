@@ -1,8 +1,6 @@
 import { Ionicons } from '@expo/vector-icons'
-import {
-    ActivityIndicator, FlatList, Image, ScrollView, StyleSheet,
-    Text, TextInput, TouchableOpacity, View,
-} from 'react-native'
+import { Image } from 'expo-image'
+import { ActivityIndicator, FlatList, ScrollView, StyleSheet, Text, TextInput, TouchableOpacity, View } from 'react-native'
 import type { ProgressEntry } from '../services/progress'
 import { progressPct } from '../services/progress'
 import type { Category } from '../services/xtream'
@@ -94,7 +92,7 @@ export function PosterCard({ name, cover, fav, selected }: { name: string; cover
                 </View>
             ) : null}
             {cover && !skipImages() ? (
-                <Image source={{ uri: cover }} style={styles.posterImg} resizeMode="cover" />
+                <Image source={{ uri: cover }} style={styles.posterImg} contentFit="cover" transition={120} />
             ) : (
                 <View style={[styles.posterImg, styles.posterFallback]}>
                     <Ionicons name="film-outline" size={28} color={colors.textDim} />
@@ -174,7 +172,7 @@ export function ContinueRail({ entries, onPlay, onRemove }: {
                         delayLongPress={350}
                     >
                         {item.cover && !skipImages() ? (
-                            <Image source={{ uri: item.cover }} style={styles.railImg} resizeMode="cover" />
+                            <Image source={{ uri: item.cover }} style={styles.railImg} contentFit="cover" transition={120} />
                         ) : (
                             <View style={[styles.railImg, styles.posterFallback]}>
                                 <Ionicons name="play" size={22} color={colors.textDim} />
@@ -221,7 +219,7 @@ export function PosterRail({ title, items, onPress }: {
                 renderItem={({ item }) => (
                     <TouchableOpacity style={styles.posterRailCard} onPress={() => onPress(item)}>
                         {item.cover && !skipImages() ? (
-                            <Image source={{ uri: item.cover }} style={styles.posterRailImg} resizeMode="cover" />
+                            <Image source={{ uri: item.cover }} style={styles.posterRailImg} contentFit="cover" transition={120} />
                         ) : (
                             <View style={[styles.posterRailImg, styles.posterFallback]}>
                                 <Ionicons name={item.kind === 'series' ? 'albums-outline' : 'film-outline'} size={22} color={colors.textDim} />
@@ -254,7 +252,7 @@ export function ChannelRail({ title, items, onPress }: {
                 renderItem={({ item }) => (
                     <TouchableOpacity style={styles.chRailCard} onPress={() => onPress(item)}>
                         {item.logo && !skipImages() ? (
-                            <Image source={{ uri: item.logo }} style={styles.chRailLogo} resizeMode="contain" />
+                            <Image source={{ uri: item.logo }} style={styles.chRailLogo} contentFit="contain" transition={120} />
                         ) : (
                             <View style={[styles.chRailLogo, styles.posterFallback]}>
                                 <Ionicons name="tv-outline" size={20} color={colors.textDim} />

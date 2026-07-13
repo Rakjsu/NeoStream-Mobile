@@ -56,6 +56,11 @@ export function zapList(): ZapChannel[] {
     return list
 }
 
+/** Canal atual do contexto (null sem contexto). */
+export function currentZapChannel(): ZapChannel | null {
+    return index >= 0 ? list[index] ?? null : null
+}
+
 /** Canal na posição `n` (1-based, como número de canal de TV); null fora. */
 export function zapToNumber(n: number): ZapChannel | null {
     if (!Number.isInteger(n) || n < 1 || n > list.length) return null

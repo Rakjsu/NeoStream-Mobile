@@ -3,6 +3,7 @@
  * PURO (testável); load/save tocam o AsyncStorage.
  */
 import AsyncStorage from '@react-native-async-storage/async-storage'
+import { onProfileSwitch, profileKey } from './profiles'
 
 export type FavoriteKind = 'live' | 'movie' | 'series'
 
@@ -32,7 +33,7 @@ let cache: Favorites | null = null
 export async function loadFavorites(): Promise<Favorites> {
     if (cache) return cache
     try {
-        const raw = await AsyncStorage.getItem(STORAGE_KEY)
+        const raw = await AsyncStorage.getItem(profileKey(STORAGE_KEY))
         const parsed = raw ? (JSON.parse(raw) as Partial<Favorites>) : null
         cache = { ...emptyFavorites(), ...(parsed && typeof parsed === 'object' ? parsed : {}) }
     } catch {
@@ -45,7 +46,7 @@ export async function persistToggle(kind: FavoriteKind, id: string): Promise<Fav
     const current = await loadFavorites()
     cache = toggleFavorite(current, kind, id)
     try {
-        await AsyncStorage.setItem(STORAGE_KEY, JSON.stringify(cache))
+        await AsyncStorage.setItem(profileKey(STORAGE_KEY), JSON.stringify(cache))
     } catch { /* best-effort */ }
     return cache
 }
@@ -59,7 +60,7 @@ export async function restoreFavorites(favorites: Favorites): Promise<void> {
     }
     cache = clean
     try {
-        await AsyncStorage.setItem(STORAGE_KEY, JSON.stringify(clean))
+        await AsyncStorage.setItem(profileKey(STORAGE_KEY), JSON.stringify(clean))
     } catch { /* best-effort */ }
 }
 
@@ -67,3 +68,6 @@ export async function restoreFavorites(favorites: Favorites): Promise<void> {
 export function resetFavoritesCache(): void {
     cache = null
 }
+
+// Favoritos são por perfil — trocar de perfil zera o cache.
+onProfileSwitch(resetFavoritesCache)

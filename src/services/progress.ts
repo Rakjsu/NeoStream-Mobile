@@ -4,6 +4,7 @@
  * AsyncStorage. Espelha o conceito do watchProgress do NeoStream desktop.
  */
 import AsyncStorage from '@react-native-async-storage/async-storage'
+import { onProfileSwitch, profileKey } from './profiles'
 
 export type ProgressKind = 'movie' | 'episode'
 
@@ -110,7 +111,7 @@ let cache: Record<string, ProgressEntry> | null = null
 export async function loadProgress(): Promise<Record<string, ProgressEntry>> {
     if (cache) return cache
     try {
-        const raw = await AsyncStorage.getItem(STORAGE_KEY)
+        const raw = await AsyncStorage.getItem(profileKey(STORAGE_KEY))
         const parsed = raw ? (JSON.parse(raw) as Record<string, ProgressEntry>) : {}
         cache = parsed && typeof parsed === 'object' ? parsed : {}
     } catch {
@@ -125,7 +126,7 @@ export async function saveSample(entry: ProgressEntry): Promise<void> {
     if (isFinished(entry.position, entry.duration)) await markWatched(entry.id)
     cache = applySample(map, entry)
     try {
-        await AsyncStorage.setItem(STORAGE_KEY, JSON.stringify(cache))
+        await AsyncStorage.setItem(profileKey(STORAGE_KEY), JSON.stringify(cache))
     } catch { /* melhor perder uma amostra que travar o player */ }
 }
 
@@ -139,7 +140,7 @@ export async function removeEntry(id: string): Promise<void> {
     cache = { ...map }
     delete cache[id]
     try {
-        await AsyncStorage.setItem(STORAGE_KEY, JSON.stringify(cache))
+        await AsyncStorage.setItem(profileKey(STORAGE_KEY), JSON.stringify(cache))
     } catch { /* best-effort */ }
 }
 
@@ -151,7 +152,7 @@ let watchedCache: Set<string> | null = null
 export async function loadWatched(): Promise<Set<string>> {
     if (watchedCache) return watchedCache
     try {
-        const raw = await AsyncStorage.getItem(WATCHED_KEY)
+        const raw = await AsyncStorage.getItem(profileKey(WATCHED_KEY))
         const parsed = raw ? (JSON.parse(raw) as unknown) : []
         watchedCache = new Set(Array.isArray(parsed) ? parsed.filter((x): x is string => typeof x === 'string') : [])
     } catch {
@@ -165,7 +166,7 @@ export async function markWatched(id: string): Promise<void> {
     if (set.has(id)) return
     set.add(id)
     try {
-        await AsyncStorage.setItem(WATCHED_KEY, JSON.stringify([...set]))
+        await AsyncStorage.setItem(profileKey(WATCHED_KEY), JSON.stringify([...set]))
     } catch { /* best-effort */ }
 }
 
@@ -173,7 +174,7 @@ export async function unmarkWatched(id: string): Promise<void> {
     const set = await loadWatched()
     if (!set.delete(id)) return
     try {
-        await AsyncStorage.setItem(WATCHED_KEY, JSON.stringify([...set]))
+        await AsyncStorage.setItem(profileKey(WATCHED_KEY), JSON.stringify([...set]))
     } catch { /* best-effort */ }
 }
 
@@ -182,8 +183,8 @@ export async function clearHistory(): Promise<void> {
     cache = {}
     watchedCache = new Set()
     try {
-        await AsyncStorage.setItem(STORAGE_KEY, '{}')
-        await AsyncStorage.setItem(WATCHED_KEY, '[]')
+        await AsyncStorage.setItem(profileKey(STORAGE_KEY), '{}')
+        await AsyncStorage.setItem(profileKey(WATCHED_KEY), '[]')
     } catch { /* best-effort */ }
 }
 
@@ -192,12 +193,15 @@ export async function restoreProgress(map: Record<string, ProgressEntry>, watche
     cache = map && typeof map === 'object' ? map : {}
     watchedCache = new Set(Array.isArray(watched) ? watched.filter((x): x is string => typeof x === 'string') : [])
     try {
-        await AsyncStorage.setItem(STORAGE_KEY, JSON.stringify(cache))
-        await AsyncStorage.setItem(WATCHED_KEY, JSON.stringify([...watchedCache]))
+        await AsyncStorage.setItem(profileKey(STORAGE_KEY), JSON.stringify(cache))
+        await AsyncStorage.setItem(profileKey(WATCHED_KEY), JSON.stringify([...watchedCache]))
     } catch { /* best-effort */ }
 }
 
 /** Só pra testes/logout. */
+// Progresso e vistos são por perfil — trocar de perfil zera os caches.
+onProfileSwitch(() => resetProgressCache())
+
 export function resetProgressCache(): void {
     cache = null
     watchedCache = null

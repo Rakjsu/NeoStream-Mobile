@@ -25,6 +25,15 @@ export default function TabsLayout() {
                 options={{
                     title: t('tabHome'),
                     tabBarIcon: ({ color, size }) => <Ionicons name="home" size={size} color={color} />,
+                    headerLeft: () => (
+                        <TouchableOpacity
+                            style={{ paddingHorizontal: 16 }}
+                            accessibilityLabel={t('profilesTitle')}
+                            onPress={() => router.push('/profiles')}
+                        >
+                            <Ionicons name="person-circle-outline" size={24} color={colors.text} />
+                        </TouchableOpacity>
+                    ),
                     headerRight: () => (
                         <TouchableOpacity onPress={() => router.push('/downloads')} style={{ paddingHorizontal: 16 }}>
                             <Ionicons name="cloud-download-outline" size={22} color={colors.text} />

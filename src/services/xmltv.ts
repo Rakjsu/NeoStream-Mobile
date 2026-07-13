@@ -5,7 +5,7 @@
  * "agora" e o "a seguir" de cada canal — nada da grade inteira fica em
  * memória, então aguenta arquivos grandes sem explodir o aparelho.
  */
-import type { NowNext } from './xtream'
+import type { EpgProgram, NowNext } from './xtream'
 
 /** `20260711123000 +0000` (ou sem fuso → UTC) → epoch ms; NaN se inválido. */
 export function parseXmltvDate(value: string): number {
@@ -32,9 +32,14 @@ export function normalizeChannelName(name: string): string {
 export interface XmltvGuide {
     /** id do canal no XMLTV → agora/a seguir. */
     byChannelId: Map<string, NowNext>
+    /** id do canal → grade (12h atrás a 24h à frente, teto por canal). */
+    scheduleByChannelId: Map<string, EpgProgram[]>
     /** nome normalizado (display-name) → id, pro fallback quando falta tvg-id. */
     idByName: Map<string, string>
 }
+
+/** Teto de programas guardados por canal — grade cabe na memória do celular. */
+const MAX_SCHEDULE_PER_CHANNEL = 100
 
 interface Candidate {
     title: string
@@ -77,9 +82,11 @@ export function parseXmltv(xml: string, nowMs: number): XmltvGuide {
         }
     }
 
+    const pastLimit = nowMs - 12 * 3600_000
     const horizon = nowMs + 24 * 3600_000
     const nowBy = new Map<string, Candidate>()
     const nextBy = new Map<string, Candidate>()
+    const scheduleByChannelId = new Map<string, EpgProgram[]>()
     for (const match of xml.matchAll(PROGRAMME_RE)) {
         const attrs = match[1]
         const channel = attribute(attrs, 'channel')
@@ -87,10 +94,16 @@ export function parseXmltv(xml: string, nowMs: number): XmltvGuide {
         const startMs = parseXmltvDate(attribute(attrs, 'start'))
         const endMs = parseXmltvDate(attribute(attrs, 'stop'))
         if (!Number.isFinite(startMs) || !Number.isFinite(endMs)) continue
-        if (endMs <= nowMs || startMs > horizon) continue
+        if (endMs <= pastLimit || startMs > horizon) continue
         const title = unescapeXml(/<title[^>]*>([^<]*)<\/title>/.exec(match[2])?.[1]?.trim() ?? '')
         if (!title) continue
         const candidate: Candidate = { title, startMs, endMs }
+        const schedule = scheduleByChannelId.get(channel) ?? []
+        if (schedule.length < MAX_SCHEDULE_PER_CHANNEL) {
+            schedule.push(candidate)
+            scheduleByChannelId.set(channel, schedule)
+        }
+        if (endMs <= nowMs) continue // já encerrou: só vale pra grade (replay)
         if (startMs <= nowMs) {
             // Passando agora — em caso de sobreposição, ganha o que começou depois.
             const current = nowBy.get(channel)
@@ -105,7 +118,8 @@ export function parseXmltv(xml: string, nowMs: number): XmltvGuide {
     for (const id of new Set([...nowBy.keys(), ...nextBy.keys()])) {
         byChannelId.set(id, { now: nowBy.get(id) ?? null, next: nextBy.get(id) ?? null })
     }
-    return { byChannelId, idByName }
+    for (const schedule of scheduleByChannelId.values()) schedule.sort((a, b) => a.startMs - b.startMs)
+    return { byChannelId, scheduleByChannelId, idByName }
 }
 
 /** Agora/a seguir de um canal — tenta o tvg-id, depois o nome. */
@@ -114,4 +128,12 @@ export function lookupNowNext(guide: XmltvGuide, tvgId: string, channelName: str
     if (direct) return direct
     const id = guide.idByName.get(normalizeChannelName(channelName))
     return (id && guide.byChannelId.get(id)) || { now: null, next: null }
+}
+
+/** Grade do dia de um canal — mesma resolução tvg-id → nome. */
+export function lookupDaySchedule(guide: XmltvGuide, tvgId: string, channelName: string): EpgProgram[] {
+    const direct = tvgId ? guide.scheduleByChannelId.get(tvgId) : undefined
+    if (direct) return direct
+    const id = guide.idByName.get(normalizeChannelName(channelName))
+    return (id && guide.scheduleByChannelId.get(id)) || []
 }

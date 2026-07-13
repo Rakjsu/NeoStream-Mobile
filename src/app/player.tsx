@@ -4,7 +4,7 @@ import { useKeepAwake } from 'expo-keep-awake'
 import { router, useLocalSearchParams } from 'expo-router'
 import { useVideoPlayer, VideoView, type AudioTrack, type SubtitleTrack } from 'expo-video'
 import { useEffect, useRef, useState } from 'react'
-import { FlatList, PanResponder, Platform, StyleSheet, Text, TextInput, View } from 'react-native'
+import { Alert, FlatList, PanResponder, Platform, StyleSheet, Text, TextInput, View } from 'react-native'
 import { useSafeAreaInsets } from 'react-native-safe-area-context'
 import { StatusBar } from 'expo-status-bar'
 import * as Brightness from 'expo-brightness'
@@ -154,6 +154,15 @@ export default function Player() {
 
     // REC: despeja o stream .ts em disco até o stop (vira item offline).
     const [recording, setRecording] = useState(recordingTitle() !== null)
+    const beginRecording = (autoStopMs?: number) => {
+        void (async () => {
+            if (!canRecordUrl(source)) { showTrackToast(t('recFail')); return }
+            const ok = await startRecording(source, liveTitle || String(title ?? ''), autoStopMs)
+            setRecording(ok)
+            showTrackToast(ok ? t('recStart') : t('recFail'))
+        })()
+    }
+
     const toggleRecording = () => {
         void (async () => {
             if (recording || recordingTitle()) {
@@ -162,11 +171,33 @@ export default function Player() {
                 showTrackToast(saved ? t('recSaved') : t('recFail'))
                 return
             }
-            if (!canRecordUrl(source)) { showTrackToast(t('recFail')); return }
-            const ok = await startRecording(source, liveTitle || String(title ?? ''))
-            setRecording(ok)
-            showTrackToast(ok ? t('recStart') : t('recFail'))
+            beginRecording()
         })()
+    }
+
+    /** Long-press no ⏺: escolher a duração (X min ou fim do programa via EPG). */
+    const pickRecordingDuration = () => {
+        if (recording || recordingTitle()) return
+        Alert.alert(t('recAutoTitle'), '', [
+            { text: t('recManual'), onPress: () => beginRecording() },
+            { text: '30 min', onPress: () => beginRecording(30 * 60_000) },
+            { text: '60 min', onPress: () => beginRecording(60 * 60_000) },
+            {
+                text: t('recUntilEnd'),
+                onPress: () => {
+                    void (async () => {
+                        const channel = currentZapChannel()
+                        const client = await getClient()
+                        const nowNext = channel && client
+                            ? await cachedFetch(`epg:${channel.id}`, () => client.getShortEpg(channel.id)).catch(() => null)
+                            : null
+                        const endMs = nowNext?.now?.endMs
+                        beginRecording(endMs && endMs > Date.now() ? endMs - Date.now() : undefined)
+                    })()
+                },
+            },
+            { text: t('cancel'), style: 'cancel' },
+        ])
     }
 
     // Resgate ao vivo: erro num canal Xtream → tenta .ts↔.m3u8 UMA vez.
@@ -705,7 +736,13 @@ export default function Player() {
                     ) : null}
                 </View>
                 {live === '1' ? (
-                    <TvTouchable style={styles.trackBtn} accessibilityLabel={t('a11yRec')} onPress={toggleRecording}>
+                    <TvTouchable
+                        style={styles.trackBtn}
+                        accessibilityLabel={t('a11yRec')}
+                        onPress={toggleRecording}
+                        onLongPress={pickRecordingDuration}
+                        delayLongPress={400}
+                    >
                         <Ionicons
                             name={recording ? 'stop-circle' : 'radio-button-on'}
                             size={20}

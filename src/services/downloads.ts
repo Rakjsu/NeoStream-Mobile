@@ -48,19 +48,24 @@ export interface DownloadGroup {
  * Agrupa pra tela: episódios pela série (título "Série · Ep"), filmes num
  * grupo próprio no fim (PURO). Grupos na ordem do download mais recente.
  */
-export function groupDownloads(items: DownloadItem[], moviesTitle: string): DownloadGroup[] {
+export function groupDownloads(items: DownloadItem[], moviesTitle: string, recsTitle = '⏺'): DownloadGroup[] {
     const groups = new Map<string, DownloadGroup>()
     for (const item of items) {
-        const isEpisode = item.id.startsWith('episode:')
-        const key = isEpisode ? (item.title.split(' · ')[0] || moviesTitle) : moviesTitle
+        const key = item.id.startsWith('rec:') ? recsTitle
+            : item.id.startsWith('episode:') ? (item.title.split(' · ')[0] || moviesTitle)
+                : moviesTitle
         const group = groups.get(key) ?? { title: key, bytes: 0, data: [] }
         group.bytes += item.sizeBytes
         group.data.push(item)
         groups.set(key, group)
     }
-    // Filmes sempre por último; o resto na ordem de inserção (mais recente 1º).
+    // Gravações primeiro, filmes por último; o resto na ordem de inserção.
     const list = [...groups.values()]
-    return [...list.filter(g => g.title !== moviesTitle), ...list.filter(g => g.title === moviesTitle)]
+    return [
+        ...list.filter(g => g.title === recsTitle),
+        ...list.filter(g => g.title !== moviesTitle && g.title !== recsTitle),
+        ...list.filter(g => g.title === moviesTitle),
+    ]
 }
 
 /**
@@ -437,6 +442,18 @@ export async function cancelDownload(id: string): Promise<void> {
     await entry.task.cancelAsync().catch(() => undefined)
     entry.wake?.() // download pausado precisa acordar pra morrer
     active.delete(id)
+    notify()
+}
+
+/** Renomeia um item (gravações: "rec_..." vira "Final do campeonato"). */
+export async function renameDownload(id: string, title: string): Promise<void> {
+    const map = await loadRegistry()
+    const item = map[id]
+    const clean = title.trim()
+    if (!item || !clean) return
+    map[id] = { ...item, title: clean }
+    registry = map
+    await persistRegistry()
     notify()
 }
 

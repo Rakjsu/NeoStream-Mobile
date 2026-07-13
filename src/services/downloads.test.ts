@@ -59,15 +59,16 @@ describe('groupDownloads', () => {
     const dl = (id: string, title: string, mb: number, at: number) =>
         ({ id, title, cover: '', container: 'mp4', fileUri: id, sizeBytes: mb, downloadedAt: at })
 
-    it('episódios agrupam pela série; filmes vão pro fim', () => {
+    it('gravações primeiro, episódios pela série, filmes no fim', () => {
         const groups = groupDownloads([
             dl('movie:1', 'Matrix', 700, 3),
             dl('episode:10', 'Dark · Ep 1', 300, 2),
             dl('episode:11', 'Dark · Ep 2', 300, 1),
-        ], 'Filmes')
-        expect(groups.map(g => g.title)).toEqual(['Dark', 'Filmes'])
-        expect(groups[0].bytes).toBe(600)
-        expect(groups[0].data).toHaveLength(2)
+            dl('rec:99', '⏺ Jogo', 900, 4),
+        ], 'Filmes', 'Gravações')
+        expect(groups.map(g => g.title)).toEqual(['Gravações', 'Dark', 'Filmes'])
+        expect(groups[1].bytes).toBe(600)
+        expect(groups[1].data).toHaveLength(2)
     })
 
     it('lista vazia → sem grupos', () => {

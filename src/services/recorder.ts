@@ -9,6 +9,7 @@ import { addLocalDownload } from './downloads'
 const DIR = `${FileSystem.documentDirectory}downloads/`
 
 interface ActiveRecording {
+    autoStop?: ReturnType<typeof setTimeout>
     task?: FileSystem.DownloadResumable
     /** Gravação HLS: chamar pra parar o loop de segmentos. */
     stopHls?: () => void
@@ -76,7 +77,7 @@ async function runHlsLoop(url: string, fileUri: string, isStopped: () => boolean
     }
 }
 
-export async function startRecording(url: string, title: string): Promise<boolean> {
+export async function startRecording(url: string, title: string, autoStopMs?: number): Promise<boolean> {
     if (current || !canRecordUrl(url)) return false
     await FileSystem.makeDirectoryAsync(DIR, { intermediates: true }).catch(() => undefined)
     const startedAt = Date.now()
@@ -85,6 +86,7 @@ export async function startRecording(url: string, title: string): Promise<boolea
         let stopped = false
         try {
             current = { stopHls: () => { stopped = true }, title, fileUri, startedAt }
+            armAutoStop(autoStopMs)
             void runHlsLoop(url, fileUri, () => stopped).catch(() => { stopped = true })
             return true
         } catch {
@@ -94,15 +96,23 @@ export async function startRecording(url: string, title: string): Promise<boolea
     }
     const task = FileSystem.createDownloadResumable(url, fileUri)
     current = { task, title, fileUri, startedAt }
+    armAutoStop(autoStopMs)
     // O downloadAsync só "termina" quando o stop pausar — erro real limpa tudo.
     void task.downloadAsync().catch(() => undefined)
     return true
 }
 
+/** Auto-stop: "gravar por X" / "até o fim do programa" param sozinhos. */
+function armAutoStop(ms?: number): void {
+    if (!current || !ms || ms <= 0) return
+    current.autoStop = setTimeout(() => { void stopRecording() }, ms)
+}
+
 /** Para e registra a gravação nos Downloads (null = não estava gravando). */
 export async function stopRecording(): Promise<string | null> {
     if (!current) return null
-    const { task, stopHls, title, fileUri, startedAt } = current
+    const { task, stopHls, title, fileUri, startedAt, autoStop } = current
+    if (autoStop) clearTimeout(autoStop)
     current = null
     stopHls?.()
     await task?.pauseAsync().catch(() => undefined)

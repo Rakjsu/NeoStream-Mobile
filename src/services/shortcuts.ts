@@ -27,15 +27,42 @@ try {
     api = null // Expo Go / plataforma sem suporte
 }
 
+/** Itens padrão + (opcional) o "Continuar {título}" dinâmico na frente. */
+function buildItems(continueItem?: QuickAction): QuickAction[] {
+    return [
+        continueItem ?? { id: 'continue', title: t('continueRail'), params: { href: '/(tabs)/home' } },
+        { id: 'live', title: t('tabLive'), params: { href: '/(tabs)/live' } },
+        { id: 'downloads', title: t('downloadsTitle'), params: { href: '/downloads' } },
+    ]
+}
+
+/**
+ * Atualiza o atalho "Continuar" com o último assistido: filme abre a ficha
+ * (com botão de retomar), episódio abre o Início (rail Continuar no topo).
+ */
+export function updateContinueShortcut(entry: {
+    kind: string; streamId: string; title: string; container: string; cover: string
+} | null): void {
+    if (!api) return
+    const dynamic: QuickAction | undefined = entry ? {
+        id: 'continue',
+        title: `▶ ${entry.title}`,
+        params: {
+            href: entry.kind === 'movie'
+                ? `/movie/${entry.streamId}?name=${encodeURIComponent(entry.title)}&container=${encodeURIComponent(entry.container || 'mp4')}&cover=${encodeURIComponent(entry.cover || '')}`
+                : '/(tabs)/home',
+        },
+    } : undefined
+    try {
+        void api.setItems(buildItems(dynamic)).catch(() => undefined)
+    } catch { /* best-effort */ }
+}
+
 /** Registra os atalhos e roteia o toque (inclusive o que abriu o app frio). */
 export function setupShortcuts(onRoute: (href: string) => void): () => void {
     if (!api) return () => undefined
     try {
-        void api.setItems([
-            { id: 'continue', title: t('continueRail'), params: { href: '/(tabs)/home' } },
-            { id: 'live', title: t('tabLive'), params: { href: '/(tabs)/live' } },
-            { id: 'downloads', title: t('downloadsTitle'), params: { href: '/downloads' } },
-        ]).catch(() => undefined)
+        void api.setItems(buildItems()).catch(() => undefined)
         const route = (action: QuickAction | null) => {
             const href = action?.params?.href
             if (typeof href === 'string' && href) onRoute(href)

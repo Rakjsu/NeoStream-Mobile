@@ -15,6 +15,7 @@ import { loadWatchlist } from '../../services/watchlist'
 import { accountLabel, cachedFetch, catalogFetchedAt, getClient, loadAccount } from '../../services/session'
 import { daysUntil, parseExpiry } from '../../services/xtream'
 import type { Category, SeriesItem, VodMovie } from '../../services/xtream'
+import { updateContinueShortcut } from '../../services/shortcuts'
 import { setZapContext } from '../../services/zap'
 import { dayKey, formatMinutes, loadTitleUsage, topTitles } from '../../services/usage'
 import { checkForUpdate, type UpdateInfo } from '../../services/updates'
@@ -72,7 +73,14 @@ export default function HomeTab() {
             const visibleVod = vod.filter(m => pass(allowedVod, m.category_id))
             const visibleShows = shows.filter(s => pass(allowedSeries, s.category_id))
 
-            setContinueList(listContinue(progress).slice(0, RAIL_MAX))
+            const continueEntries = listContinue(progress)
+            setContinueList(continueEntries.slice(0, RAIL_MAX))
+            // O long-press no ícone do app ganha "▶ Continuar {último}".
+            const latest = continueEntries[0]
+            updateContinueShortcut(latest ? {
+                kind: latest.kind, streamId: latest.streamId, title: latest.title,
+                container: latest.container, cover: latest.cover,
+            } : null)
 
             const watchlist = await loadWatchlist()
             setWatchRail(watchlist.slice(0, RAIL_MAX).map(item => ({

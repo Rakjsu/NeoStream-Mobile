@@ -4,7 +4,8 @@ import { useCallback, useEffect, useMemo, useState } from 'react'
 import { Alert, FlatList, RefreshControl, StyleSheet, Text, TouchableOpacity, useWindowDimensions, View } from 'react-native'
 import { emptyFavorites, isFavorite, loadFavorites, persistToggle, type Favorites } from '../../services/favorites'
 import { listContinue, loadProgress, removeEntry, type ProgressEntry } from '../../services/progress'
-import { allowedCategoryIds, loadParental } from '../../services/parental'
+import { loadParental } from '../../services/parental'
+import { guardedCategoryIds } from '../../services/kids'
 import { cachedFetch, getClient } from '../../services/session'
 import type { Category, SeriesItem } from '../../services/xtream'
 import { CategoryChips, ContinueRail, EmptyState, Loading, PosterCard, SearchBar, TvTouchable } from '../../ui/components'
@@ -61,7 +62,7 @@ export default function SeriesTab() {
             setSeries(list)
             setCategories(cats)
             setFavorites(favs)
-            setAllowed(allowedCategoryIds(cats, parental.enabled))
+            setAllowed(await guardedCategoryIds(cats, parental.enabled))
             setError('')
         } catch (err) {
             setError(err instanceof Error ? err.message : t('failSeries'))

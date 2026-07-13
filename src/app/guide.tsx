@@ -4,7 +4,8 @@ import { useCallback, useEffect, useRef, useState } from 'react'
 import { Alert, FlatList, ScrollView, StyleSheet, Text, View, type ViewToken } from 'react-native'
 import { loadFavorites } from '../services/favorites'
 import { hiddenIdSet } from '../services/hidden'
-import { allowedCategoryIds, loadParental } from '../services/parental'
+import { loadParental } from '../services/parental'
+import { guardedCategoryIds } from '../services/kids'
 import { listRecentChannels, recordRecentChannel } from '../services/recents'
 import { notifyAt } from '../services/notify'
 import { cachedFetch, getClient } from '../services/session'
@@ -78,7 +79,7 @@ export default function Guide() {
                     listRecentChannels(),
                     hiddenIdSet(),
                 ])
-                const allowed = allowedCategoryIds(liveCats, parental.enabled)
+                const allowed = await guardedCategoryIds(liveCats, parental.enabled)
                 const visible = live.filter(channel =>
                     !hidden.has(String(channel.stream_id))
                     && (!allowed || !channel.category_id || allowed.has(channel.category_id)))
@@ -152,6 +153,25 @@ export default function Guide() {
         remind(channel, program)
     }
 
+    /** Salta a régua pra um horário (clampado na janela do guia). */
+    const jumpTo = (targetMs: number) => {
+        const x = ((targetMs - baseMs) / 60_000) * PX_PER_MIN
+        scrollRef.current?.scrollTo({ x: Math.max(0, Math.min(x - 60, TIMELINE_W - 200)), animated: true })
+    }
+
+    // Alvos de salto: agora + horários cheios dentro da janela de 24h.
+    const jumps: { label: string; ms: number }[] = [{ label: t('guideJumpNow'), ms: nowMs }]
+    for (const hour of [20, 8, 12]) {
+        const target = new Date(nowMs)
+        target.setHours(hour, 0, 0, 0)
+        let ms = target.getTime()
+        if (ms <= nowMs) ms += 86_400_000
+        if (ms < baseMs + (PAST_H + FUTURE_H) * 3600_000) {
+            jumps.push({ label: `${String(hour).padStart(2, '0')}:00`, ms })
+        }
+    }
+    jumps.sort((a, b) => a.ms - b.ms)
+
     // Régua de horas: uma marca a cada hora cheia da janela.
     const hourMarks: { x: number; label: string }[] = []
     for (let ms = Math.ceil(baseMs / 3600_000) * 3600_000; ms < baseMs + (PAST_H + FUTURE_H) * 3600_000; ms += 3600_000) {
@@ -182,6 +202,11 @@ export default function Guide() {
                 >
                     <Ionicons name={favOnly ? 'heart' : 'heart-outline'} size={16} color={favOnly ? '#fff' : colors.danger} />
                 </TvTouchable>
+                {jumps.map(jump => (
+                    <TvTouchable key={jump.label} style={styles.jumpChip} onPress={() => jumpTo(jump.ms)}>
+                        <Text style={styles.jumpText}>{jump.label}</Text>
+                    </TvTouchable>
+                ))}
             </View>
             <ScrollView
                 ref={scrollRef}
@@ -266,6 +291,14 @@ const styles = StyleSheet.create({
         borderColor: colors.danger,
     },
     favChipOn: { backgroundColor: colors.danger },
+    jumpChip: {
+        borderColor: colors.border,
+        borderWidth: 1,
+        borderRadius: 14,
+        paddingHorizontal: spacing.md,
+        paddingVertical: 6,
+    },
+    jumpText: { color: colors.text, fontSize: 12, fontWeight: '600' },
     rulerText: { position: 'absolute', top: 4, color: colors.textDim, fontSize: 11 },
     nowLine: {
         position: 'absolute',

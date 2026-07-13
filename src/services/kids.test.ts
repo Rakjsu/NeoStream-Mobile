@@ -1,5 +1,5 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest'
-import { isKidsMode, resetKidsCache, setKidsMode } from './kids'
+import { intersectAllowed, isKidsMode, resetKidsCache, setKidsMode, whitelistCategoryIds } from './kids'
 // Hoisted pelo vitest.
 import AsyncStorage from '@react-native-async-storage/async-storage'
 
@@ -38,5 +38,24 @@ describe('modo infantil', () => {
         resetKidsCache()
         expect(await isKidsMode()).toBe(false)
         expect(AsyncStorage.removeItem).toHaveBeenCalledWith('neostream_kids_mode')
+    })
+})
+
+describe('whitelist do modo infantil (puras)', () => {
+    const cats = [
+        { category_id: '1', category_name: 'Infantil' },
+        { category_id: '2', category_name: 'Desenhos' },
+        { category_id: '3', category_name: 'Filmes' },
+    ]
+
+    it('whitelist por nome, sem diferenciar caixa; vazia = null', () => {
+        expect(whitelistCategoryIds(cats, ['infantil', 'DESENHOS'])).toEqual(new Set(['1', '2']))
+        expect(whitelistCategoryIds(cats, [])).toBeNull()
+    })
+
+    it('interseção trata null como "sem restrição"', () => {
+        expect(intersectAllowed(null, new Set(['1']))).toEqual(new Set(['1']))
+        expect(intersectAllowed(new Set(['1', '2']), null)).toEqual(new Set(['1', '2']))
+        expect(intersectAllowed(new Set(['1', '2']), new Set(['2', '3']))).toEqual(new Set(['2']))
     })
 })

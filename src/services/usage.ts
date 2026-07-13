@@ -4,6 +4,7 @@
  * (testável); só load/save tocam o AsyncStorage. Base do futuro Wrapped.
  */
 import AsyncStorage from '@react-native-async-storage/async-storage'
+import { profileKey } from './profiles'
 
 export type UsageKind = 'live' | 'movie' | 'episode'
 
@@ -126,6 +127,28 @@ export function topTitles(map: TitleUsageMap, todayKey: string, kinds: UsageKind
         .slice(0, top)
 }
 
+/** Os últimos `n` meses (antigo → atual), com zero nos vazios (PURO). */
+export function lastMonths(map: MonthUsageMap, currentMonth: string, n = 12): { month: string; minutes: number }[] {
+    const [year, month] = currentMonth.split('-').map(Number)
+    const series: { month: string; minutes: number }[] = []
+    for (let offset = n - 1; offset >= 0; offset--) {
+        const date = new Date(Date.UTC(year, month - 1 - offset, 1))
+        const key = `${date.getUTCFullYear()}-${String(date.getUTCMonth() + 1).padStart(2, '0')}`
+        const kinds = map[key] ?? {}
+        series.push({ month: key, minutes: (kinds.live ?? 0) + (kinds.movie ?? 0) + (kinds.episode ?? 0) })
+    }
+    return series
+}
+
+/** Meses → CSV pra planilha (PURO). */
+export function usageCsv(map: MonthUsageMap): string {
+    const rows = Object.keys(map).sort().map(month => {
+        const kinds = map[month]
+        return `${month},${kinds.live ?? 0},${kinds.movie ?? 0},${kinds.episode ?? 0}`
+    })
+    return ['mes,tv,filmes,series', ...rows].join('\n')
+}
+
 /** Os últimos `n` dias (mais antigo → hoje), com zero nos dias sem uso (PURO). */
 export function lastDays(map: UsageMap, todayKey: string, n = 7): { day: string; minutes: number }[] {
     const [year, month, day] = todayKey.split('-').map(Number)
@@ -150,7 +173,7 @@ export function formatMinutes(minutes: number): string {
 
 export async function loadUsage(): Promise<UsageMap> {
     try {
-        const raw = await AsyncStorage.getItem(STORAGE_KEY)
+        const raw = await AsyncStorage.getItem(profileKey(STORAGE_KEY))
         const parsed = raw ? (JSON.parse(raw) as UsageMap) : {}
         return parsed && typeof parsed === 'object' ? parsed : {}
     } catch {
@@ -160,7 +183,7 @@ export async function loadUsage(): Promise<UsageMap> {
 
 export async function loadMonthUsage(): Promise<MonthUsageMap> {
     try {
-        const raw = await AsyncStorage.getItem(MONTHS_KEY)
+        const raw = await AsyncStorage.getItem(profileKey(MONTHS_KEY))
         const parsed = raw ? (JSON.parse(raw) as MonthUsageMap) : {}
         return parsed && typeof parsed === 'object' ? parsed : {}
     } catch {
@@ -170,7 +193,7 @@ export async function loadMonthUsage(): Promise<MonthUsageMap> {
 
 export async function loadTitleUsage(): Promise<TitleUsageMap> {
     try {
-        const raw = await AsyncStorage.getItem(TITLES_KEY)
+        const raw = await AsyncStorage.getItem(profileKey(TITLES_KEY))
         const parsed = raw ? (JSON.parse(raw) as TitleUsageMap) : {}
         return parsed && typeof parsed === 'object' ? parsed : {}
     } catch {
@@ -182,12 +205,12 @@ export async function loadTitleUsage(): Promise<TitleUsageMap> {
 export async function recordWatchMinute(kind: UsageKind, nowMs = Date.now(), title = ''): Promise<void> {
     try {
         const map = addMinutes(await loadUsage(), dayKey(nowMs), kind, 1)
-        await AsyncStorage.setItem(STORAGE_KEY, JSON.stringify(map))
+        await AsyncStorage.setItem(profileKey(STORAGE_KEY), JSON.stringify(map))
         if (title) {
             const titles = addTitleMinute(await loadTitleUsage(), dayKey(nowMs), kind, title)
-            await AsyncStorage.setItem(TITLES_KEY, JSON.stringify(titles))
+            await AsyncStorage.setItem(profileKey(TITLES_KEY), JSON.stringify(titles))
         }
         const months = addMonthMinute(await loadMonthUsage(), monthKey(nowMs), kind)
-        await AsyncStorage.setItem(MONTHS_KEY, JSON.stringify(months))
+        await AsyncStorage.setItem(profileKey(MONTHS_KEY), JSON.stringify(months))
     } catch { /* best-effort */ }
 }

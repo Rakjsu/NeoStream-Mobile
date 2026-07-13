@@ -8,17 +8,19 @@ import * as FileSystem from 'expo-file-system/legacy'
 import { disableAppLock, enableAppLock, loadAppLock } from '../../services/appLock'
 import { applyCapturePolicy } from '../../services/privacy'
 import { isDataSaverEnabled, setDataSaver } from '../../services/dataSaver'
-import { getDownloadLimitGb, listDownloads, setDownloadLimitGb } from '../../services/downloads'
+import { getDownloadLimitGb, isWifiOnly, listDownloads, setDownloadLimitGb, setWifiOnly } from '../../services/downloads'
 import { captureRef } from 'react-native-view-shot'
 import * as Sharing from 'expo-sharing'
 import { listAutoBackups, readAutoBackup, type AutoBackupFile } from '../../services/autoBackup'
 import { listErrors, type LoggedError } from '../../services/errorLog'
 import { cancelScheduled, listScheduled, type ScheduledReminder } from '../../services/notify'
+import { listRecurring, removeRecurring, type RecurringReminder } from '../../services/recurring'
+import { buildSetupLink } from '../../services/setupLink'
+import { getTmdbKey, setTmdbKey } from '../../services/tmdb'
 import { listHiddenChannels, unhideChannel, type HiddenChannel } from '../../services/hidden'
 import { applyBackup, collectBackup, parseBackup, serializeBackup } from '../../services/backup'
 import { disableParental, enableParental, isValidPin, loadParental } from '../../services/parental'
-import { isKidsMode, setKidsMode } from '../../services/kids'
-import { getTmdbKey, setTmdbKey } from '../../services/tmdb'
+import { isKidsMode, listKidsCategories, setKidsMode } from '../../services/kids'
 import { runSpeedTest, type SpeedVerdict } from '../../services/speedtest'
 import { clearHistory } from '../../services/progress'
 import { checkForUpdate } from '../../services/updates'
@@ -26,10 +28,10 @@ import {
     accountLabel, cachedFetch, clearCatalogCache, getClient, listAccounts, loadAccount, removeAccount, renameAccount, switchAccount,
     type StoredAccount,
 } from '../../services/session'
-import { dayKey, formatMinutes, lastDays, loadTitleUsage, loadUsage, summarize, topTitles, type TopTitle, type UsageSummary } from '../../services/usage'
+import { dayKey, formatMinutes, lastDays, lastMonths, loadMonthUsage, loadTitleUsage, loadUsage, monthKey, summarize, topTitles, usageCsv, type TopTitle, type UsageSummary } from '../../services/usage'
 import { parseExpiry } from '../../services/xtream'
 import { TvTouchable } from '../../ui/components'
-import { colors, spacing } from '../../ui/theme'
+import { colors, setThemeVariant, spacing, themeVariant } from '../../ui/theme'
 import { t, tf } from '../../i18n/strings'
 
 function InfoRow({ label, value }: { label: string; value: string }) {
@@ -57,6 +59,7 @@ export default function SettingsTab() {
     const [updateMsg, setUpdateMsg] = useState('')
     const [usage, setUsage] = useState<UsageSummary>({ totals: { live: 0, movie: 0, episode: 0 }, totalMinutes: 0 })
     const [usageDays, setUsageDays] = useState<{ day: string; minutes: number }[]>([])
+    const [usageMonths, setUsageMonths] = useState<{ month: string; minutes: number }[]>([])
     const [topLive, setTopLive] = useState<TopTitle[]>([])
     const [topShows, setTopShows] = useState<TopTitle[]>([])
     const usageShotRef = useRef<View>(null)
@@ -67,6 +70,7 @@ export default function SettingsTab() {
     const [hiddenList, setHiddenList] = useState<HiddenChannel[]>([])
     const [errorList, setErrorList] = useState<LoggedError[]>([])
     const [reminders, setReminders] = useState<ScheduledReminder[]>([])
+    const [recurring, setRecurring] = useState<RecurringReminder[]>([])
     // Modo infantil: kidsGate cobre a tela até o PIN do parental liberar.
     const [kidsOn, setKidsOn] = useState(false)
     const [kidsGate, setKidsGate] = useState(false)
@@ -74,6 +78,9 @@ export default function SettingsTab() {
     const [gateError, setGateError] = useState('')
     const [tmdbDraft, setTmdbDraft] = useState('')
     const [speedMsg, setSpeedMsg] = useState('')
+    const [wifiOnly, setWifiOnlyState] = useState(false)
+    const [kidsCatCount, setKidsCatCount] = useState(0)
+    const [amoled, setAmoled] = useState(themeVariant() === 'amoled')
 
     const refreshStorage = useCallback(() => {
         void listDownloads().then(items => setDlBytes(items.reduce((sum, item) => sum + item.sizeBytes, 0)))
@@ -84,20 +91,24 @@ export default function SettingsTab() {
         void loadAccount().then(setActive)
         void loadParental().then(state => setParentalOn(state.enabled))
         void isKidsMode().then(on => { setKidsOn(on); setKidsGate(on) })
+        void listKidsCategories().then(list => setKidsCatCount(list.length))
         void getTmdbKey().then(setTmdbDraft)
         void loadAppLock().then(state => setLockOn(state.enabled))
         void listAutoBackups().then(setAutoCopies)
         void listHiddenChannels().then(setHiddenList)
         void listErrors().then(setErrorList)
         void listScheduled().then(setReminders)
+        void listRecurring().then(setRecurring)
         void getDownloadLimitGb().then(setDlLimit)
         void isDataSaverEnabled().then(setDataSaverState)
+        void isWifiOnly().then(setWifiOnlyState)
         refreshStorage()
         void loadUsage().then(map => {
             const today = dayKey(Date.now())
             setUsage(summarize(map, today))
             setUsageDays(lastDays(map, today))
         })
+        void loadMonthUsage().then(map => setUsageMonths(lastMonths(map, monthKey(Date.now()))))
         void loadTitleUsage().then(titles => {
             const today = dayKey(Date.now())
             setTopLive(topTitles(titles, today, ['live']))
@@ -405,6 +416,10 @@ export default function SettingsTab() {
                         {kidsOn ? t('kidsOn') : t('kidsOff')}
                     </Text>
                 </TvTouchable>
+                <TvTouchable style={styles.kidsRow} onPress={() => router.push('/kidscats')}>
+                    <Ionicons name="albums-outline" size={18} color={colors.textDim} />
+                    <Text style={styles.kidsText}>{tf('kidsCatsBtn', { n: kidsCatCount })}</Text>
+                </TvTouchable>
             </View>
 
             <Text style={styles.section}>{t('secAppLock')}</Text>
@@ -454,6 +469,32 @@ export default function SettingsTab() {
                         )
                     })}
                 </View>
+                <Text style={styles.parentalHint}>{t('usageMonths')}</Text>
+                <View style={styles.usageBars}>
+                    {usageMonths.map(entry => {
+                        const peak = Math.max(1, ...usageMonths.map(m => m.minutes))
+                        return (
+                            <View key={entry.month} style={styles.usageBarSlot}>
+                                <View style={[styles.usageBar, { height: Math.max(3, Math.round((entry.minutes / peak) * 44)) }]} />
+                                <Text style={styles.usageBarLabel}>{entry.month.slice(5)}</Text>
+                            </View>
+                        )
+                    })}
+                </View>
+                <TvTouchable
+                    style={[styles.backupBtn, styles.restoreBtn]}
+                    onPress={() => {
+                        void (async () => {
+                            const csv = usageCsv(await loadMonthUsage())
+                            const fileUri = `${FileSystem.cacheDirectory}neostream-uso.csv`
+                            await FileSystem.writeAsStringAsync(fileUri, csv)
+                            if (await Sharing.isAvailableAsync()) await Sharing.shareAsync(fileUri)
+                        })()
+                    }}
+                >
+                    <Ionicons name="download-outline" size={16} color="#fff" />
+                    <Text style={styles.backupBtnText}>{t('exportCsvBtn')}</Text>
+                </TvTouchable>
                 <InfoRow label={t('tabLive')} value={formatMinutes(usage.totals.live)} />
                 <InfoRow label={t('tabMovies')} value={formatMinutes(usage.totals.movie)} />
                 <InfoRow label={t('tabSeries')} value={formatMinutes(usage.totals.episode)} />
@@ -521,6 +562,30 @@ export default function SettingsTab() {
                 </View>
                 <Text style={styles.parentalHint}>{tf('usedSpace', { mb: Math.round(dlBytes / 1048576) })}</Text>
                 <TvTouchable
+                    style={styles.kidsRow}
+                    onPress={() => {
+                        const next = !amoled
+                        setAmoled(next)
+                        void setThemeVariant(next ? 'amoled' : 'dark')
+                    }}
+                >
+                    <Ionicons name={amoled ? 'contrast' : 'contrast-outline'} size={18} color={amoled ? colors.accent : colors.textDim} />
+                    <Text style={[styles.kidsText, amoled && { color: colors.accent }]}>{t('themeAmoled')}</Text>
+                </TvTouchable>
+                {amoled ? <Text style={styles.parentalHint}>{t('themeHint')}</Text> : null}
+                <TvTouchable
+                    style={styles.kidsRow}
+                    onPress={() => {
+                        const next = !wifiOnly
+                        setWifiOnlyState(next)
+                        void setWifiOnly(next)
+                    }}
+                >
+                    <Ionicons name={wifiOnly ? 'wifi' : 'wifi-outline'} size={18} color={wifiOnly ? colors.accent : colors.textDim} />
+                    <Text style={[styles.kidsText, wifiOnly && { color: colors.accent }]}>{t('wifiOnlyLabel')}</Text>
+                </TvTouchable>
+                {wifiOnly ? <Text style={styles.parentalHint}>{t('wifiOnlyHint')}</Text> : null}
+                <TvTouchable
                     style={styles.saverRow}
                     onPress={() => {
                         const next = !dataSaver
@@ -542,7 +607,19 @@ export default function SettingsTab() {
 
             <Text style={styles.section}>{t('remindersSection')}</Text>
             <View style={[styles.card, { paddingVertical: spacing.md, gap: spacing.sm }]}>
-                {reminders.length === 0 ? (
+                {recurring.map(reminder => (
+                    <View key={`r${reminder.channelId}${reminder.title}`} style={styles.diagRow}>
+                        <Ionicons name="repeat-outline" size={16} color={colors.accent} />
+                        <Text style={styles.diagLabel} numberOfLines={1}>{reminder.title} · {reminder.channelName}</Text>
+                        <TvTouchable
+                            accessibilityLabel={t('cancel')}
+                            onPress={() => { void removeRecurring(reminder).then(setRecurring) }}
+                        >
+                            <Ionicons name="close-circle-outline" size={18} color={colors.danger} />
+                        </TvTouchable>
+                    </View>
+                ))}
+                {reminders.length === 0 && recurring.length === 0 ? (
                     <Text style={styles.parentalHint}>{t('remindersNone')}</Text>
                 ) : reminders.map(reminder => (
                     <View key={reminder.id} style={styles.diagRow}>
@@ -724,6 +801,24 @@ export default function SettingsTab() {
                 ))}
             </View>
 
+
+            <TvTouchable
+                style={[styles.backupBtn, { marginBottom: spacing.md }]}
+                onPress={() => {
+                    void (async () => {
+                        const link = buildSetupLink({
+                            accounts,
+                            activeId: active?.id ?? null,
+                            tmdbKey: (await getTmdbKey()) || undefined,
+                            prefs: { downloadLimitGb: dlLimit, dataSaver },
+                        })
+                        void Share.share({ message: link }).catch(() => undefined)
+                    })()
+                }}
+            >
+                <Ionicons name="qr-code-outline" size={16} color="#fff" />
+                <Text style={styles.backupBtnText}>{t('shareSetupBtn')}</Text>
+            </TvTouchable>
 
             <Text style={styles.section}>{t('secApis')}</Text>
             <View style={[styles.card, { paddingVertical: spacing.md, gap: spacing.md }]}>

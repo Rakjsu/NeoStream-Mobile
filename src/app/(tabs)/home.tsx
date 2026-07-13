@@ -8,13 +8,16 @@ import AsyncStorage from '@react-native-async-storage/async-storage'
 import { checkNewEpisodes } from '../../services/newEpisodes'
 import { notifyNow } from '../../services/notify'
 import { listRecentChannels, recordRecentChannel } from '../../services/recents'
-import { allowedCategoryIds, loadParental } from '../../services/parental'
+import { checkRecurringReminders } from '../../services/recurring'
+import { loadParental } from '../../services/parental'
+import { guardedCategoryIds } from '../../services/kids'
 import { listContinue, loadProgress, removeEntry, type ProgressEntry } from '../../services/progress'
 import { becauseYouWatched, type RecCandidate } from '../../services/recommend'
 import { loadWatchlist } from '../../services/watchlist'
 import { accountLabel, cachedFetch, catalogFetchedAt, getClient, loadAccount } from '../../services/session'
 import { daysUntil, parseExpiry } from '../../services/xtream'
 import type { Category, SeriesItem, VodMovie } from '../../services/xtream'
+import { updateContinueShortcut } from '../../services/shortcuts'
 import { setZapContext } from '../../services/zap'
 import { dayKey, formatMinutes, loadTitleUsage, topTitles } from '../../services/usage'
 import { checkForUpdate, type UpdateInfo } from '../../services/updates'
@@ -64,15 +67,22 @@ export default function HomeTab() {
                 listRecentChannels(),
             ])
 
-            const allowedLive = allowedCategoryIds(liveCats, parental.enabled)
-            const allowedVod = allowedCategoryIds(vodCats, parental.enabled)
-            const allowedSeries = allowedCategoryIds(seriesCats, parental.enabled)
+            const allowedLive = await guardedCategoryIds(liveCats, parental.enabled)
+            const allowedVod = await guardedCategoryIds(vodCats, parental.enabled)
+            const allowedSeries = await guardedCategoryIds(seriesCats, parental.enabled)
             const pass = (set: Set<string> | null, categoryId?: string) => !set || !categoryId || set.has(categoryId)
 
             const visibleVod = vod.filter(m => pass(allowedVod, m.category_id))
             const visibleShows = shows.filter(s => pass(allowedSeries, s.category_id))
 
-            setContinueList(listContinue(progress).slice(0, RAIL_MAX))
+            const continueEntries = listContinue(progress)
+            setContinueList(continueEntries.slice(0, RAIL_MAX))
+            // O long-press no ícone do app ganha "▶ Continuar {último}".
+            const latest = continueEntries[0]
+            updateContinueShortcut(latest ? {
+                kind: latest.kind, streamId: latest.streamId, title: latest.title,
+                container: latest.container, cover: latest.cover,
+            } : null)
 
             const watchlist = await loadWatchlist()
             setWatchRail(watchlist.slice(0, RAIL_MAX).map(item => ({
@@ -140,6 +150,8 @@ export default function HomeTab() {
                     id: c.id, name: c.name, cover: c.cover, container: c.container,
                 })),
             } : null)
+
+            void checkRecurringReminders()
 
             // "Atualizado há Xh" — o pull-to-refresh força a rede.
             const fetchedMs = catalogFetchedAt('live') ?? catalogFetchedAt('vod') ?? catalogFetchedAt('series')

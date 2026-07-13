@@ -7,7 +7,8 @@ import { loadFavorites } from '../../services/favorites'
 import { notifyAt } from '../../services/notify'
 import { hasCatchup } from '../../services/xtream'
 import { loadWatchlist, type WatchItem } from '../../services/watchlist'
-import { allowedCategoryIds, loadParental } from '../../services/parental'
+import { loadParental } from '../../services/parental'
+import { guardedCategoryIds } from '../../services/kids'
 import { recordRecentChannel } from '../../services/recents'
 import { clearSearchTerms, listSearchTerms, recordSearchTerm } from '../../services/searchHistory'
 import { cachedFetch, getClient } from '../../services/session'
@@ -64,9 +65,9 @@ export default function SearchTab() {
             setWatchlist(await loadWatchlist())
             setFavLive((await loadFavorites()).live)
             setAllowed({
-                live: allowedCategoryIds(liveCats, parental.enabled),
-                vod: allowedCategoryIds(vodCats, parental.enabled),
-                series: allowedCategoryIds(seriesCats, parental.enabled),
+                live: await guardedCategoryIds(liveCats, parental.enabled),
+                vod: await guardedCategoryIds(vodCats, parental.enabled),
+                series: await guardedCategoryIds(seriesCats, parental.enabled),
             })
             setError('')
         } catch (err) {

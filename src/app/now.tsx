@@ -5,9 +5,11 @@ import { useCallback, useEffect, useRef, useState } from 'react'
 import { Alert, FlatList, StyleSheet, Text, TouchableOpacity, View, type ViewToken } from 'react-native'
 import { loadFavorites } from '../services/favorites'
 import { hiddenIdSet } from '../services/hidden'
-import { allowedCategoryIds, loadParental } from '../services/parental'
+import { loadParental } from '../services/parental'
+import { guardedCategoryIds } from '../services/kids'
 import { listRecentChannels, recordRecentChannel } from '../services/recents'
 import { notifyAt } from '../services/notify'
+import { addRecurring } from '../services/recurring'
 import { cachedFetch, getClient } from '../services/session'
 import { hasCatchup } from '../services/xtream'
 import type { Category, EpgProgram, LiveChannel, NowNext } from '../services/xtream'
@@ -49,7 +51,7 @@ export default function NowOnTv() {
                     listRecentChannels(),
                     hiddenIdSet(),
                 ])
-                const allowed = allowedCategoryIds(liveCats, parental.enabled)
+                const allowed = await guardedCategoryIds(liveCats, parental.enabled)
                 const visible = live.filter(channel =>
                     !hidden.has(String(channel.stream_id))
                     && (!allowed || !channel.category_id || allowed.has(channel.category_id)))
@@ -190,8 +192,26 @@ export default function NowOnTv() {
                                         accessibilityLabel={replayable ? t('catchupPlay') : undefined}
                                         onPress={replayable ? () => playCatchup(program) : undefined}
                                         onLongPress={() => {
-                                            void notifyAt(tf('remindNotif', { title: program.title }), schedule.name, '/now', program.startMs)
-                                                .then(ok => { if (ok) Alert.alert(t('remindSet')) })
+                                            Alert.alert(schedule.name, program.title, [
+                                                { text: t('cancel'), style: 'cancel' },
+                                                {
+                                                    text: t('remindBtn'),
+                                                    onPress: () => {
+                                                        void notifyAt(tf('remindNotif', { title: program.title }), schedule.name, '/now', program.startMs)
+                                                            .then(ok => { if (ok) Alert.alert(t('remindSet')) })
+                                                    },
+                                                },
+                                                {
+                                                    text: t('remindAlwaysBtn'),
+                                                    onPress: () => {
+                                                        void addRecurring({
+                                                            title: program.title,
+                                                            channelId: schedule.channelId,
+                                                            channelName: schedule.name,
+                                                        }).then(() => Alert.alert(t('recurringSet')))
+                                                    },
+                                                },
+                                            ])
                                         }}
                                         delayLongPress={350}
                                     >

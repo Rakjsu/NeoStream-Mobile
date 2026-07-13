@@ -4,10 +4,62 @@
  * O filtro de categorias em si é do parental; aqui vive só o interruptor.
  */
 import AsyncStorage from '@react-native-async-storage/async-storage'
+import { allowedCategoryIds } from './parental'
+import type { Category } from './xtream'
 
 const STORAGE_KEY = 'neostream_kids_mode'
+const CATS_KEY = 'neostream_kids_categories'
 
 let cache: boolean | null = null
+let catsCache: string[] | null = null
+
+/** Ids das categorias liberadas pelo NOME (PURO; lista vazia = sem whitelist). */
+export function whitelistCategoryIds(categories: Category[], names: string[]): Set<string> | null {
+    if (names.length === 0) return null
+    const wanted = new Set(names.map(name => name.toLowerCase()))
+    return new Set(categories
+        .filter(category => wanted.has(category.category_name.toLowerCase()))
+        .map(category => category.category_id))
+}
+
+/** Interseção de filtros (null = sem restrição daquele lado) (PURO). */
+export function intersectAllowed(a: Set<string> | null, b: Set<string> | null): Set<string> | null {
+    if (!a) return b
+    if (!b) return a
+    return new Set([...a].filter(id => b.has(id)))
+}
+
+/** Nomes de categoria liberados pro modo infantil (vale pras 3 listas). */
+export async function listKidsCategories(): Promise<string[]> {
+    if (catsCache) return catsCache
+    try {
+        const raw = await AsyncStorage.getItem(CATS_KEY)
+        const parsed = raw ? (JSON.parse(raw) as unknown) : []
+        catsCache = Array.isArray(parsed) ? parsed.filter((name): name is string => typeof name === 'string') : []
+    } catch {
+        catsCache = []
+    }
+    return catsCache
+}
+
+export async function toggleKidsCategory(name: string): Promise<string[]> {
+    const list = await listKidsCategories()
+    catsCache = list.includes(name) ? list.filter(item => item !== name) : [...list, name]
+    try {
+        await AsyncStorage.setItem(CATS_KEY, JSON.stringify(catsCache))
+    } catch { /* best-effort */ }
+    return catsCache
+}
+
+/**
+ * Filtro efetivo das telas: parental (bloqueia adulto) ∩ whitelist do modo
+ * infantil (quando ligado e configurada). Fora do modo infantil = só parental.
+ */
+export async function guardedCategoryIds(categories: Category[], parentalEnabled: boolean): Promise<Set<string> | null> {
+    const base = allowedCategoryIds(categories, parentalEnabled)
+    if (!(await isKidsMode())) return base
+    return intersectAllowed(base, whitelistCategoryIds(categories, await listKidsCategories()))
+}
 
 export async function isKidsMode(): Promise<boolean> {
     if (cache !== null) return cache
@@ -30,4 +82,5 @@ export async function setKidsMode(on: boolean): Promise<void> {
 /** Só pra testes. */
 export function resetKidsCache(): void {
     cache = null
+    catsCache = null
 }

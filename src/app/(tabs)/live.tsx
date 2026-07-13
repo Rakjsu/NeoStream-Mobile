@@ -4,11 +4,12 @@ import { router } from 'expo-router'
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { Alert, FlatList, RefreshControl, StyleSheet, Text, TouchableOpacity, View, type ViewToken } from 'react-native'
 import { emptyFavorites, isFavorite, persistToggle, loadFavorites, type Favorites } from '../../services/favorites'
-import { allowedCategoryIds, loadParental } from '../../services/parental'
+import { loadParental } from '../../services/parental'
+import { guardedCategoryIds } from '../../services/kids'
 import { hiddenIdSet, hideChannel } from '../../services/hidden'
 import { recordRecentChannel } from '../../services/recents'
 import { cachedFetch, getClient } from '../../services/session'
-import type { Category, LiveChannel, NowNext } from '../../services/xtream'
+import type { Category, EpgProgram, LiveChannel, NowNext } from '../../services/xtream'
 import { setZapContext } from '../../services/zap'
 import { CategoryChips, EmptyState, Loading, SearchBar, TvTouchable } from '../../ui/components'
 import { colors, spacing } from '../../ui/theme'
@@ -29,6 +30,21 @@ export default function LiveTab() {
     // EPG por canal, buscado quando a linha entra na tela (nunca em massa).
     const [epgMap, setEpgMap] = useState<Record<string, NowNext>>({})
     const epgInFlight = useRef(new Set<string>())
+    // Mini-guia inline: um canal expandido por vez, grade via cache SWR.
+    const [expandedId, setExpandedId] = useState<string | null>(null)
+    const [daySchedules, setDaySchedules] = useState<Record<string, EpgProgram[]>>({})
+
+    const toggleExpand = (id: string) => {
+        if (expandedId === id) { setExpandedId(null); return }
+        setExpandedId(id)
+        void (async () => {
+            const client = await getClient()
+            if (!client?.getDaySchedule) return
+            const programs = await cachedFetch(`day:${id}`, async () => await client.getDaySchedule?.(id) ?? [])
+                .catch(() => [] as EpgProgram[])
+            setDaySchedules(prev => ({ ...prev, [id]: programs }))
+        })()
+    }
 
     const load = useCallback(async (force = false) => {
         try {
@@ -45,7 +61,7 @@ export default function LiveTab() {
             setChannels(list)
             setCategories(cats)
             setFavorites(favs)
-            setAllowed(allowedCategoryIds(cats, parental.enabled))
+            setAllowed(await guardedCategoryIds(cats, parental.enabled))
             setError('')
         } catch (err) {
             setError(err instanceof Error ? err.message : t('failChannels'))
@@ -139,6 +155,7 @@ export default function LiveTab() {
                             ? `${t('nextUp')}${epg.next.title}`
                             : ''
                     return (
+                        <>
                         <TvTouchable
                             style={styles.row}
                             onPress={() => void play(item)}
@@ -169,6 +186,17 @@ export default function LiveTab() {
                                 <Text style={styles.name} numberOfLines={1}>{item.name}</Text>
                                 {epgLine ? <Text style={styles.epg} numberOfLines={1}>{epgLine}</Text> : null}
                             </View>
+                            <TouchableOpacity
+                                style={styles.favBtn}
+                                accessibilityLabel={t('a11yExpand')}
+                                onPress={() => toggleExpand(String(item.stream_id))}
+                            >
+                                <Ionicons
+                                    name={expandedId === String(item.stream_id) ? 'chevron-up' : 'chevron-down'}
+                                    size={18}
+                                    color={colors.textDim}
+                                />
+                            </TouchableOpacity>
                             <TouchableOpacity style={styles.favBtn} onPress={() => toggleFav(item)}>
                                 <Ionicons
                                     name={fav ? 'heart' : 'heart-outline'}
@@ -178,6 +206,27 @@ export default function LiveTab() {
                             </TouchableOpacity>
                             <Ionicons name="play" size={18} color={colors.accent} />
                         </TvTouchable>
+                        {expandedId === String(item.stream_id) ? (
+                            <View style={styles.miniGuide}>
+                                {(daySchedules[String(item.stream_id)] ?? []).filter(p => p.endMs > Date.now()).slice(0, 6).map(program => {
+                                    const time = new Date(program.startMs)
+                                    const hhmm = `${String(time.getHours()).padStart(2, '0')}:${String(time.getMinutes()).padStart(2, '0')}`
+                                    const liveNow = program.startMs <= Date.now() && Date.now() < program.endMs
+                                    return (
+                                        <View key={String(program.startMs)} style={styles.miniRow}>
+                                            <Text style={[styles.miniTime, liveNow && { color: colors.accent }]}>{hhmm}</Text>
+                                            <Text style={[styles.miniTitle, liveNow && { color: colors.accent }]} numberOfLines={1}>
+                                                {program.title}
+                                            </Text>
+                                        </View>
+                                    )
+                                })}
+                                {daySchedules[String(item.stream_id)]?.length === 0 ? (
+                                    <Text style={styles.miniTime}>{t('scheduleEmpty')}</Text>
+                                ) : null}
+                            </View>
+                        ) : null}
+                        </>
                     )
                 }}
             />
@@ -198,6 +247,17 @@ const styles = StyleSheet.create({
         borderBottomWidth: StyleSheet.hairlineWidth,
     },
     logo: { width: 42, height: 42, borderRadius: 8, backgroundColor: colors.card },
+    miniGuide: {
+        backgroundColor: colors.card,
+        marginHorizontal: spacing.lg,
+        marginBottom: spacing.sm,
+        borderRadius: 10,
+        padding: spacing.md,
+        gap: 5,
+    },
+    miniRow: { flexDirection: 'row', gap: spacing.md },
+    miniTime: { color: colors.textDim, fontSize: 12, width: 42 },
+    miniTitle: { flex: 1, color: colors.text, fontSize: 13 },
     logoFallback: { alignItems: 'center', justifyContent: 'center' },
     nameBlock: { flex: 1, gap: 1 },
     name: { color: colors.text, fontSize: 15 },

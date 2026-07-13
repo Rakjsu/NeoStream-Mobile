@@ -19,6 +19,7 @@ import { applyBackup, collectBackup, parseBackup, serializeBackup } from '../../
 import { disableParental, enableParental, isValidPin, loadParental } from '../../services/parental'
 import { isKidsMode, setKidsMode } from '../../services/kids'
 import { getTmdbKey, setTmdbKey } from '../../services/tmdb'
+import { runSpeedTest, type SpeedVerdict } from '../../services/speedtest'
 import { clearHistory } from '../../services/progress'
 import { checkForUpdate } from '../../services/updates'
 import {
@@ -72,6 +73,7 @@ export default function SettingsTab() {
     const [gatePin, setGatePin] = useState('')
     const [gateError, setGateError] = useState('')
     const [tmdbDraft, setTmdbDraft] = useState('')
+    const [speedMsg, setSpeedMsg] = useState('')
 
     const refreshStorage = useCallback(() => {
         void listDownloads().then(items => setDlBytes(items.reduce((sum, item) => sum + item.sizeBytes, 0)))
@@ -308,6 +310,27 @@ export default function SettingsTab() {
                     >
                         <Ionicons name="refresh-circle-outline" size={16} color="#fff" />
                         <Text style={styles.backupBtnText}>{t('clearCacheBtn')}</Text>
+                    </TvTouchable>
+                    <TvTouchable
+                        style={styles.backupBtn}
+                        disabled={speedMsg === t('speedRunning')}
+                        onPress={() => {
+                            setSpeedMsg(t('speedRunning'))
+                            void (async () => {
+                                const client = await getClient()
+                                const first = client ? (await cachedFetch('live', () => client.getLiveChannels()))[0] : undefined
+                                if (!client || !first) { setSpeedMsg(t('speedFail')); return }
+                                const result = await runSpeedTest(client.liveStreamUrl(first.stream_id))
+                                if (!result) { setSpeedMsg(t('speedFail')); return }
+                                const verdictKey: Record<SpeedVerdict, 'speed4k' | 'speedHd' | 'speedSd' | 'speedSlow'> = {
+                                    '4k': 'speed4k', hd: 'speedHd', sd: 'speedSd', slow: 'speedSlow',
+                                }
+                                setSpeedMsg(tf('speedResult', { mbps: result.mbps, verdict: t(verdictKey[result.verdict]) }))
+                            })()
+                        }}
+                    >
+                        <Ionicons name="speedometer-outline" size={16} color="#fff" />
+                        <Text style={styles.backupBtnText}>{speedMsg || t('speedBtn')}</Text>
                     </TvTouchable>
                     {Array.isArray(diag) ? diag.map(row => (
                         <View key={row.label} style={styles.diagRow}>

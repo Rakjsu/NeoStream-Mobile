@@ -4,6 +4,7 @@
  * tecla. A dedup é PURA (testável).
  */
 import AsyncStorage from '@react-native-async-storage/async-storage'
+import { isGuestProfile } from './profiles'
 
 const STORAGE_KEY = 'neostream_search_history'
 const MAX_TERMS = 8
@@ -26,6 +27,7 @@ export async function listSearchTerms(): Promise<string[]> {
 }
 
 export async function recordSearchTerm(term: string): Promise<void> {
+    if (isGuestProfile()) return // convidado não deixa rastro
     try {
         const list = pushSearchTerm(await listSearchTerms(), term)
         await AsyncStorage.setItem(STORAGE_KEY, JSON.stringify(list))

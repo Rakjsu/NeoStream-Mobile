@@ -1,8 +1,9 @@
 import { Ionicons } from '@expo/vector-icons'
+import * as LocalAuthentication from 'expo-local-authentication'
 import { router } from 'expo-router'
-import { useState } from 'react'
+import { useEffect, useState } from 'react'
 import { KeyboardAvoidingView, Platform, StyleSheet, Text, TextInput, TouchableOpacity, View } from 'react-native'
-import { unlockApp } from '../services/appLock'
+import { unlockApp, unlockWithBiometrics } from '../services/appLock'
 import { colors, spacing } from '../ui/theme'
 import { t } from '../i18n/strings'
 
@@ -10,6 +11,7 @@ import { t } from '../i18n/strings'
 export default function Unlock() {
     const [pin, setPin] = useState('')
     const [error, setError] = useState(false)
+    const [bioAvailable, setBioAvailable] = useState(false)
 
     const submit = (value: string) => {
         void unlockApp(value).then(ok => {
@@ -17,6 +19,34 @@ export default function Unlock() {
             else { setError(true); setPin('') }
         })
     }
+
+    // Digital/rosto destravam sem PIN (que segue como fallback).
+    const tryBiometrics = () => {
+        void LocalAuthentication.authenticateAsync({ disableDeviceFallback: true, cancelLabel: 'PIN' })
+            .then(result => {
+                if (!result.success) return
+                unlockWithBiometrics()
+                router.replace('/(tabs)/home')
+            })
+            .catch(() => undefined)
+    }
+
+    useEffect(() => {
+        queueMicrotask(() => {
+            void (async () => {
+                try {
+                    const [hasHardware, enrolled] = await Promise.all([
+                        LocalAuthentication.hasHardwareAsync(),
+                        LocalAuthentication.isEnrolledAsync(),
+                    ])
+                    if (!hasHardware || !enrolled) return
+                    setBioAvailable(true)
+                    tryBiometrics()
+                } catch { /* segue no PIN */ }
+            })()
+        })
+        // eslint-disable-next-line react-hooks/exhaustive-deps
+    }, [])
 
     return (
         <KeyboardAvoidingView
@@ -53,6 +83,12 @@ export default function Unlock() {
             >
                 <Text style={styles.btnText}>{t('unlock')}</Text>
             </TouchableOpacity>
+            {bioAvailable ? (
+                <TouchableOpacity style={styles.bioBtn} onPress={tryBiometrics}>
+                    <Ionicons name="finger-print" size={20} color={colors.accent} />
+                    <Text style={styles.bioText}>{t('unlockBio')}</Text>
+                </TouchableOpacity>
+            ) : null}
         </KeyboardAvoidingView>
     )
 }
@@ -101,4 +137,6 @@ const styles = StyleSheet.create({
         marginTop: spacing.sm,
     },
     btnText: { color: '#fff', fontSize: 15, fontWeight: '600' },
+    bioBtn: { flexDirection: 'row', alignItems: 'center', gap: spacing.sm, marginTop: spacing.sm, padding: spacing.sm },
+    bioText: { color: colors.accent, fontSize: 14, fontWeight: '600' },
 })

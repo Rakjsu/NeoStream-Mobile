@@ -54,6 +54,14 @@ export async function disableAppLock(pin: string): Promise<boolean> {
     return true
 }
 
+/**
+ * Biometria (digital/rosto) libera a sessão como se fosse o PIN. A checagem
+ * de hardware fica na tela; aqui só a flag — testável sem módulo nativo.
+ */
+export function unlockWithBiometrics(): void {
+    unlocked = true
+}
+
 /** PIN certo → libera a sessão. */
 export async function unlockApp(pin: string): Promise<boolean> {
     const state = await loadAppLock()

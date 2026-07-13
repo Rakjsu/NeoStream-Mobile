@@ -19,6 +19,7 @@
     "expo-image": "~57.0.0",
     "expo-keep-awake": "~57.0.0",
     "expo-linking": "~57.0.2",
+    "expo-local-authentication": "~57.0.0",
     "expo-localization": "~57.0.0",
     "expo-navigation-bar": "~57.0.1",
     "expo-network": "~57.0.0",

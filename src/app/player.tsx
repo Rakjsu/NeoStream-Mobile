@@ -162,7 +162,7 @@ export default function Player() {
                 showTrackToast(saved ? t('recSaved') : t('recFail'))
                 return
             }
-            if (!canRecordUrl(source)) { showTrackToast(t('recOnlyTs')); return }
+            if (!canRecordUrl(source)) { showTrackToast(t('recFail')); return }
             const ok = await startRecording(source, liveTitle || String(title ?? ''))
             setRecording(ok)
             showTrackToast(ok ? t('recStart') : t('recFail'))

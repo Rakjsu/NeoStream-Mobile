@@ -1,3 +1,4 @@
+import AsyncStorage from '@react-native-async-storage/async-storage'
 import { Ionicons } from '@expo/vector-icons'
 import { Image } from 'expo-image'
 import { Stack, router } from 'expo-router'
@@ -29,6 +30,8 @@ interface Slot {
 }
 
 const EMPTY_SLOT: Slot = { url: '', name: '' }
+const SAVE_KEY = 'neostream_multiview'
+type Layout = '2x2' | '1x2'
 
 /**
  * Multi-view 2×2 (tablet/TV): até 4 canais ao vivo lado a lado. Toque num
@@ -37,8 +40,28 @@ const EMPTY_SLOT: Slot = { url: '', name: '' }
  */
 export default function MultiView() {
     const [slots, setSlots] = useState<Slot[]>([EMPTY_SLOT, EMPTY_SLOT, EMPTY_SLOT, EMPTY_SLOT])
+    const [layout, setLayout] = useState<Layout>('2x2')
     const [active, setActive] = useState(0)
-    const [picking, setPicking] = useState<number | null>(0) // abre já escolhendo o 1º
+    const [picking, setPicking] = useState<number | null>(null)
+
+    // Mosaico lembrado: reabrir o multi-view volta com os mesmos canais.
+    useEffect(() => {
+        queueMicrotask(() => {
+            void AsyncStorage.getItem(SAVE_KEY).then(raw => {
+                const saved = raw ? (JSON.parse(raw) as { slots?: Slot[]; layout?: Layout }) : null
+                if (saved?.slots?.some(slot => slot.url)) {
+                    setSlots(saved.slots.slice(0, 4))
+                    if (saved.layout) setLayout(saved.layout)
+                } else {
+                    setPicking(0) // primeira vez: já abre escolhendo o 1º canal
+                }
+            }).catch(() => setPicking(0))
+        })
+    }, [])
+
+    const persist = (nextSlots: Slot[], nextLayout: Layout) => {
+        void AsyncStorage.setItem(SAVE_KEY, JSON.stringify({ slots: nextSlots, layout: nextLayout })).catch(() => undefined)
+    }
     const [channels, setChannels] = useState<LiveChannel[] | null>(null)
     const [query, setQuery] = useState('')
 
@@ -90,8 +113,12 @@ export default function MultiView() {
             const client = await getClient()
             if (!client || picking === null) return
             const url = client.liveStreamUrl(channel.stream_id)
-            setSlots(current => current.map((slot, index) =>
-                index === picking ? { url, name: channel.name } : slot))
+            setSlots(current => {
+                const next = current.map((slot, index) =>
+                    index === picking ? { url, name: channel.name } : slot)
+                persist(next, layout)
+                return next
+            })
             setActive(picking)
             setPicking(null)
             setQuery('')
@@ -109,12 +136,30 @@ export default function MultiView() {
 
     return (
         <View style={styles.root}>
-            <Stack.Screen options={{ title: t('multiviewTitle') }} />
+            <Stack.Screen
+                options={{
+                    title: t('multiviewTitle'),
+                    headerRight: () => (
+                        <TvTouchable
+                            style={{ paddingHorizontal: 14 }}
+                            accessibilityLabel={t('multiviewLayout')}
+                            onPress={() => {
+                                const next: Layout = layout === '2x2' ? '1x2' : '2x2'
+                                setLayout(next)
+                                persist(slots, next)
+                            }}
+                        >
+                            <Ionicons name={layout === '2x2' ? 'grid-outline' : 'tablet-landscape-outline'} size={20} color={colors.text} />
+                        </TvTouchable>
+                    ),
+                }}
+            />
             <View style={styles.grid}>
-                {slots.map((slot, index) => (
+                {slots.slice(0, layout === '1x2' ? 2 : 4).map((slot, index) => (
                     <TvTouchable
                         key={index}
-                        style={[styles.cell, index === active && slot.url ? styles.cellActive : null]}
+                        style={[styles.cell, layout === '1x2' && styles.cellHalf,
+                            index === active && slot.url ? styles.cellActive : null]}
                         onPress={() => pressSlot(index)}
                         onLongPress={() => setPicking(index)}
                         delayLongPress={350}
@@ -185,6 +230,7 @@ const styles = StyleSheet.create({
         borderWidth: StyleSheet.hairlineWidth,
     },
     cellActive: { borderColor: colors.accent, borderWidth: 2 },
+    cellHalf: { width: '50%', height: '100%' },
     video: { flex: 1 },
     cellLabel: {
         position: 'absolute',

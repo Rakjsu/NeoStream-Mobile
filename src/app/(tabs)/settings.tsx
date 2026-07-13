@@ -16,7 +16,7 @@ import { listErrors, type LoggedError } from '../../services/errorLog'
 import { cancelScheduled, listScheduled, type ScheduledReminder } from '../../services/notify'
 import { listRecurring, removeRecurring, type RecurringReminder } from '../../services/recurring'
 import { buildSetupLink } from '../../services/setupLink'
-import { getTmdbKey as readTmdbKey , getTmdbKey, setTmdbKey } from '../../services/tmdb'
+import { getTmdbKey, setTmdbKey } from '../../services/tmdb'
 import { listHiddenChannels, unhideChannel, type HiddenChannel } from '../../services/hidden'
 import { applyBackup, collectBackup, parseBackup, serializeBackup } from '../../services/backup'
 import { disableParental, enableParental, isValidPin, loadParental } from '../../services/parental'
@@ -809,7 +809,7 @@ export default function SettingsTab() {
                         const link = buildSetupLink({
                             accounts,
                             activeId: active?.id ?? null,
-                            tmdbKey: (await readTmdbKey()) || undefined,
+                            tmdbKey: (await getTmdbKey()) || undefined,
                             prefs: { downloadLimitGb: dlLimit, dataSaver },
                         })
                         void Share.share({ message: link }).catch(() => undefined)

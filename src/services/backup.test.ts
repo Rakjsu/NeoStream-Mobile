@@ -76,3 +76,17 @@ describe('backup v2 (retrocompatível)', () => {
             .toThrow(/não suportada/)
     })
 })
+
+describe('backup com senha (AES)', () => {
+    it('ida e volta com a senha certa; null com a errada; vazio = texto puro', async () => {
+        const { protectBackup, decryptBackup, isEncryptedBackup } = await import('./backup')
+        const json = '{"version":4,"accounts":[]}'
+        const sealed = protectBackup(json, 'segredo')
+        expect(isEncryptedBackup(sealed)).toBe(true)
+        expect(sealed).not.toContain('accounts')
+        expect(decryptBackup(sealed, 'segredo')).toBe(json)
+        expect(decryptBackup(sealed, 'errada')).toBeNull()
+        expect(protectBackup(json, '  ')).toBe(json)
+        expect(isEncryptedBackup(json)).toBe(false)
+    })
+})

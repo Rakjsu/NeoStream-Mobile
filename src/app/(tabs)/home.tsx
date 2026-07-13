@@ -14,7 +14,7 @@ import { hourBucketOf, loadHabits, topHabitKeys } from '../../services/habit'
 import { defaultRailPrefs, loadRailPrefs, orderedRails, type RailPrefs } from '../../services/homeRails'
 import { loadParental } from '../../services/parental'
 import { guardedCategoryIds } from '../../services/kids'
-import { listContinue, loadProgress, removeEntry, saveSample, type ProgressEntry } from '../../services/progress'
+import { getEntry, listContinue, loadProgress, removeEntry, saveSample, type ProgressEntry } from '../../services/progress'
 import { becauseYouWatched, type RecCandidate } from '../../services/recommend'
 import { loadWatchlist } from '../../services/watchlist'
 import { accountLabel, cachedFetch, catalogFetchedAt, getClient, loadAccount } from '../../services/session'
@@ -26,7 +26,7 @@ import { dayKey, formatMinutes, loadTitleUsage, topTitles } from '../../services
 import { checkForUpdate, type UpdateInfo } from '../../services/updates'
 import { downloadAndInstall } from '../../services/updater'
 import { checkWhatsNew } from '../../services/whatsnew'
-import { fetchTraktWatchlist } from '../../services/trakt'
+import { fetchTraktPlayback, fetchTraktWatchlist } from '../../services/trakt'
 import { getCloudBackupDir } from '../../services/autoBackup'
 import { ChannelRail, ContinueRail, EmptyState, Loading, PosterRail, type RailItem } from '../../ui/components'
 import { colors, spacing } from '../../ui/theme'
@@ -131,6 +131,36 @@ export default function HomeTab() {
                     }
                 }
                 if (extra.length > 0) setWatchRail(current => [...current, ...extra].slice(0, RAIL_MAX))
+            }).catch(() => undefined)
+
+            // Filme pausado no Trakt (Kodi/PC) vira card de "continuar assistindo"
+            // — o % é convertido em segundos pelo player quando a duração chegar.
+            void cachedFetch('trakt-playback', () => fetchTraktPlayback()).then(async paused => {
+                let added = false
+                for (const item of paused) {
+                    const wanted = item.title.toLowerCase()
+                    const movie = visibleVod.find(m => m.name.toLowerCase().includes(wanted))
+                    if (!movie) continue
+                    const progressId = `movie:${movie.stream_id}`
+                    if (await getEntry(progressId)) continue // progresso local vence
+                    await saveSample({
+                        id: progressId,
+                        kind: 'movie',
+                        streamId: String(movie.stream_id),
+                        container: movie.container_extension || 'mp4',
+                        title: movie.name,
+                        cover: movie.stream_icon || '',
+                        position: item.progress,
+                        duration: 100,
+                        updatedAt: item.pausedAtMs,
+                        fromTraktPct: true,
+                    })
+                    added = true
+                }
+                if (added) {
+                    const map = await loadProgress()
+                    setContinueList(listContinue(map).slice(0, RAIL_MAX))
+                }
             }).catch(() => undefined)
 
             setFavPosters([

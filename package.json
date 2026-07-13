@@ -6,6 +6,8 @@
     "@expo/ui": "~57.0.4",
     "@expo/vector-icons": "^15.0.2",
     "@react-native-async-storage/async-storage": "2.2.0",
+    "@types/crypto-js": "^4.2.2",
+    "crypto-js": "^4.2.0",
     "expo": "~57.0.4",
     "expo-brightness": "~57.0.0",
     "expo-build-properties": "~57.0.3",

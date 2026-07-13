@@ -279,3 +279,36 @@ export async function syncTraktWatched(kind: 'movie' | 'episode', title: string)
 export function resetTraktCache(): void {
     payloadCache.clear()
 }
+
+export interface TraktPlayback {
+    kind: 'movie' | 'episode'
+    title: string
+    /** 0–100 — o player converte pra segundos quando souber a duração. */
+    progress: number
+    pausedAtMs: number
+}
+
+/** Reproduções pausadas no Trakt (Kodi/PC) — o Início casa filmes por nome. */
+export async function fetchTraktPlayback(): Promise<TraktPlayback[]> {
+    const token = await getToken()
+    const { clientId } = await getTraktCreds()
+    if (!token || !clientId) return []
+    try {
+        const rows = await traktGet('/sync/playback', clientId, token.access) as {
+            type?: string
+            progress?: number
+            paused_at?: string
+            movie?: TraktHit
+        }[]
+        return rows.flatMap(row => {
+            const progress = Number(row.progress)
+            if (!Number.isFinite(progress) || progress <= 0 || progress >= 95) return []
+            // Episódios exigiriam resolver o id do episódio no provedor — só filmes.
+            if (row.type !== 'movie' || !row.movie?.title) return []
+            const pausedAtMs = Date.parse(row.paused_at ?? '') || Date.now()
+            return [{ kind: 'movie' as const, title: row.movie.title, progress, pausedAtMs }]
+        })
+    } catch {
+        return []
+    }
+}

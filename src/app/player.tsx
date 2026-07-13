@@ -62,6 +62,9 @@ function recordRebuffer(ref: { current: number[] }): boolean {
 function applySeek(target: { currentTime: number }, deltaSec: number) {
     target.currentTime = Math.max(0, target.currentTime + deltaSec)
 }
+function applySeekTo(target: { currentTime: number }, seconds: number) {
+    target.currentTime = Math.max(0, seconds)
+}
 
 const clamp01 = (value: number) => Math.min(1, Math.max(0, value))
 
@@ -77,6 +80,27 @@ interface GestureRefs {
     player: React.MutableRefObject<{ volume: number; currentTime: number }>
     live: React.MutableRefObject<boolean>
     toast: React.MutableRefObject<(text: string) => void>
+    pinch: React.MutableRefObject<{ dist: number }>
+    aspect: React.MutableRefObject<(cover: boolean) => void>
+}
+
+// Pinça: a distância entre 2 dedos cresce/encolhe além do limiar → zoom.
+function pinchDelta(state: { dist: number }, touches: { pageX: number; pageY: number }[]): 'in' | 'out' | null {
+    const dist = Math.hypot(touches[0].pageX - touches[1].pageX, touches[0].pageY - touches[1].pageY)
+    if (state.dist === 0) {
+        state.dist = dist
+        return null
+    }
+    const delta = dist - state.dist
+    if (delta > 60) {
+        state.dist = dist
+        return 'out'
+    }
+    if (delta < -60) {
+        state.dist = dist
+        return 'in'
+    }
+    return null
 }
 
 /**
@@ -99,7 +123,14 @@ function createGesturePan(side: 'left' | 'right', refs: GestureRefs) {
                     .catch(() => { startValue = 0.5 })
             }
         },
-        onPanResponderMove: (_event, gesture) => {
+        onPanResponderMove: (event, gesture) => {
+            // Dois dedos = pinça (zoom); o arrasto de brilho/volume ignora.
+            const touches = event.nativeEvent.touches
+            if (touches.length >= 2) {
+                const zoom = pinchDelta(refs.pinch.current, touches)
+                if (zoom) refs.aspect.current(zoom === 'out')
+                return
+            }
             if (Math.abs(gesture.dy) < 12 || startValue < 0) return
             const next = clamp01(startValue - gesture.dy / 250)
             if (side === 'right') {
@@ -111,6 +142,7 @@ function createGesturePan(side: 'left' | 'right', refs: GestureRefs) {
             }
         },
         onPanResponderRelease: (_event, gesture) => {
+            refs.pinch.current.dist = 0
             if (Math.abs(gesture.dx) > 10 || Math.abs(gesture.dy) > 10) return // foi arrasto
             const now = Date.now()
             const doubleTap = now - lastTapAt < 300
@@ -358,17 +390,42 @@ export default function Player() {
     const gesturePlayerRef = useRef<{ volume: number; currentTime: number }>(player)
     const gestureLiveRef = useRef(live === '1')
     const gestureToastRef = useRef<(text: string) => void>(() => undefined)
+    const gesturePinchRef = useRef({ dist: 0 })
+    const gestureAspectRef = useRef<(cover: boolean) => void>(() => undefined)
     useEffect(() => {
         gesturePlayerRef.current = player
         gestureLiveRef.current = live === '1'
         gestureToastRef.current = showTrackToast
+        gestureAspectRef.current = (cover: boolean) => {
+            const next: AspectMode = cover ? 'cover' : 'contain'
+            setAspectState(next)
+            void setAspect(aspectKey, next)
+            showTrackToast(t(cover ? 'aspectCover' : 'aspectContain'))
+        }
     })
     // A fábrica só GUARDA as refs — nenhum .current é lido aqui no render.
     // eslint-disable-next-line react-hooks/refs
     const [pans] = useState(() => ({
-        left: createGesturePan('left', { player: gesturePlayerRef, live: gestureLiveRef, toast: gestureToastRef }),
-        right: createGesturePan('right', { player: gesturePlayerRef, live: gestureLiveRef, toast: gestureToastRef }),
+        left: createGesturePan('left', { player: gesturePlayerRef, live: gestureLiveRef, toast: gestureToastRef, pinch: gesturePinchRef, aspect: gestureAspectRef }),
+        right: createGesturePan('right', { player: gesturePlayerRef, live: gestureLiveRef, toast: gestureToastRef, pinch: gesturePinchRef, aspect: gestureAspectRef }),
     }))
+
+    // 🕐 Relógio + resolução do stream (aparecem junto com os controles).
+    const [clock, setClock] = useState('')
+    const [videoRes, setVideoRes] = useState(0)
+    useEffect(() => {
+        const update = () => {
+            setClock(new Date().toTimeString().slice(0, 5))
+            try {
+                const height = player.videoTrack?.size?.height ?? 0
+                setVideoRes(current => (height > 0 ? height : current))
+            } catch { /* player já liberado */ }
+        }
+        queueMicrotask(update)
+        const timer = setInterval(update, 15_000)
+        return () => clearInterval(timer)
+        // eslint-disable-next-line react-hooks/exhaustive-deps
+    }, [])
 
     // A barra do topo (e o zap) some após 5s sem toque; um toque no topo traz de volta.
     const [chrome, setChrome] = useState(true)
@@ -697,17 +754,37 @@ export default function Player() {
     }, [pid, trackable])
 
     // Retomar do ponto salvo (re-executa se a fonte virar o arquivo local).
+    const traktPctRef = useRef(0)
     useEffect(() => {
         if (!trackable) return
         let cancelled = false
         void getEntry(String(pid)).then(entry => {
+            if (cancelled) return
+            if (entry?.fromTraktPct) {
+                // Progresso do Trakt em % — converte quando a duração chegar.
+                traktPctRef.current = entry.position
+                return
+            }
             const at = resumePosition(entry)
-            if (!cancelled && at > 0) player.currentTime = at
+            if (at > 0) player.currentTime = at
         })
         return () => { cancelled = true }
         // player é estável pra um mesmo source — pid/source são o que importa.
         // eslint-disable-next-line react-hooks/exhaustive-deps
     }, [pid, trackable, source])
+
+    // % do Trakt vira segundos assim que o player conhece a duração.
+    useEffect(() => {
+        if (status !== 'readyToPlay' || traktPctRef.current <= 0) return
+        try {
+            const total = player.duration
+            if (total > 0) {
+                applySeekTo(player, (total * traktPctRef.current) / 100)
+                traktPctRef.current = 0
+            }
+        } catch { /* player já liberado */ }
+        // eslint-disable-next-line react-hooks/exhaustive-deps
+    }, [status])
 
     // Tempo assistido: 1 minuto contabilizado por minuto tocando (local ou TV).
     useEffect(() => {
@@ -827,6 +904,7 @@ export default function Player() {
                         <Text style={styles.epg} numberOfLines={1}>{liveEpg}</Text>
                     ) : null}
                 </View>
+                <Text style={styles.clock}>{videoRes > 0 ? `${videoRes}p · ` : ''}{clock}</Text>
                 {live === '1' ? (
                     <TvTouchable
                         style={styles.trackBtn}
@@ -1197,6 +1275,7 @@ const styles = StyleSheet.create({
     },
     timeUpExit: { paddingHorizontal: 18, paddingVertical: 8 },
     timeUpExitText: { color: colors.accent, fontSize: 14, fontWeight: '700' },
+    clock: { color: colors.textDim, fontSize: 13, fontWeight: '700', marginRight: spacing.sm },
     zapCol: {
         position: 'absolute',
         right: spacing.sm,

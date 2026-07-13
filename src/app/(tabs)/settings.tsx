@@ -19,8 +19,10 @@ import { cancelScheduled, listScheduled, type ScheduledReminder } from '../../se
 import { listRecurring, removeRecurring, type RecurringReminder } from '../../services/recurring'
 import { buildSetupLink } from '../../services/setupLink'
 import { getTmdbKey, setTmdbKey } from '../../services/tmdb'
-import { listHiddenChannels, unhideChannel, type HiddenChannel } from '../../services/hidden'
-import { applyBackup, collectBackup, parseBackup, serializeBackup } from '../../services/backup'
+import { hideChannel, listHiddenChannels, unhideChannel, type HiddenChannel } from '../../services/hidden'
+import { applyBackup, collectBackup, decryptBackup, isEncryptedBackup, parseBackup, protectBackup, serializeBackup } from '../../services/backup'
+import { probeAll } from '../../services/probe'
+import { loadFavorites } from '../../services/favorites'
 import { disableParental, enableParental, isValidPin, listBlockedCategories, loadParental } from '../../services/parental'
 import { getKidsTimeLimit, isKidsMode, listKidsCategories, setKidsMode, setKidsTimeLimit } from '../../services/kids'
 import { disconnectTrakt, getTraktCreds, isTraktConnected, pollDeviceToken, setTraktCreds, startDeviceAuth } from '../../services/trakt'
@@ -31,7 +33,7 @@ import { loadSpeedHistory, runSpeedTest, saveSpeedSample, type SpeedSample, type
 import { clearHistory } from '../../services/progress'
 import { checkForUpdate } from '../../services/updates'
 import {
-    accountLabel, cachedFetch, clearCatalogCache, getClient, listAccounts, loadAccount, removeAccount, renameAccount, switchAccount,
+    accountLabel, cachedFetch, clearCatalogCache, getClient, listAccounts, loadAccount, removeAccount, renameAccount, resolvePlayableUrl, switchAccount,
     type StoredAccount,
 } from '../../services/session'
 import { currentStreak, dayKey, formatMinutes, lastDays, lastMonths, loadMonthUsage, loadTitleUsage, loadUsage, monthKey, summarize, topTitles, usageCsv, weekDelta, type TopTitle, type UsageSummary } from '../../services/usage'
@@ -169,6 +171,9 @@ export default function SettingsTab() {
     const [traktCsec, setTraktCsec] = useState('')
     const [traktOn, setTraktOn] = useState(false)
     const [traktMsg, setTraktMsg] = useState('')
+    const [favCheck, setFavCheck] = useState<{ dead: { id: string; name: string }[]; total: number } | null>(null)
+    const [favChecking, setFavChecking] = useState(false)
+    const [backupPass, setBackupPass] = useState('')
     const [topLive, setTopLive] = useState<TopTitle[]>([])
     const [topShows, setTopShows] = useState<TopTitle[]>([])
     const usageShotRef = useRef<View>(null)
@@ -326,6 +331,33 @@ export default function SettingsTab() {
             }
             setDiag(rows)
         })()
+    }
+
+    // 🩺 Testa os streams dos favoritos em lote (teto de 30, 4 por vez).
+    const runFavCheck = async () => {
+        setFavChecking(true)
+        try {
+            const client = await getClient()
+            if (!client) return
+            const [live, favorites] = await Promise.all([
+                cachedFetch('live', () => client.getLiveChannels()),
+                loadFavorites(),
+            ])
+            const targets = live.filter(c => favorites.live.includes(String(c.stream_id))).slice(0, 30)
+            const withUrls = await Promise.all(targets.map(async channel => ({
+                channel,
+                url: await resolvePlayableUrl(client.liveStreamUrl(String(channel.stream_id))).catch(() => ''),
+            })))
+            const results = await probeAll(withUrls, entry => entry.url)
+            setFavCheck({
+                total: targets.length,
+                dead: results
+                    .filter(r => r.item.url.startsWith('http') && !r.alive)
+                    .map(r => ({ id: String(r.item.channel.stream_id), name: r.item.channel.name })),
+            })
+        } finally {
+            setFavChecking(false)
+        }
     }
 
     // Trakt: salva as credenciais, mostra o código e fica perguntando até
@@ -550,6 +582,37 @@ export default function SettingsTab() {
                         <Ionicons name="document-text-outline" size={16} color="#fff" />
                         <Text style={styles.backupBtnText}>{t('diagCopyBtn')}</Text>
                     </TvTouchable>
+                    <TvTouchable
+                        style={[styles.backupBtn, styles.restoreBtn, favChecking && { opacity: 0.6 }]}
+                        disabled={favChecking}
+                        onPress={() => { void runFavCheck() }}
+                    >
+                        <Ionicons name="pulse-outline" size={16} color="#fff" />
+                        <Text style={styles.backupBtnText}>
+                            {favChecking ? t('favCheckRunning')
+                                : favCheck ? tf('favCheckResult', { dead: favCheck.dead.length, total: favCheck.total })
+                                    : t('favCheckBtn')}
+                        </Text>
+                    </TvTouchable>
+                    {favCheck?.dead.map(dead => (
+                        <View key={dead.id} style={styles.diagRow}>
+                            <Ionicons name="close-circle-outline" size={14} color={colors.danger} />
+                            <Text style={styles.diagLabel} numberOfLines={1}>{dead.name}</Text>
+                            <TouchableOpacity
+                                accessibilityLabel={t('hide')}
+                                onPress={() => {
+                                    void hideChannel({ id: dead.id, name: dead.name }).then(() => {
+                                        setFavCheck(current => current
+                                            ? { ...current, dead: current.dead.filter(d => d.id !== dead.id) }
+                                            : current)
+                                        refresh()
+                                    })
+                                }}
+                            >
+                                <Text style={[styles.diagMeta, { color: colors.accent }]}>{t('hide')}</Text>
+                            </TouchableOpacity>
+                        </View>
+                    ))}
                     <Text style={styles.parentalHint}>{t('extEpgHint')}</Text>
                     <View style={styles.accountRow}>
                         <TextInput
@@ -1028,11 +1091,21 @@ export default function SettingsTab() {
             <Text style={styles.section} onLayout={e => { const y = e.nativeEvent.layout.y; setSectionY(prev => ({ ...prev, ['secBackup']: y })) }}>{t('secBackup')}</Text>
             <View style={[styles.card, { paddingVertical: spacing.md, gap: spacing.md }]}>
                 <Text style={styles.parentalHint}>{t('backupHint')}</Text>
+                <TextInput
+                    style={styles.aliasInput}
+                    value={backupPass}
+                    onChangeText={setBackupPass}
+                    placeholder={t('backupPassPh')}
+                    placeholderTextColor={colors.textDim}
+                    autoCapitalize="none"
+                    autoCorrect={false}
+                    secureTextEntry
+                />
                 <TvTouchable
                     style={styles.backupBtn}
                     onPress={() => {
                         void (async () => {
-                            const json = serializeBackup(await collectBackup())
+                            const json = protectBackup(serializeBackup(await collectBackup()), backupPass)
                             await Share.share({ message: json }).catch(() => undefined)
                         })()
                     }}
@@ -1065,7 +1138,7 @@ export default function SettingsTab() {
                     onPress={() => {
                         void (async () => {
                             try {
-                                const json = serializeBackup(await collectBackup())
+                                const json = protectBackup(serializeBackup(await collectBackup()), backupPass)
                                 const permission = await FileSystem.StorageAccessFramework.requestDirectoryPermissionsAsync()
                                 if (!permission.granted) return
                                 const fileUri = await FileSystem.StorageAccessFramework.createFileAsync(
@@ -1097,7 +1170,12 @@ export default function SettingsTab() {
                     disabled={!importText.trim()}
                     onPress={() => {
                         try {
-                            const backup = parseBackup(importText)
+                            const raw = isEncryptedBackup(importText) ? decryptBackup(importText, backupPass) : importText
+                            if (raw === null) {
+                                setBackupMsg(t('backupPassWrong'))
+                                return
+                            }
+                            const backup = parseBackup(raw)
                             Alert.alert(
                                 t('restoreTitle'),
                                 tf('restoreMsg', { n: backup.accounts.length }),

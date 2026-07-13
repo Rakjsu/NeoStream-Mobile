@@ -63,3 +63,13 @@ describe('scrobble e watchlist desconectados', () => {
         expect(spy).not.toHaveBeenCalled()
     })
 })
+
+describe('fetchTraktPlayback', () => {
+    it('desconectado devolve [] sem rede', async () => {
+        const spy = vi.fn()
+        vi.stubGlobal('fetch', spy)
+        const { fetchTraktPlayback } = await import('./trakt')
+        expect(await fetchTraktPlayback()).toEqual([])
+        expect(spy).not.toHaveBeenCalled()
+    })
+})

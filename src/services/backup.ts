@@ -5,6 +5,7 @@
  * v1/v2/v3; coletar/aplicar delegam pros serviços.
  */
 import AsyncStorage from '@react-native-async-storage/async-storage'
+import CryptoJS from 'crypto-js'
 import { loadFavorites, restoreFavorites, type Favorites } from './favorites'
 import { listHiddenFor, restoreHiddenFor, type HiddenChannel } from './hidden'
 import { loadParental, restoreParental, type ParentalState } from './parental'
@@ -140,4 +141,29 @@ export async function applyBackup(backup: MobileBackup): Promise<void> {
         }
     }
     await restoreAccounts(backup.accounts, backup.activeId ?? null)
+}
+
+// --------------------------------------------------- backup com senha --
+
+const ENC_PREFIX = 'NEOENC1:'
+
+export function isEncryptedBackup(text: string): boolean {
+    return text.trim().startsWith(ENC_PREFIX)
+}
+
+/** Senha vazia = texto puro (compatível com backups antigos). */
+export function protectBackup(json: string, password: string): string {
+    if (!password.trim()) return json
+    return ENC_PREFIX + CryptoJS.AES.encrypt(json, password).toString()
+}
+
+/** null = senha errada ou arquivo corrompido. */
+export function decryptBackup(text: string, password: string): string | null {
+    try {
+        const body = text.trim().slice(ENC_PREFIX.length)
+        const plain = CryptoJS.AES.decrypt(body, password).toString(CryptoJS.enc.Utf8)
+        return plain.startsWith('{') ? plain : null
+    } catch {
+        return null
+    }
 }

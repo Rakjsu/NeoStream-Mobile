@@ -10,6 +10,8 @@ import { syncTraktWatched } from './trakt'
 export type ProgressKind = 'movie' | 'episode'
 
 export interface ProgressEntry {
+    /** true = position é PORCENTAGEM do Trakt; o player converte ao saber a duração. */
+    fromTraktPct?: boolean
     /** "movie:<streamId>" | "episode:<episodeId>" (ver buildProgressId). */
     id: string
     kind: ProgressKind

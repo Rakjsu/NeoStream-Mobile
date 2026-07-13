@@ -8,7 +8,8 @@ import AsyncStorage from '@react-native-async-storage/async-storage'
 import { checkNewEpisodes } from '../../services/newEpisodes'
 import { notifyNow } from '../../services/notify'
 import { listRecentChannels, recordRecentChannel } from '../../services/recents'
-import { allowedCategoryIds, loadParental } from '../../services/parental'
+import { loadParental } from '../../services/parental'
+import { guardedCategoryIds } from '../../services/kids'
 import { listContinue, loadProgress, removeEntry, type ProgressEntry } from '../../services/progress'
 import { becauseYouWatched, type RecCandidate } from '../../services/recommend'
 import { loadWatchlist } from '../../services/watchlist'
@@ -65,9 +66,9 @@ export default function HomeTab() {
                 listRecentChannels(),
             ])
 
-            const allowedLive = allowedCategoryIds(liveCats, parental.enabled)
-            const allowedVod = allowedCategoryIds(vodCats, parental.enabled)
-            const allowedSeries = allowedCategoryIds(seriesCats, parental.enabled)
+            const allowedLive = await guardedCategoryIds(liveCats, parental.enabled)
+            const allowedVod = await guardedCategoryIds(vodCats, parental.enabled)
+            const allowedSeries = await guardedCategoryIds(seriesCats, parental.enabled)
             const pass = (set: Set<string> | null, categoryId?: string) => !set || !categoryId || set.has(categoryId)
 
             const visibleVod = vod.filter(m => pass(allowedVod, m.category_id))

@@ -5,7 +5,8 @@ import { useCallback, useEffect, useRef, useState } from 'react'
 import { Alert, FlatList, StyleSheet, Text, TouchableOpacity, View, type ViewToken } from 'react-native'
 import { loadFavorites } from '../services/favorites'
 import { hiddenIdSet } from '../services/hidden'
-import { allowedCategoryIds, loadParental } from '../services/parental'
+import { loadParental } from '../services/parental'
+import { guardedCategoryIds } from '../services/kids'
 import { listRecentChannels, recordRecentChannel } from '../services/recents'
 import { notifyAt } from '../services/notify'
 import { cachedFetch, getClient } from '../services/session'
@@ -49,7 +50,7 @@ export default function NowOnTv() {
                     listRecentChannels(),
                     hiddenIdSet(),
                 ])
-                const allowed = allowedCategoryIds(liveCats, parental.enabled)
+                const allowed = await guardedCategoryIds(liveCats, parental.enabled)
                 const visible = live.filter(channel =>
                     !hidden.has(String(channel.stream_id))
                     && (!allowed || !channel.category_id || allowed.has(channel.category_id)))

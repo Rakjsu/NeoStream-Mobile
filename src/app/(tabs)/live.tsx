@@ -4,7 +4,8 @@ import { router } from 'expo-router'
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { Alert, FlatList, RefreshControl, StyleSheet, Text, TouchableOpacity, View, type ViewToken } from 'react-native'
 import { emptyFavorites, isFavorite, persistToggle, loadFavorites, type Favorites } from '../../services/favorites'
-import { allowedCategoryIds, loadParental } from '../../services/parental'
+import { loadParental } from '../../services/parental'
+import { guardedCategoryIds } from '../../services/kids'
 import { hiddenIdSet, hideChannel } from '../../services/hidden'
 import { recordRecentChannel } from '../../services/recents'
 import { cachedFetch, getClient } from '../../services/session'
@@ -45,7 +46,7 @@ export default function LiveTab() {
             setChannels(list)
             setCategories(cats)
             setFavorites(favs)
-            setAllowed(allowedCategoryIds(cats, parental.enabled))
+            setAllowed(await guardedCategoryIds(cats, parental.enabled))
             setError('')
         } catch (err) {
             setError(err instanceof Error ? err.message : t('failChannels'))

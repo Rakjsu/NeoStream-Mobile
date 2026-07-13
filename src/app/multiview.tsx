@@ -6,7 +6,8 @@ import { useEffect, useState } from 'react'
 import { FlatList, StyleSheet, Text, View } from 'react-native'
 import { loadFavorites } from '../services/favorites'
 import { hiddenIdSet } from '../services/hidden'
-import { allowedCategoryIds, loadParental } from '../services/parental'
+import { loadParental } from '../services/parental'
+import { guardedCategoryIds } from '../services/kids'
 import { listRecentChannels } from '../services/recents'
 import { cachedFetch, getClient } from '../services/session'
 import { tapLight } from '../services/haptics'
@@ -69,7 +70,7 @@ export default function MultiView() {
                     listRecentChannels(),
                     hiddenIdSet(),
                 ])
-                const allowed = allowedCategoryIds(liveCats, parental.enabled)
+                const allowed = await guardedCategoryIds(liveCats, parental.enabled)
                 const visible = live.filter(channel =>
                     !hidden.has(String(channel.stream_id))
                     && (!allowed || !channel.category_id || allowed.has(channel.category_id)))

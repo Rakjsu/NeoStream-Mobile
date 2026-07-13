@@ -4,7 +4,8 @@ import { useCallback, useEffect, useMemo, useState } from 'react'
 import { Alert, FlatList, RefreshControl, StyleSheet, Text, TouchableOpacity, useWindowDimensions, View } from 'react-native'
 import { emptyFavorites, isFavorite, loadFavorites, persistToggle, type Favorites } from '../../services/favorites'
 import { listContinue, loadProgress, removeEntry, type ProgressEntry } from '../../services/progress'
-import { allowedCategoryIds, loadParental } from '../../services/parental'
+import { loadParental } from '../../services/parental'
+import { guardedCategoryIds } from '../../services/kids'
 import { enqueueDownloads, type DownloadRequest } from '../../services/downloads'
 import { buildProgressId } from '../../services/progress'
 import { cachedFetch, getClient, resolvePlayableUrl } from '../../services/session'
@@ -83,7 +84,7 @@ export default function MoviesTab() {
             setMovies(list)
             setCategories(cats)
             setFavorites(favs)
-            setAllowed(allowedCategoryIds(cats, parental.enabled))
+            setAllowed(await guardedCategoryIds(cats, parental.enabled))
             setError('')
         } catch (err) {
             setError(err instanceof Error ? err.message : t('failMovies'))

@@ -1,5 +1,9 @@
-import { describe, it, expect } from 'vitest'
-import { addMinutes, addMonthMinute, addTitleMinute, dayKey, formatMinutes, lastDays, monthKey, summarize, topTitles, yearSummary, type MonthUsageMap, type TitleUsageMap, type UsageMap } from './usage'
+import { describe, it, expect, vi } from 'vitest'
+import { addMinutes, addMonthMinute, addTitleMinute, dayKey, formatMinutes, lastDays, lastMonths, monthKey, summarize, topTitles, usageCsv, yearSummary, type MonthUsageMap, type TitleUsageMap, type UsageMap } from './usage'
+
+vi.mock('@react-native-async-storage/async-storage', () => ({
+    default: { getItem: vi.fn(), setItem: vi.fn(), removeItem: vi.fn() },
+}))
 
 describe('dayKey', () => {
     it('formata YYYY-MM-DD', () => {
@@ -100,5 +104,23 @@ describe('wrapped anual (meses)', () => {
 
     it('monthKey no fuso local', () => {
         expect(monthKey(new Date(2026, 11, 25).getTime())).toBe('2026-12')
+    })
+})
+
+describe('lastMonths / usageCsv (fase 3)', () => {
+    const months: MonthUsageMap = {
+        '2026-05': { live: 100, movie: 20 },
+        '2026-07': { episode: 30 },
+    }
+
+    it('série dos últimos meses com zeros e virada de ano', () => {
+        const series = lastMonths(months, '2026-07', 4)
+        expect(series.map(entry => entry.month)).toEqual(['2026-04', '2026-05', '2026-06', '2026-07'])
+        expect(series.map(entry => entry.minutes)).toEqual([0, 120, 0, 30])
+        expect(lastMonths({}, '2026-01', 2).map(e => e.month)).toEqual(['2025-12', '2026-01'])
+    })
+
+    it('CSV ordenado com cabeçalho', () => {
+        expect(usageCsv(months)).toBe('mes,tv,filmes,series\n2026-05,100,20,0\n2026-07,0,0,30')
     })
 })

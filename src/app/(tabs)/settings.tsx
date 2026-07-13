@@ -26,7 +26,7 @@ import {
     accountLabel, cachedFetch, clearCatalogCache, getClient, listAccounts, loadAccount, removeAccount, renameAccount, switchAccount,
     type StoredAccount,
 } from '../../services/session'
-import { dayKey, formatMinutes, lastDays, loadTitleUsage, loadUsage, summarize, topTitles, type TopTitle, type UsageSummary } from '../../services/usage'
+import { dayKey, formatMinutes, lastDays, lastMonths, loadMonthUsage, loadTitleUsage, loadUsage, monthKey, summarize, topTitles, usageCsv, type TopTitle, type UsageSummary } from '../../services/usage'
 import { parseExpiry } from '../../services/xtream'
 import { TvTouchable } from '../../ui/components'
 import { colors, spacing } from '../../ui/theme'
@@ -57,6 +57,7 @@ export default function SettingsTab() {
     const [updateMsg, setUpdateMsg] = useState('')
     const [usage, setUsage] = useState<UsageSummary>({ totals: { live: 0, movie: 0, episode: 0 }, totalMinutes: 0 })
     const [usageDays, setUsageDays] = useState<{ day: string; minutes: number }[]>([])
+    const [usageMonths, setUsageMonths] = useState<{ month: string; minutes: number }[]>([])
     const [topLive, setTopLive] = useState<TopTitle[]>([])
     const [topShows, setTopShows] = useState<TopTitle[]>([])
     const usageShotRef = useRef<View>(null)
@@ -102,6 +103,7 @@ export default function SettingsTab() {
             setUsage(summarize(map, today))
             setUsageDays(lastDays(map, today))
         })
+        void loadMonthUsage().then(map => setUsageMonths(lastMonths(map, monthKey(Date.now()))))
         void loadTitleUsage().then(titles => {
             const today = dayKey(Date.now())
             setTopLive(topTitles(titles, today, ['live']))
@@ -462,6 +464,32 @@ export default function SettingsTab() {
                         )
                     })}
                 </View>
+                <Text style={styles.parentalHint}>{t('usageMonths')}</Text>
+                <View style={styles.usageBars}>
+                    {usageMonths.map(entry => {
+                        const peak = Math.max(1, ...usageMonths.map(m => m.minutes))
+                        return (
+                            <View key={entry.month} style={styles.usageBarSlot}>
+                                <View style={[styles.usageBar, { height: Math.max(3, Math.round((entry.minutes / peak) * 44)) }]} />
+                                <Text style={styles.usageBarLabel}>{entry.month.slice(5)}</Text>
+                            </View>
+                        )
+                    })}
+                </View>
+                <TvTouchable
+                    style={[styles.backupBtn, styles.restoreBtn]}
+                    onPress={() => {
+                        void (async () => {
+                            const csv = usageCsv(await loadMonthUsage())
+                            const fileUri = `${FileSystem.cacheDirectory}neostream-uso.csv`
+                            await FileSystem.writeAsStringAsync(fileUri, csv)
+                            if (await Sharing.isAvailableAsync()) await Sharing.shareAsync(fileUri)
+                        })()
+                    }}
+                >
+                    <Ionicons name="download-outline" size={16} color="#fff" />
+                    <Text style={styles.backupBtnText}>{t('exportCsvBtn')}</Text>
+                </TvTouchable>
                 <InfoRow label={t('tabLive')} value={formatMinutes(usage.totals.live)} />
                 <InfoRow label={t('tabMovies')} value={formatMinutes(usage.totals.movie)} />
                 <InfoRow label={t('tabSeries')} value={formatMinutes(usage.totals.episode)} />

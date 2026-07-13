@@ -45,7 +45,7 @@ export default function Unlock() {
                 } catch { /* segue no PIN */ }
             })()
         })
-        // eslint-disable-next-line react-hooks/exhaustive-deps
+         
     }, [])
 
     return (

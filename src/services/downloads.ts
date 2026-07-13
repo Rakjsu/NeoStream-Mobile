@@ -19,6 +19,8 @@ export interface DownloadItem {
     fileUri: string
     sizeBytes: number
     downloadedAt: number
+    /** Protegido: faxina e teto de armazenamento não tocam. */
+    locked?: boolean
 }
 
 export interface DownloadRequest {
@@ -90,7 +92,7 @@ export function pickPending(requests: DownloadRequest[], taken: Set<string>): Do
 export function pickEvictions(items: DownloadItem[], watched: Set<string>, limitBytes: number): DownloadItem[] {
     let total = items.reduce((sum, item) => sum + item.sizeBytes, 0)
     if (limitBytes <= 0 || total <= limitBytes) return []
-    const order = [...items].sort((a, b) => {
+    const order = [...items].filter(item => !item.locked).sort((a, b) => {
         const aWatched = watched.has(a.id) ? 0 : 1
         const bWatched = watched.has(b.id) ? 0 : 1
         if (aWatched !== bWatched) return aWatched - bWatched
@@ -463,8 +465,9 @@ export async function cancelDownload(id: string): Promise<void> {
     notify()
 }
 
-/** Liberável: já visto OU gravação com 14+ dias (PURO). */
+/** Liberável: já visto OU gravação com 14+ dias — protegido NUNCA (PURO). */
 export function isFreeable(item: DownloadItem, watched: Set<string>, nowMs: number): boolean {
+    if (item.locked) return false
     if (watched.has(item.id)) return true
     return item.id.startsWith('rec:') && nowMs - item.downloadedAt > 14 * 24 * 3600_000
 }
@@ -473,6 +476,17 @@ export function isFreeable(item: DownloadItem, watched: Set<string>, nowMs: numb
 export async function listFreeable(): Promise<DownloadItem[]> {
     const watched = await loadWatched().catch(() => new Set<string>())
     return (await listDownloads()).filter(item => isFreeable(item, watched, Date.now()))
+}
+
+/** Liga/desliga a proteção contra a faxina automática. */
+export async function toggleLockDownload(id: string): Promise<void> {
+    const map = await loadRegistry()
+    const item = map[id]
+    if (!item) return
+    map[id] = { ...item, locked: !item.locked }
+    registry = map
+    await persistRegistry()
+    notify()
 }
 
 /** Renomeia um item (gravações: "rec_..." vira "Final do campeonato"). */

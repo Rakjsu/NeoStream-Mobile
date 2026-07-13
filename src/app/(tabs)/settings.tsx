@@ -3,7 +3,7 @@ import { Ionicons } from '@expo/vector-icons'
 import Constants from 'expo-constants'
 import { router, useFocusEffect } from 'expo-router'
 import { useCallback, useRef, useState } from 'react'
-import { Alert, Linking, ScrollView, Share, StyleSheet, Text, TextInput, View } from 'react-native'
+import { Alert, Linking, ScrollView, Share, StyleSheet, Text, TextInput, TouchableOpacity, View } from 'react-native'
 import * as DocumentPicker from 'expo-document-picker'
 import * as FileSystem from 'expo-file-system/legacy'
 import { disableAppLock, enableAppLock, loadAppLock } from '../../services/appLock'
@@ -22,6 +22,7 @@ import { listHiddenChannels, unhideChannel, type HiddenChannel } from '../../ser
 import { applyBackup, collectBackup, parseBackup, serializeBackup } from '../../services/backup'
 import { disableParental, enableParental, isValidPin, listBlockedCategories, loadParental } from '../../services/parental'
 import { isKidsMode, listKidsCategories, setKidsMode } from '../../services/kids'
+import { M3uClient } from '../../services/m3u'
 import { loadSpeedHistory, runSpeedTest, saveSpeedSample, type SpeedSample, type SpeedVerdict } from '../../services/speedtest'
 import { clearHistory } from '../../services/progress'
 import { checkForUpdate } from '../../services/updates'
@@ -29,11 +30,29 @@ import {
     accountLabel, cachedFetch, clearCatalogCache, getClient, listAccounts, loadAccount, removeAccount, renameAccount, switchAccount,
     type StoredAccount,
 } from '../../services/session'
-import { currentStreak, dayKey, formatMinutes, lastDays, lastMonths, loadMonthUsage, loadTitleUsage, loadUsage, monthKey, summarize, topTitles, usageCsv, type TopTitle, type UsageSummary } from '../../services/usage'
+import { currentStreak, dayKey, formatMinutes, lastDays, lastMonths, loadMonthUsage, loadTitleUsage, loadUsage, monthKey, summarize, topTitles, usageCsv, weekDelta, type TopTitle, type UsageSummary } from '../../services/usage'
 import { parseExpiry } from '../../services/xtream'
 import { TvTouchable } from '../../ui/components'
 import { colors, setThemeVariant, spacing, themeVariant } from '../../ui/theme'
 import { t, tf } from '../../i18n/strings'
+
+
+// Chips de navegação num componente próprio: dentro do SettingsTab (gigante),
+// qualquer leitura do estado sectionY no map fazia o React Compiler pular o arquivo.
+function SectionNav({ sectionY, onJump }: { sectionY: Record<string, number>; onJump: (y: number) => void }) {
+    return (
+        <View style={styles.navRow}>
+            {([
+                ['secAccounts', '👤'], ['secParental', '🧒'], ['secUsage', '📊'],
+                ['secStorage', '💾'], ['secBackup', '☁️'], ['secAbout', 'ℹ️'],
+            ] as const).map(([key, icon]) => (
+                <TouchableOpacity key={key} style={styles.navChip} onPress={() => onJump(sectionY[key] ?? 0)}>
+                    <Text style={styles.navChipText}>{icon} {t(key)}</Text>
+                </TouchableOpacity>
+            ))}
+        </View>
+    )
+}
 
 function InfoRow({ label, value }: { label: string; value: string }) {
     return (
@@ -62,9 +81,15 @@ export default function SettingsTab() {
     const [usageDays, setUsageDays] = useState<{ day: string; minutes: number }[]>([])
     const [usageMonths, setUsageMonths] = useState<{ month: string; minutes: number }[]>([])
     const [streak, setStreak] = useState(0)
+    const [weekDiff, setWeekDiff] = useState<number | null>(null)
+    const [epgCov, setEpgCov] = useState<{ matched: number; total: number; misses: { id: string; name: string }[] } | null>(null)
     const [topLive, setTopLive] = useState<TopTitle[]>([])
     const [topShows, setTopShows] = useState<TopTitle[]>([])
     const usageShotRef = useRef<View>(null)
+    // Navegação rápida: guarda o Y de cada seção pro chip dar scrollTo.
+    // Estado (não ref): indexar ref.current[chave] num handler do map faz o React Compiler pular o arquivo.
+    const scrollRef = useRef<ScrollView>(null)
+    const [sectionY, setSectionY] = useState<Record<string, number>>({})
     const [aliasDraft, setAliasDraft] = useState('')
     const [importText, setImportText] = useState('')
     const [backupMsg, setBackupMsg] = useState('')
@@ -121,6 +146,8 @@ export default function SettingsTab() {
             setUsage(summarize(map, today))
             setUsageDays(lastDays(map, today))
             setStreak(currentStreak(map, today))
+            const delta = weekDelta(map, today)
+            setWeekDiff(delta.previous > 0 || delta.current > 0 ? delta.current - delta.previous : null)
         })
         void loadMonthUsage().then(map => setUsageMonths(lastMonths(map, monthKey(Date.now()))))
         void loadTitleUsage().then(titles => {
@@ -239,8 +266,9 @@ export default function SettingsTab() {
     }
 
     return (
-        <ScrollView style={styles.root} contentContainerStyle={{ padding: spacing.lg }}>
-            <Text style={styles.section}>{t('secAccounts')}</Text>
+        <ScrollView ref={scrollRef} style={styles.root} contentContainerStyle={{ padding: spacing.lg }} stickyHeaderIndices={[0]}>
+            <SectionNav sectionY={sectionY} onJump={y => scrollRef.current?.scrollTo({ y, animated: true })} />
+            <Text style={styles.section} onLayout={e => { const y = e.nativeEvent.layout.y; setSectionY(prev => ({ ...prev, ['secAccounts']: y })) }}>{t('secAccounts')}</Text>
             <View style={styles.card}>
                 {accounts.map(account => {
                     const isActive = account.id === active?.id
@@ -379,6 +407,32 @@ export default function SettingsTab() {
                         <Ionicons name="document-text-outline" size={16} color="#fff" />
                         <Text style={styles.backupBtnText}>{t('diagCopyBtn')}</Text>
                     </TvTouchable>
+                    <TvTouchable
+                        style={[styles.backupBtn, styles.restoreBtn]}
+                        onPress={() => {
+                            void (async () => {
+                                const client = await getClient()
+                                if (!(client instanceof M3uClient)) { Alert.alert(t('epgCovOnlyM3u')); return }
+                                setEpgCov(await client.epgCoverage())
+                            })()
+                        }}
+                    >
+                        <Ionicons name="flask-outline" size={16} color="#fff" />
+                        <Text style={styles.backupBtnText}>
+                            {epgCov ? tf('epgCovResult', { matched: epgCov.matched, total: epgCov.total }) : t('epgCovBtn')}
+                        </Text>
+                    </TvTouchable>
+                    {epgCov ? epgCov.misses.slice(0, 5).map(miss => (
+                        <TouchableOpacity
+                            key={miss.id}
+                            style={styles.diagRow}
+                            onPress={() => router.push({ pathname: '/epgfix', params: { channel: miss.id, name: miss.name } })}
+                        >
+                            <Ionicons name="help-circle-outline" size={14} color={colors.danger} />
+                            <Text style={styles.diagLabel} numberOfLines={1}>{miss.name}</Text>
+                            <Text style={[styles.diagMeta, { color: colors.accent }]}>{t('epgFixBtn')}</Text>
+                        </TouchableOpacity>
+                    )) : null}
                     {speedHist.length > 0 ? (
                         <View style={{ gap: 4 }}>
                             <Text style={styles.parentalHint}>{t('speedHistTitle')}</Text>
@@ -410,7 +464,7 @@ export default function SettingsTab() {
                 </View>
             </View>
 
-            <Text style={styles.section}>{t('secParental')}</Text>
+            <Text style={styles.section} onLayout={e => { const y = e.nativeEvent.layout.y; setSectionY(prev => ({ ...prev, ['secParental']: y })) }}>{t('secParental')}</Text>
             <View style={[styles.card, { paddingVertical: spacing.md, gap: spacing.md }]}>
                 <Text style={styles.parentalHint}>
                     {parentalOn ? t('parentalOnHint') : t('parentalOffHint')}
@@ -511,7 +565,7 @@ export default function SettingsTab() {
                 {lockError ? <Text style={styles.pinError}>{lockError}</Text> : null}
             </View>
 
-            <Text style={styles.section}>{t('secUsage')}</Text>
+            <Text style={styles.section} onLayout={e => { const y = e.nativeEvent.layout.y; setSectionY(prev => ({ ...prev, ['secUsage']: y })) }}>{t('secUsage')}</Text>
             <View ref={usageShotRef} collapsable={false} style={styles.card}>
                 <InfoRow label={t('usageWeek')} value="" />
                 <View style={styles.usageBars}>
@@ -526,6 +580,11 @@ export default function SettingsTab() {
                     })}
                 </View>
                 {streak >= 2 ? <Text style={[styles.parentalHint, { color: colors.accent }]}>{tf('streakLabel', { n: streak })}</Text> : null}
+                {weekDiff !== null ? (
+                    <Text style={styles.parentalHint}>
+                        {tf('weekVsLast', { sign: weekDiff >= 0 ? '+' : '−', diff: formatMinutes(Math.abs(weekDiff)) })}
+                    </Text>
+                ) : null}
                 <Text style={styles.parentalHint}>{t('usageMonths')}</Text>
                 <View style={styles.usageBars}>
                     {usageMonths.map(entry => {
@@ -598,7 +657,7 @@ export default function SettingsTab() {
                 </View>
             </View>
 
-            <Text style={styles.section}>{t('secStorage')}</Text>
+            <Text style={styles.section} onLayout={e => { const y = e.nativeEvent.layout.y; setSectionY(prev => ({ ...prev, ['secStorage']: y })) }}>{t('secStorage')}</Text>
             <View style={[styles.card, { paddingVertical: spacing.md, gap: spacing.md }]}>
                 <Text style={styles.parentalHint}>{t('storageHint')}</Text>
                 <View style={styles.limitRow}>
@@ -786,7 +845,7 @@ export default function SettingsTab() {
                 </TvTouchable>
             </View>
 
-            <Text style={styles.section}>{t('secBackup')}</Text>
+            <Text style={styles.section} onLayout={e => { const y = e.nativeEvent.layout.y; setSectionY(prev => ({ ...prev, ['secBackup']: y })) }}>{t('secBackup')}</Text>
             <View style={[styles.card, { paddingVertical: spacing.md, gap: spacing.md }]}>
                 <Text style={styles.parentalHint}>{t('backupHint')}</Text>
                 <TvTouchable
@@ -961,7 +1020,7 @@ export default function SettingsTab() {
                 </View>
             </View>
 
-            <Text style={styles.section}>{t('secAbout')}</Text>
+            <Text style={styles.section} onLayout={e => { const y = e.nativeEvent.layout.y; setSectionY(prev => ({ ...prev, ['secAbout']: y })) }}>{t('secAbout')}</Text>
             <View style={[styles.card, { paddingVertical: spacing.md, gap: spacing.md }]}>
                 <InfoRow label={t('versionRow')} value={`v${Constants.expoConfig?.version ?? '?'}`} />
                 <TvTouchable
@@ -1008,6 +1067,22 @@ export default function SettingsTab() {
 }
 
 const styles = StyleSheet.create({
+    navRow: {
+        flexDirection: 'row',
+        flexWrap: 'wrap',
+        gap: 6,
+        backgroundColor: colors.bg,
+        paddingBottom: spacing.sm,
+    },
+    navChip: {
+        borderColor: colors.border,
+        borderWidth: 1,
+        borderRadius: 14,
+        paddingHorizontal: 10,
+        paddingVertical: 5,
+        backgroundColor: colors.card,
+    },
+    navChipText: { color: colors.textDim, fontSize: 11, fontWeight: '600' },
     root: { flex: 1, backgroundColor: colors.bg },
     section: { color: colors.textDim, fontSize: 13, textTransform: 'uppercase', marginBottom: spacing.sm, marginTop: spacing.md },
     card: {

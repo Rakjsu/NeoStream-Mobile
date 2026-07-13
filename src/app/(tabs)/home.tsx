@@ -2,7 +2,7 @@ import Constants from 'expo-constants'
 import { Ionicons } from '@expo/vector-icons'
 import { router, useFocusEffect } from 'expo-router'
 import { useCallback, useEffect, useState } from 'react'
-import { Linking, RefreshControl, ScrollView, StyleSheet, Text, TouchableOpacity, View } from 'react-native'
+import { Alert, Linking, RefreshControl, ScrollView, StyleSheet, Text, TouchableOpacity, View } from 'react-native'
 import { loadFavorites } from '../../services/favorites'
 import AsyncStorage from '@react-native-async-storage/async-storage'
 import { checkNewEpisodes } from '../../services/newEpisodes'
@@ -23,6 +23,7 @@ import { updateContinueShortcut } from '../../services/shortcuts'
 import { setZapContext } from '../../services/zap'
 import { dayKey, formatMinutes, loadTitleUsage, topTitles } from '../../services/usage'
 import { checkForUpdate, type UpdateInfo } from '../../services/updates'
+import { downloadAndInstall } from '../../services/updater'
 import { checkWhatsNew } from '../../services/whatsnew'
 import { getCloudBackupDir } from '../../services/autoBackup'
 import { ChannelRail, ContinueRail, EmptyState, Loading, PosterRail, type RailItem } from '../../ui/components'
@@ -323,7 +324,25 @@ export default function HomeTab() {
             }
         >
             {update ? (
-                <TouchableOpacity style={styles.updateBanner} onPress={() => void Linking.openURL(update.url)}>
+                <TouchableOpacity
+                    style={styles.updateBanner}
+                    onPress={() => {
+                        if (!update.apkUrl) { void Linking.openURL(update.url); return }
+                        Alert.alert(tf('updateBanner', { version: update.version }), '', [
+                            { text: t('cancel'), style: 'cancel' },
+                            { text: t('updateBrowser'), onPress: () => void Linking.openURL(update.url) },
+                            {
+                                text: t('updateInstall'),
+                                onPress: () => {
+                                    setCatalogAge(t('updateDownloading'))
+                                    void downloadAndInstall(update.apkUrl!, update.version).then(ok => {
+                                        if (!ok) void Linking.openURL(update.url)
+                                    })
+                                },
+                            },
+                        ])
+                    }}
+                >
                     <Ionicons name="arrow-up-circle" size={18} color={colors.accent} />
                     <Text style={styles.updateText}>{tf('updateBanner', { version: update.version })}</Text>
                 </TouchableOpacity>

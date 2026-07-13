@@ -162,6 +162,20 @@ export function lastDays(map: UsageMap, todayKey: string, n = 7): { day: string;
     return series
 }
 
+/** Minutos desta semana (0–6 dias atrás) e da anterior (7–13) (PURO). */
+export function weekDelta(map: UsageMap, todayKey: string): { current: number; previous: number } {
+    let current = 0
+    let previous = 0
+    for (const [day, kinds] of Object.entries(map)) {
+        if (day > todayKey) continue
+        const age = (Date.parse(todayKey) - Date.parse(day)) / 86_400_000
+        const minutes = (kinds.live ?? 0) + (kinds.movie ?? 0) + (kinds.episode ?? 0)
+        if (age < 7) current += minutes
+        else if (age < 14) previous += minutes
+    }
+    return { current, previous }
+}
+
 /** Dias SEGUIDOS assistindo até hoje (hoje vazio conta a partir de ontem) (PURO). */
 export function currentStreak(map: UsageMap, todayKey: string): number {
     const minutesOf = (key: string) => {

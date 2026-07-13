@@ -5,7 +5,7 @@ import { useCallback, useEffect, useState } from 'react'
 import { Alert, SectionList, StyleSheet, Text, TextInput, TouchableOpacity, View } from 'react-native'
 import {
     cancelDownload, discardInterrupted, groupDownloads, listActiveDownloads,
-    listDownloads, listInterrupted, pauseDownload, removeDownload, renameDownload, resumeDownload,
+    listDownloads, listInterrupted, pauseDownload, removeDownload, renameDownload, resumeDownload, toggleLockDownload,
     startDownload, subscribeDownloads, type DownloadItem, type DownloadRequest,
 } from '../services/downloads'
 import * as Sharing from 'expo-sharing'
@@ -247,6 +247,10 @@ export default function Downloads() {
                                         },
                                     },
                                     {
+                                        text: item.locked ? t('recUnprotect') : t('recProtect'),
+                                        onPress: () => void toggleLockDownload(item.id),
+                                    },
+                                    {
                                         text: t('exportBtn'),
                                         onPress: () => {
                                             void Sharing.isAvailableAsync().then(ok => {
@@ -269,7 +273,7 @@ export default function Downloads() {
                         )}
                         <View style={styles.info}>
                             <Text style={styles.title} numberOfLines={2}>{item.title}</Text>
-                            <Text style={styles.meta}>{formatMb(item.sizeBytes)} · {t('offline')}</Text>
+                            <Text style={styles.meta}>{item.locked ? '🔐 ' : ''}{formatMb(item.sizeBytes)} · {t('offline')}</Text>
                         </View>
                         <TouchableOpacity accessibilityLabel={t('a11yDelete')} onPress={() => confirmRemove(item)} style={styles.iconBtn}>
                             <Ionicons name="trash-outline" size={18} color={colors.danger} />

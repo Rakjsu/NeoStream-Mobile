@@ -1,5 +1,5 @@
 import { describe, it, expect, vi } from 'vitest'
-import { addMinutes, addMonthMinute, addTitleMinute, currentStreak, dayKey, formatMinutes, lastDays, lastMonths, monthKey, summarize, topTitles, usageCsv, yearSummary, type MonthUsageMap, type TitleUsageMap, type UsageMap } from './usage'
+import { addMinutes, addMonthMinute, addTitleMinute, currentStreak, weekDelta, dayKey, formatMinutes, lastDays, lastMonths, monthKey, summarize, topTitles, usageCsv, yearSummary, type MonthUsageMap, type TitleUsageMap, type UsageMap } from './usage'
 
 vi.mock('@react-native-async-storage/async-storage', () => ({
     default: { getItem: vi.fn(), setItem: vi.fn(), removeItem: vi.fn() },
@@ -136,5 +136,17 @@ describe('currentStreak', () => {
         expect(currentStreak(map, '2026-07-13')).toBe(3)
         expect(currentStreak({ '2026-07-12': { live: 1 } }, '2026-07-13')).toBe(1)
         expect(currentStreak({}, '2026-07-13')).toBe(0)
+    })
+})
+
+describe('weekDelta', () => {
+    it('separa a janela desta semana da anterior', () => {
+        const map: UsageMap = {
+            '2026-07-13': { live: 60 },
+            '2026-07-08': { movie: 30 },
+            '2026-07-05': { episode: 100 },
+            '2026-06-20': { live: 999 },
+        }
+        expect(weekDelta(map, '2026-07-13')).toEqual({ current: 90, previous: 100 })
     })
 })

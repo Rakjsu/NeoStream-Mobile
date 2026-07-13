@@ -52,3 +52,14 @@ describe('syncTraktWatched', () => {
         expect(spy).not.toHaveBeenCalled()
     })
 })
+
+describe('scrobble e watchlist desconectados', () => {
+    it('devolvem false/[] sem tocar a rede', async () => {
+        const spy = vi.fn()
+        vi.stubGlobal('fetch', spy)
+        const { traktScrobble, fetchTraktWatchlist } = await import('./trakt')
+        expect(await traktScrobble('start', 'movie', 'Duna (2021)', 0)).toBe(false)
+        expect(await fetchTraktWatchlist()).toEqual([])
+        expect(spy).not.toHaveBeenCalled()
+    })
+})

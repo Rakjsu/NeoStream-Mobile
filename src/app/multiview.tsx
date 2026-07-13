@@ -175,6 +175,7 @@ export default function MultiView() {
                 {slots.slice(0, layout === '1x2' ? 2 : 4).map((slot, index) => (
                     <TvTouchable
                         key={index}
+                        accessibilityLabel={slot.name || t('multiviewAdd')}
                         style={[styles.cell, layout === '1x2' && styles.cellHalf,
                             index === active && slot.url ? styles.cellActive : null]}
                         onPress={() => pressSlot(index)}

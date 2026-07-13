@@ -5,6 +5,7 @@
  */
 import * as FileSystem from 'expo-file-system/legacy'
 import { addLocalDownload } from './downloads'
+import { notifyRecordingStarted } from './notify'
 
 const DIR = `${FileSystem.documentDirectory}downloads/`
 // Abaixo disso o REC para sozinho — gravar até encher o disco trava o Android.
@@ -101,6 +102,7 @@ export async function startRecording(url: string, title: string, autoStopMs?: nu
             current = { stopHls: () => { stopped = true }, title, fileUri, startedAt }
             armAutoStop(autoStopMs)
             void runHlsLoop(url, fileUri, () => stopped).catch(() => { stopped = true })
+            void notifyRecordingStarted(title)
             return true
         } catch {
             current = null
@@ -116,6 +118,7 @@ export async function startRecording(url: string, title: string, autoStopMs?: nu
     }, 30_000)
     // O downloadAsync só "termina" quando o stop pausar — erro real limpa tudo.
     void task.downloadAsync().catch(() => undefined)
+    void notifyRecordingStarted(title)
     return true
 }
 

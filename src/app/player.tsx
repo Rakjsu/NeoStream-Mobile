@@ -21,6 +21,7 @@ import { alternateLiveUrl } from '../services/xtream'
 import { getAspect, nextAspect, setAspect, type AspectMode } from '../services/aspect'
 import { dayKey, loadUsage, recordWatchMinute, summarize } from '../services/usage'
 import { getKidsTimeLimit, isKidsMode } from '../services/kids'
+import { traktScrobble } from '../services/trakt'
 import { loadParental } from '../services/parental'
 import { recordHabitMinute } from '../services/habit'
 import { canRecordUrl, recordingTitle, startRecording, stopRecording } from '../services/recorder'
@@ -772,6 +773,21 @@ export default function Player() {
                 lastSample.current = { position: player.currentTime || 0, duration: player.duration || 0 }
             } catch { /* usa a última amostra do intervalo */ }
             persist()
+        }
+        // eslint-disable-next-line react-hooks/exhaustive-deps
+    }, [pid, trackable])
+
+    // 🎬 Trakt: scrobble start ao abrir; pause com o progresso ao sair
+    // (o visto final vai pelo /sync/history do progress — sem play duplicado).
+    useEffect(() => {
+        if (!trackable) return
+        const scrobbleKind = kind === 'episode' ? 'episode' as const : 'movie' as const
+        const scrobbleTitle = String(title ?? '')
+        void traktScrobble('start', scrobbleKind, scrobbleTitle, 0)
+        return () => {
+            const { position, duration } = lastSample.current
+            const progress = duration > 0 ? Math.min(99, Math.round((position / duration) * 100)) : 0
+            void traktScrobble('pause', scrobbleKind, scrobbleTitle, progress)
         }
         // eslint-disable-next-line react-hooks/exhaustive-deps
     }, [pid, trackable])

@@ -1,6 +1,6 @@
 import { Ionicons } from '@expo/vector-icons'
-import { router } from 'expo-router'
-import { useState } from 'react'
+import { router, useLocalSearchParams } from 'expo-router'
+import { useEffect, useState } from 'react'
 import {
     ActivityIndicator, KeyboardAvoidingView, Platform, ScrollView,
     StyleSheet, Text, TextInput, TouchableOpacity, View,
@@ -15,14 +15,27 @@ import { colors, spacing } from '../ui/theme'
 import { t } from '../i18n/strings'
 
 export default function Login() {
-    const [mode, setMode] = useState<'xtream' | 'm3u' | 'stalker'>('xtream')
+    // Lista .m3u aberta de fora: nasce no modo M3U com a URL preenchida.
+    const { m3u } = useLocalSearchParams<{ m3u?: string }>()
+    const sharedM3u = typeof m3u === 'string' ? m3u : ''
+    const [mode, setMode] = useState<'xtream' | 'm3u' | 'stalker'>(sharedM3u ? 'm3u' : 'xtream')
     const [mac, setMac] = useState('00:1A:79:')
-    const [url, setUrl] = useState('')
+    const [url, setUrl] = useState(sharedM3u && !sharedM3u.startsWith('content://') ? sharedM3u : '')
     const [username, setUsername] = useState('')
     const [password, setPassword] = useState('')
     const [showPassword, setShowPassword] = useState(false)
     const [busy, setBusy] = useState(false)
     const [error, setError] = useState('')
+
+    // fetch não lê content:// — copia pro sandbox e usa o file:// resultante.
+    useEffect(() => {
+        if (!sharedM3u.startsWith('content://')) return
+        const dest = `${FileSystem.documentDirectory}shared_${Date.now()}.m3u`
+        void FileSystem.copyAsync({ from: sharedM3u, to: dest })
+            .then(() => setUrl(dest))
+            .catch(() => undefined)
+    }, [sharedM3u])
+
 
     const canSubmit = url.trim() !== '' && !busy && (
         mode === 'm3u'

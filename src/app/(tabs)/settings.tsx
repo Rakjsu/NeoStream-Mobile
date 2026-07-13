@@ -35,6 +35,7 @@ import {
     type StoredAccount,
 } from '../../services/session'
 import { currentStreak, dayKey, formatMinutes, lastDays, lastMonths, loadMonthUsage, loadTitleUsage, loadUsage, monthKey, summarize, topTitles, usageCsv, weekDelta, type TopTitle, type UsageSummary } from '../../services/usage'
+import { heatmapCells, loadHabits } from '../../services/habit'
 import { parseExpiry } from '../../services/xtream'
 import { TvTouchable } from '../../ui/components'
 import { colors, setThemeVariant, spacing, themeVariant } from '../../ui/theme'
@@ -53,6 +54,36 @@ function SectionNav({ sectionY, onJump }: { sectionY: Record<string, number>; on
                 <TouchableOpacity key={key} style={styles.navChip} onPress={() => onJump(sectionY[key] ?? 0)}>
                     <Text style={styles.navChipText}>{icon} {t(key)}</Text>
                 </TouchableOpacity>
+            ))}
+        </View>
+    )
+}
+
+// Heatmap dia × faixa de hora (componente próprio — ver nota do SectionNav).
+function HabitHeatmap({ cells }: { cells: number[][] }) {
+    const max = Math.max(1, ...cells.flat())
+    const dayLabels = t('heatmapDays').split(',')
+    const bucketIcons = ['🌅', '☀️', '🌆', '🌙']
+    if (cells.flat().every(value => value === 0)) return null
+    return (
+        <View style={{ gap: 3 }}>
+            <Text style={styles.parentalHint}>{t('heatmapTitle')}</Text>
+            <View style={{ flexDirection: 'row', gap: 3 }}>
+                <View style={{ width: 18 }} />
+                {dayLabels.map((label, position) => (
+                    <Text key={`${label}${position}`} style={styles.heatLabel}>{label}</Text>
+                ))}
+            </View>
+            {bucketIcons.map((icon, bucketIdx) => (
+                <View key={icon} style={{ flexDirection: 'row', gap: 3, alignItems: 'center' }}>
+                    <Text style={styles.heatIcon}>{icon}</Text>
+                    {cells.map((day, dayIdx) => (
+                        <View
+                            key={String(dayIdx)}
+                            style={[styles.heatCell, { opacity: day[bucketIdx] === 0 ? 0.08 : 0.25 + 0.75 * (day[bucketIdx] / max) }]}
+                        />
+                    ))}
+                </View>
             ))}
         </View>
     )
@@ -133,6 +164,7 @@ export default function SettingsTab() {
     const [railPrefs, setRailPrefs] = useState<RailPrefs>(defaultRailPrefs())
     const [bioOk, setBioOk] = useState(false)
     const [kidsLimit, setKidsLimit] = useState(0)
+    const [habitGrid, setHabitGrid] = useState<number[][]>([])
     const [traktCid, setTraktCid] = useState('')
     const [traktCsec, setTraktCsec] = useState('')
     const [traktOn, setTraktOn] = useState(false)
@@ -205,6 +237,7 @@ export default function SettingsTab() {
         void getExtEpgUrl().then(setExtEpgDraft)
         void loadRailPrefs().then(setRailPrefs)
         void getKidsTimeLimit().then(setKidsLimit)
+        void loadHabits().then(map => setHabitGrid(heatmapCells(map)))
         void getTraktCreds().then(creds => { setTraktCid(creds.clientId); setTraktCsec(creds.clientSecret) })
         void isTraktConnected().then(setTraktOn)
         void AsyncStorage.getItem('neostream_boot_tab').then(v => setBootLive(v === 'live')).catch(() => undefined)
@@ -730,6 +763,7 @@ export default function SettingsTab() {
                         {tf('weekVsLast', { sign: weekDiff >= 0 ? '+' : '−', diff: formatMinutes(Math.abs(weekDiff)) })}
                     </Text>
                 ) : null}
+                {habitGrid.length > 0 ? <HabitHeatmap cells={habitGrid} /> : null}
                 <Text style={styles.parentalHint}>{t('usageMonths')}</Text>
                 <View style={styles.usageBars}>
                     {usageMonths.map(entry => {
@@ -1271,6 +1305,9 @@ const styles = StyleSheet.create({
         backgroundColor: colors.card,
     },
     navChipText: { color: colors.textDim, fontSize: 11, fontWeight: '600' },
+    heatLabel: { flex: 1, textAlign: 'center', color: colors.textDim, fontSize: 9 },
+    heatIcon: { fontSize: 10, width: 18 },
+    heatCell: { flex: 1, height: 16, borderRadius: 3, backgroundColor: colors.accent },
     root: { flex: 1, backgroundColor: colors.bg },
     section: { color: colors.textDim, fontSize: 13, textTransform: 'uppercase', marginBottom: spacing.sm, marginTop: spacing.md },
     card: {

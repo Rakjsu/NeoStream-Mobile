@@ -107,3 +107,40 @@ export function onNotificationRoute(handler: (route: string) => void): () => voi
 export async function notifyDownloadDone(title: string): Promise<void> {
     await notifyNow(t('dlNotifTitle'), tf('dlNotifBody', { title }), '/downloads')
 }
+
+// ------------------------------------------------------ gravação com ⏹ --
+
+const REC_CATEGORY = 'neostream-rec'
+const REC_STOP_ACTION = 'rec-stop'
+let recCategoryReady = false
+
+async function ensureRecCategory(): Promise<void> {
+    if (recCategoryReady) return
+    recCategoryReady = true
+    try {
+        await Notifications.setNotificationCategoryAsync(REC_CATEGORY, [
+            { identifier: REC_STOP_ACTION, buttonTitle: t('recStopAction'), options: { opensAppToForeground: false } },
+        ])
+    } catch { /* best-effort */ }
+}
+
+/** "⏺ Gravando agora" com botão ⏹ — a ação é tratada no layout das abas. */
+export async function notifyRecordingStarted(title: string): Promise<void> {
+    try {
+        if (!(await ensureNotifyPermission())) return
+        await ensureRecCategory()
+        await Notifications.scheduleNotificationAsync({
+            content: { title: t('recStartedNotif'), body: title, data: { route: '/downloads' }, categoryIdentifier: REC_CATEGORY },
+            trigger: null,
+        })
+    } catch { /* best-effort */ }
+}
+
+/** Escuta o ⏹ da notificação de gravação (para sem abrir o app). */
+export function onRecStopAction(handler: () => void): () => void {
+    configureOnce()
+    const sub = Notifications.addNotificationResponseReceivedListener(response => {
+        if (response.actionIdentifier === REC_STOP_ACTION) handler()
+    })
+    return () => sub.remove()
+}

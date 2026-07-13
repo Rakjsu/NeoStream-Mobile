@@ -26,6 +26,7 @@ import { dayKey, formatMinutes, loadTitleUsage, topTitles } from '../../services
 import { checkForUpdate, type UpdateInfo } from '../../services/updates'
 import { downloadAndInstall } from '../../services/updater'
 import { checkWhatsNew } from '../../services/whatsnew'
+import { fetchTraktWatchlist } from '../../services/trakt'
 import { getCloudBackupDir } from '../../services/autoBackup'
 import { ChannelRail, ContinueRail, EmptyState, Loading, PosterRail, type RailItem } from '../../ui/components'
 import { colors, spacing } from '../../ui/theme'
@@ -111,6 +112,26 @@ export default function HomeTab() {
                 key: `s${show.series_id}`, kind: 'series', id: String(show.series_id),
                 name: show.name, cover: show.cover || '',
             })
+
+            // Minha lista ganha (só leitura) a watchlist do Trakt — casada por
+            // nome no catálogo; o que não existe no provedor fica de fora.
+            void cachedFetch('trakt-watchlist', () => fetchTraktWatchlist()).then(traktItems => {
+                if (traktItems.length === 0) return
+                const have = new Set(watchlist.map(item => item.name.toLowerCase()))
+                const extra: RailItem[] = []
+                for (const item of traktItems) {
+                    const wanted = item.title.toLowerCase()
+                    if (have.has(wanted)) continue
+                    if (item.kind === 'movie') {
+                        const movie = visibleVod.find(m => m.name.toLowerCase().includes(wanted))
+                        if (movie) extra.push({ ...movieRail(movie), key: `tw${movie.stream_id}` })
+                    } else {
+                        const show = visibleShows.find(s => s.name.toLowerCase().includes(wanted))
+                        if (show) extra.push({ ...seriesRail(show), key: `tws${show.series_id}` })
+                    }
+                }
+                if (extra.length > 0) setWatchRail(current => [...current, ...extra].slice(0, RAIL_MAX))
+            }).catch(() => undefined)
 
             setFavPosters([
                 ...visibleVod.filter(m => favorites.movie.includes(String(m.stream_id))).map(movieRail),

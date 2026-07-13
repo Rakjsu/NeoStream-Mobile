@@ -5,7 +5,7 @@
  * A triagem é PURA (testável).
  */
 import AsyncStorage from '@react-native-async-storage/async-storage'
-import { notifyAt, notifyNow } from './notify'
+import { notifyAt } from './notify'
 import { recordingTitle, startRecording } from './recorder'
 import { getClient } from './session'
 
@@ -62,7 +62,7 @@ export async function removeScheduledRec(channelId: string, startMs: number): Pr
 }
 
 /** Chamado no load do Início: dispara o REC das intenções na janela. */
-export async function checkScheduledRecordings(recStartedTitle: string): Promise<void> {
+export async function checkScheduledRecordings(): Promise<void> {
     const { due, keep } = splitDue(await listScheduledRecs(), Date.now())
     await persist(keep)
     const first = due[0]
@@ -70,6 +70,6 @@ export async function checkScheduledRecordings(recStartedTitle: string): Promise
     const client = await getClient()
     if (!client) return
     const url = client.liveStreamUrl(first.channelId)
-    const ok = await startRecording(url, first.title, first.endMs - Date.now())
-    if (ok) await notifyNow(recStartedTitle, first.title, '/downloads')
+    // O próprio recorder notifica (com botão ⏹ de parar).
+    await startRecording(url, first.title, first.endMs - Date.now())
 }

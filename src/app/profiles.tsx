@@ -186,6 +186,7 @@ export default function Profiles() {
                     {AVATAR_EMOJIS.map(emoji => (
                         <TvTouchable
                             key={emoji}
+                            accessibilityLabel={emoji}
                             style={[styles.pickChip, iconDraft === emoji && styles.pickChipOn]}
                             onPress={() => setIconDraft(current => (current === emoji ? '' : emoji))}
                         >

@@ -175,6 +175,72 @@ async function traktPost(path: string, body: unknown, clientId: string, access: 
     if (!response.ok) throw new Error(`HTTP ${response.status}`)
 }
 
+// ids resolvidos por título nesta sessão — scrobble não repete a busca.
+const payloadCache = new Map<string, Record<string, unknown> | null>()
+
+/** Pedaço do payload (movie / show+episode) resolvido pela busca de título. */
+async function resolvePayload(kind: 'movie' | 'episode', title: string, clientId: string, access: string): Promise<Record<string, unknown> | null> {
+    const cacheKey = `${kind}|${title}`
+    if (payloadCache.has(cacheKey)) return payloadCache.get(cacheKey) ?? null
+    let piece: Record<string, unknown> | null = null
+    if (kind === 'movie') {
+        const year = Number(/\((\d{4})\)/.exec(title)?.[1]) || undefined
+        const clean = title.replace(/\s*\(\d{4}\)\s*/g, ' ').trim()
+        if (clean) {
+            const results = await traktGet(`/search/movie?query=${encodeURIComponent(clean)}`, clientId, access) as { movie?: TraktHit }[]
+            const hit = pickSearchHit(results, clean, year)
+            if (hit?.ids) piece = { movie: { ids: hit.ids } }
+        }
+    } else {
+        const parsed = parseEpisodeTitle(title)
+        if (parsed) {
+            const results = await traktGet(`/search/show?query=${encodeURIComponent(parsed.show)}`, clientId, access) as { show?: TraktHit }[]
+            const hit = pickSearchHit(results, parsed.show)
+            if (hit?.ids) piece = { show: { ids: hit.ids }, episode: { season: parsed.season, number: parsed.episode } }
+        }
+    }
+    payloadCache.set(cacheKey, piece)
+    return piece
+}
+
+/**
+ * Scrobble em tempo real: start ao abrir o player, pause com o progresso ao
+ * sair. O "visto" final vai SÓ pelo /sync/history (progress) — usar stop aqui
+ * geraria play duplicado no Trakt.
+ */
+export async function traktScrobble(action: 'start' | 'pause', kind: 'movie' | 'episode', title: string, progress: number): Promise<boolean> {
+    const token = await getToken()
+    const { clientId } = await getTraktCreds()
+    if (!token || !clientId) return false
+    try {
+        const piece = await resolvePayload(kind, title, clientId, token.access)
+        if (!piece) return false
+        await traktPost(`/scrobble/${action}`, { ...piece, progress }, clientId, token.access)
+        return true
+    } catch {
+        return false
+    }
+}
+
+/** Watchlist do Trakt (títulos) — o Início casa com o catálogo por nome. */
+export async function fetchTraktWatchlist(): Promise<{ kind: 'movie' | 'series'; title: string }[]> {
+    const token = await getToken()
+    const { clientId } = await getTraktCreds()
+    if (!token || !clientId) return []
+    try {
+        const [movies, shows] = await Promise.all([
+            traktGet('/sync/watchlist/movies', clientId, token.access) as Promise<{ movie?: TraktHit }[]>,
+            traktGet('/sync/watchlist/shows', clientId, token.access) as Promise<{ show?: TraktHit }[]>,
+        ])
+        return [
+            ...movies.flatMap(item => (item.movie?.title ? [{ kind: 'movie' as const, title: item.movie.title }] : [])),
+            ...shows.flatMap(item => (item.show?.title ? [{ kind: 'series' as const, title: item.show.title }] : [])),
+        ]
+    } catch {
+        return []
+    }
+}
+
 /**
  * Marca como visto no Trakt (fire-and-forget do progress): busca o título,
  * pega o melhor match e adiciona ao histórico. false = não sincronizou
@@ -211,5 +277,5 @@ export async function syncTraktWatched(kind: 'movie' | 'episode', title: string)
 
 /** Só pra testes. */
 export function resetTraktCache(): void {
-    // Estado vive só no AsyncStorage — nada em módulo pra zerar (por enquanto).
+    payloadCache.clear()
 }

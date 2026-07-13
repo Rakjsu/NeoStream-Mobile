@@ -72,6 +72,7 @@ export function TvTouchable({ focusStyle, style, children, ...props }: React.Com
     const [focused, setFocused] = useState(false)
     return (
         <TouchableOpacity
+            accessibilityRole="button"
             {...props}
             style={[style, focused && (focusStyle ?? styles.tvFocus)]}
             onFocus={() => setFocused(true)}

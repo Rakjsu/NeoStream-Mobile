@@ -38,13 +38,22 @@ export default function TabsLayout() {
                     title: t('tabLive'),
                     tabBarIcon: ({ color, size }) => <Ionicons name="tv" size={size} color={color} />,
                     headerRight: () => (
-                        <TouchableOpacity
-                            style={{ paddingHorizontal: 16 }}
-                            accessibilityLabel={t('nowTitle')}
-                            onPress={() => router.push('/now')}
-                        >
-                            <Ionicons name="calendar-outline" size={22} color={colors.text} />
-                        </TouchableOpacity>
+                        <View style={{ flexDirection: 'row' }}>
+                            <TouchableOpacity
+                                style={{ paddingHorizontal: 12 }}
+                                accessibilityLabel={t('multiviewTitle')}
+                                onPress={() => router.push('/multiview')}
+                            >
+                                <Ionicons name="grid-outline" size={21} color={colors.text} />
+                            </TouchableOpacity>
+                            <TouchableOpacity
+                                style={{ paddingHorizontal: 12 }}
+                                accessibilityLabel={t('nowTitle')}
+                                onPress={() => router.push('/now')}
+                            >
+                                <Ionicons name="calendar-outline" size={22} color={colors.text} />
+                            </TouchableOpacity>
+                        </View>
                     ),
                 }}
             />

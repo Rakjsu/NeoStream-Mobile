@@ -79,7 +79,7 @@ async function wipeGuestData(): Promise<void> {
     try {
         await AsyncStorage.multiRemove([
             'neostream_favorites', 'neostream_progress', 'neostream_watched',
-            'neostream_watchlist', 'neostream_usage', 'neostream_usage_titles', 'neostream_usage_months',
+            'neostream_watchlist', 'neostream_usage', 'neostream_usage_titles', 'neostream_usage_months', 'neostream_usage_habits',
         ].map(base => `${base}_p_${GUEST_PROFILE_ID}`))
     } catch { /* best-effort */ }
 }

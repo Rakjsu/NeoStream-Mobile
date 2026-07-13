@@ -424,6 +424,15 @@ export async function cancelDownload(id: string): Promise<void> {
     notify()
 }
 
+/** Gravações (REC) entram direto no registro como item offline. */
+export async function addLocalDownload(item: DownloadItem): Promise<void> {
+    const map = await loadRegistry()
+    map[item.id] = item
+    registry = map
+    await persistRegistry()
+    notify()
+}
+
 export async function removeDownload(id: string): Promise<void> {
     const map = await loadRegistry()
     const item = map[id]

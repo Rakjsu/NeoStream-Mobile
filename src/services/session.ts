@@ -4,6 +4,7 @@
  * são PUROS (testáveis); só load/save tocam o AsyncStorage.
  */
 import AsyncStorage from '@react-native-async-storage/async-storage'
+import { loadEpgOverrides } from './epgMap'
 import { M3uClient } from './m3u'
 import { StalkerClient } from './stalker'
 import { XtreamClient, normalizeBaseUrl, type CatalogClient, type UserInfo, type XtreamAccount } from './xtream'
@@ -193,6 +194,7 @@ export async function getClient(): Promise<CatalogClient | null> {
     const account = await loadAccount()
     if (!account) return null
     client = buildClient(account)
+    if (client instanceof M3uClient) client.applyEpgOverrides(await loadEpgOverrides())
     return client
 }
 

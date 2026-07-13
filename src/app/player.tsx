@@ -20,6 +20,8 @@ import { tapLight } from '../services/haptics'
 import { alternateLiveUrl } from '../services/xtream'
 import { getAspect, nextAspect, setAspect, type AspectMode } from '../services/aspect'
 import { recordWatchMinute } from '../services/usage'
+import { recordHabitMinute } from '../services/habit'
+import { canRecordUrl, recordingTitle, startRecording, stopRecording } from '../services/recorder'
 import { currentZapChannel, hasZapContext, rankChannels, zapBy, zapList, zapTo, zapToNumber, type ZapChannel } from '../services/zap'
 import { TvTouchable } from '../ui/components'
 import { colors, spacing } from '../ui/theme'
@@ -148,6 +150,23 @@ export default function Player() {
         setAspectState(next)
         void setAspect(aspectKey, next)
         showTrackToast(t(next === 'contain' ? 'aspectContain' : next === 'cover' ? 'aspectCover' : 'aspectFill'))
+    }
+
+    // REC: despeja o stream .ts em disco até o stop (vira item offline).
+    const [recording, setRecording] = useState(recordingTitle() !== null)
+    const toggleRecording = () => {
+        void (async () => {
+            if (recording || recordingTitle()) {
+                const saved = await stopRecording()
+                setRecording(false)
+                showTrackToast(saved ? t('recSaved') : t('recFail'))
+                return
+            }
+            if (!canRecordUrl(source)) { showTrackToast(t('recOnlyTs')); return }
+            const ok = await startRecording(source, liveTitle || String(title ?? ''))
+            setRecording(ok)
+            showTrackToast(ok ? t('recStart') : t('recFail'))
+        })()
     }
 
     // Resgate ao vivo: erro num canal Xtream → tenta .ts↔.m3u8 UMA vez.
@@ -589,7 +608,10 @@ export default function Player() {
             if (!playing) {
                 try { playing = player.playing } catch { return } // player já liberado
             }
-            if (playing) void recordWatchMinute(usageKind, Date.now(), usageTitle)
+            if (playing) {
+                void recordWatchMinute(usageKind, Date.now(), usageTitle)
+                void recordHabitMinute(usageKind, usageTitle, Date.now())
+            }
         }, 60_000)
         return () => clearInterval(timer)
         // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -665,6 +687,15 @@ export default function Player() {
                         <Text style={styles.epg} numberOfLines={1}>{liveEpg}</Text>
                     ) : null}
                 </View>
+                {live === '1' ? (
+                    <TvTouchable style={styles.trackBtn} accessibilityLabel={t('a11yRec')} onPress={toggleRecording}>
+                        <Ionicons
+                            name={recording ? 'stop-circle' : 'radio-button-on'}
+                            size={20}
+                            color={recording ? colors.danger : colors.text}
+                        />
+                    </TvTouchable>
+                ) : null}
                 {canCast ? (
                     <TvTouchable style={styles.trackBtn} accessibilityLabel={t('a11yCast')} onPress={() => void showCastPicker()}>
                         <Ionicons name="tv-outline" size={20} color={colors.text} />

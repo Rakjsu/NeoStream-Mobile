@@ -11,7 +11,7 @@ import { cachedFetch, getClient } from '../services/session'
 import { hasCatchup } from '../services/xtream'
 import type { Category, EpgProgram, LiveChannel } from '../services/xtream'
 import { rankChannels, setZapContext } from '../services/zap'
-import { EmptyState, Loading, TvTouchable } from '../ui/components'
+import { EmptyState, Loading, SearchBar, TvTouchable } from '../ui/components'
 import { colors, spacing } from '../ui/theme'
 import { t, tf } from '../i18n/strings'
 
@@ -48,6 +48,9 @@ function blockRect(program: EpgProgram, baseMs: number): { left: number; width: 
  */
 export default function Guide() {
     const [channels, setChannels] = useState<LiveChannel[] | null>(null)
+    const [query, setQuery] = useState('')
+    const [favOnly, setFavOnly] = useState(false)
+    const [favSet, setFavSet] = useState<Set<string>>(new Set())
     const [scheduleMap, setScheduleMap] = useState<Record<string, EpgProgram[]>>({})
     const inFlight = useRef(new Set<string>())
     const scrollRef = useRef<ScrollView | null>(null)
@@ -86,6 +89,7 @@ export default function Guide() {
                 )
                 const byId = new Map(visible.map(channel => [String(channel.stream_id), channel]))
                 setChannels(ranked.flatMap(entry => byId.get(entry.id) ?? []))
+                setFavSet(new Set(favorites.live))
             })()
         })
     }, [])
@@ -159,11 +163,27 @@ export default function Guide() {
         })
     }
 
-    if (channels === null) return <Loading label={t('loadingChannels')} />
+    const visibleChannels = channels?.filter(channel =>
+        (!favOnly || favSet.has(String(channel.stream_id)))
+        && (!query.trim() || channel.name.toLowerCase().includes(query.trim().toLowerCase()))) ?? null
+
+    if (channels === null || visibleChannels === null) return <Loading label={t('loadingChannels')} />
 
     return (
         <View style={styles.root}>
             <Stack.Screen options={{ title: t('guideTitle') }} />
+            <View style={styles.filterRow}>
+                <View style={{ flex: 1 }}>
+                    <SearchBar value={query} onChange={setQuery} placeholder={t('searchChannel')} />
+                </View>
+                <TvTouchable
+                    style={[styles.favChip, favOnly && styles.favChipOn]}
+                    accessibilityLabel={t('guideOnlyFavs')}
+                    onPress={() => setFavOnly(current => !current)}
+                >
+                    <Ionicons name={favOnly ? 'heart' : 'heart-outline'} size={16} color={favOnly ? '#fff' : colors.danger} />
+                </TvTouchable>
+            </View>
             <ScrollView
                 ref={scrollRef}
                 horizontal
@@ -184,12 +204,12 @@ export default function Guide() {
                     </View>
                     <View pointerEvents="none" style={[styles.nowLine, { left: NAME_W + nowX }]} />
                     <FlatList
-                        data={channels}
+                        data={visibleChannels}
                         keyExtractor={item => String(item.stream_id)}
                         onViewableItemsChanged={onViewableItemsChanged}
                         viewabilityConfig={VIEWABILITY}
                         ListEmptyComponent={<EmptyState icon="tv-outline" label={t('nowEmpty')} />}
-                        contentContainerStyle={channels.length === 0 ? { flexGrow: 1 } : undefined}
+                        contentContainerStyle={visibleChannels.length === 0 ? { flexGrow: 1 } : undefined}
                         renderItem={({ item }) => {
                             const programs = scheduleMap[String(item.stream_id)]
                             return (
@@ -236,6 +256,17 @@ export default function Guide() {
 const styles = StyleSheet.create({
     root: { flex: 1, backgroundColor: colors.bg },
     ruler: { height: 22 },
+    filterRow: { flexDirection: 'row', alignItems: 'center', paddingRight: spacing.md, gap: spacing.sm },
+    favChip: {
+        width: 40,
+        height: 36,
+        alignItems: 'center',
+        justifyContent: 'center',
+        borderRadius: 10,
+        borderWidth: 1,
+        borderColor: colors.danger,
+    },
+    favChipOn: { backgroundColor: colors.danger },
     rulerText: { position: 'absolute', top: 4, color: colors.textDim, fontSize: 11 },
     nowLine: {
         position: 'absolute',

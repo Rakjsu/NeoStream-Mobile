@@ -1,11 +1,14 @@
 import { Ionicons } from '@expo/vector-icons'
 import { router, Tabs } from 'expo-router'
-import { TouchableOpacity } from 'react-native'
+import { TouchableOpacity, View } from 'react-native'
+import { OfflineBanner } from '../../ui/components'
 import { t } from '../../i18n/strings'
 import { colors } from '../../ui/theme'
 
 export default function TabsLayout() {
     return (
+        <View style={{ flex: 1 }}>
+        <OfflineBanner />
         <Tabs
             screenOptions={{
                 headerStyle: { backgroundColor: colors.bg },
@@ -74,5 +77,6 @@ export default function TabsLayout() {
                 }}
             />
         </Tabs>
+        </View>
     )
 }

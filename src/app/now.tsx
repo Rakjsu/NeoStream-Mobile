@@ -1,7 +1,8 @@
 import { Ionicons } from '@expo/vector-icons'
+import { Image } from 'expo-image'
 import { Stack, router } from 'expo-router'
 import { useCallback, useEffect, useRef, useState } from 'react'
-import { Alert, FlatList, Image, StyleSheet, Text, TouchableOpacity, View, type ViewToken } from 'react-native'
+import { Alert, FlatList, StyleSheet, Text, TouchableOpacity, View, type ViewToken } from 'react-native'
 import { loadFavorites } from '../services/favorites'
 import { hiddenIdSet } from '../services/hidden'
 import { allowedCategoryIds, loadParental } from '../services/parental'
@@ -226,7 +227,7 @@ export default function NowOnTv() {
                             delayLongPress={350}
                         >
                             {item.stream_icon ? (
-                                <Image source={{ uri: item.stream_icon }} style={styles.logo} resizeMode="contain" />
+                                <Image source={{ uri: item.stream_icon }} style={styles.logo} contentFit="contain" transition={120} />
                             ) : (
                                 <View style={[styles.logo, styles.logoFallback]}>
                                     <Ionicons name="tv-outline" size={16} color={colors.textDim} />

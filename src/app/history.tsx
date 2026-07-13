@@ -1,7 +1,8 @@
 import { Ionicons } from '@expo/vector-icons'
+import { Image } from 'expo-image'
 import { Stack, router, useFocusEffect } from 'expo-router'
 import { useCallback, useState } from 'react'
-import { FlatList, Image, StyleSheet, Text, TouchableOpacity, View } from 'react-native'
+import { FlatList, StyleSheet, Text, TouchableOpacity, View } from 'react-native'
 import { isFinished, loadProgress, progressPct, removeEntry, type ProgressEntry } from '../services/progress'
 import { getClient, resolvePlayableUrl } from '../services/session'
 import { EmptyState } from '../ui/components'
@@ -67,7 +68,7 @@ export default function History() {
                     return (
                         <TouchableOpacity style={styles.row} onPress={() => resume(item)}>
                             {item.cover ? (
-                                <Image source={{ uri: item.cover }} style={styles.cover} resizeMode="cover" />
+                                <Image source={{ uri: item.cover }} style={styles.cover} contentFit="cover" transition={120} />
                             ) : (
                                 <View style={[styles.cover, styles.coverFallback]}>
                                     <Ionicons name="film-outline" size={16} color={colors.textDim} />

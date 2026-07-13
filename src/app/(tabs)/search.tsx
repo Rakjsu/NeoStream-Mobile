@@ -1,7 +1,8 @@
 import { Ionicons } from '@expo/vector-icons'
+import { Image } from 'expo-image'
 import { router } from 'expo-router'
 import { useCallback, useEffect, useMemo, useState } from 'react'
-import { Image, ScrollView, StyleSheet, Text, TouchableOpacity, View } from 'react-native'
+import { ScrollView, StyleSheet, Text, TouchableOpacity, View } from 'react-native'
 import { allowedCategoryIds, loadParental } from '../../services/parental'
 import { recordRecentChannel } from '../../services/recents'
 import { clearSearchTerms, listSearchTerms, recordSearchTerm } from '../../services/searchHistory'
@@ -151,7 +152,7 @@ export default function SearchTab() {
                         {results.channels.map(channel => (
                             <TouchableOpacity key={`c${channel.stream_id}`} style={styles.row} onPress={() => void playChannel(channel)}>
                                 {channel.stream_icon ? (
-                                    <Image source={{ uri: channel.stream_icon }} style={styles.thumb} resizeMode="contain" />
+                                    <Image source={{ uri: channel.stream_icon }} style={styles.thumb} contentFit="contain" transition={120} />
                                 ) : (
                                     <View style={[styles.thumb, styles.thumbFallback]}>
                                         <Ionicons name="tv-outline" size={16} color={colors.textDim} />
@@ -179,7 +180,7 @@ export default function SearchTab() {
                                 }}
                             >
                                 {movie.stream_icon ? (
-                                    <Image source={{ uri: movie.stream_icon }} style={styles.poster} resizeMode="cover" />
+                                    <Image source={{ uri: movie.stream_icon }} style={styles.poster} contentFit="cover" transition={120} />
                                 ) : (
                                     <View style={[styles.poster, styles.thumbFallback]}>
                                         <Ionicons name="film-outline" size={16} color={colors.textDim} />
@@ -204,7 +205,7 @@ export default function SearchTab() {
                                 }}
                             >
                                 {show.cover ? (
-                                    <Image source={{ uri: show.cover }} style={styles.poster} resizeMode="cover" />
+                                    <Image source={{ uri: show.cover }} style={styles.poster} contentFit="cover" transition={120} />
                                 ) : (
                                     <View style={[styles.poster, styles.thumbFallback]}>
                                         <Ionicons name="albums-outline" size={16} color={colors.textDim} />

@@ -1,8 +1,9 @@
 import { Ionicons } from '@expo/vector-icons'
+import { Image } from 'expo-image'
 import { Stack, router } from 'expo-router'
 import { useVideoPlayer, VideoView } from 'expo-video'
 import { useEffect, useState } from 'react'
-import { FlatList, Image, StyleSheet, Text, View } from 'react-native'
+import { FlatList, StyleSheet, Text, View } from 'react-native'
 import { loadFavorites } from '../services/favorites'
 import { hiddenIdSet } from '../services/hidden'
 import { allowedCategoryIds, loadParental } from '../services/parental'
@@ -157,7 +158,7 @@ export default function MultiView() {
                                 renderItem={({ item }) => (
                                     <TvTouchable style={styles.pickRow} onPress={() => pick(item)}>
                                         {item.stream_icon ? (
-                                            <Image source={{ uri: item.stream_icon }} style={styles.pickLogo} resizeMode="contain" />
+                                            <Image source={{ uri: item.stream_icon }} style={styles.pickLogo} contentFit="contain" transition={120} />
                                         ) : (
                                             <View style={styles.pickLogo} />
                                         )}

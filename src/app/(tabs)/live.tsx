@@ -1,7 +1,8 @@
 import { Ionicons } from '@expo/vector-icons'
+import { Image } from 'expo-image'
 import { router } from 'expo-router'
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
-import { Alert, FlatList, Image, RefreshControl, StyleSheet, Text, TouchableOpacity, View, type ViewToken } from 'react-native'
+import { Alert, FlatList, RefreshControl, StyleSheet, Text, TouchableOpacity, View, type ViewToken } from 'react-native'
 import { emptyFavorites, isFavorite, persistToggle, loadFavorites, type Favorites } from '../../services/favorites'
 import { allowedCategoryIds, loadParental } from '../../services/parental'
 import { hiddenIdSet, hideChannel } from '../../services/hidden'
@@ -158,7 +159,7 @@ export default function LiveTab() {
                             delayLongPress={350}
                         >
                             {item.stream_icon ? (
-                                <Image source={{ uri: item.stream_icon }} style={styles.logo} resizeMode="contain" />
+                                <Image source={{ uri: item.stream_icon }} style={styles.logo} contentFit="contain" transition={120} />
                             ) : (
                                 <View style={[styles.logo, styles.logoFallback]}>
                                     <Ionicons name="tv-outline" size={18} color={colors.textDim} />

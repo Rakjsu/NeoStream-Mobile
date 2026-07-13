@@ -1,7 +1,8 @@
 import { Ionicons } from '@expo/vector-icons'
+import { Image } from 'expo-image'
 import { Stack, router } from 'expo-router'
 import { useCallback, useEffect, useState } from 'react'
-import { Alert, Image, SectionList, StyleSheet, Text, TouchableOpacity, View } from 'react-native'
+import { Alert, SectionList, StyleSheet, Text, TouchableOpacity, View } from 'react-native'
 import {
     cancelDownload, discardInterrupted, groupDownloads, listActiveDownloads,
     listDownloads, listInterrupted, pauseDownload, removeDownload, resumeDownload,
@@ -159,7 +160,7 @@ export default function Downloads() {
                 renderItem={({ item }) => (
                     <TouchableOpacity style={styles.row} onPress={() => play(item)}>
                         {item.cover ? (
-                            <Image source={{ uri: item.cover }} style={styles.cover} resizeMode="cover" />
+                            <Image source={{ uri: item.cover }} style={styles.cover} contentFit="cover" transition={120} />
                         ) : (
                             <View style={[styles.cover, styles.coverFallback]}>
                                 <Ionicons name="film-outline" size={18} color={colors.textDim} />

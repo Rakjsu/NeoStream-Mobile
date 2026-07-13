@@ -132,8 +132,17 @@ export function safeFileName(id: string, container: string): string {
 
 // ------------------------------------------------------------- estado --
 
+interface ActiveEntry {
+    task: FileSystem.DownloadResumable
+    progress: number
+    paused: boolean
+    cancelled?: boolean
+    /** Acorda o loop do startDownload quando retomar/cancelar. */
+    wake?: () => void
+}
+
 let registry: Record<string, DownloadItem> | null = null
-const active = new Map<string, { task: FileSystem.DownloadResumable; progress: number }>()
+const active = new Map<string, ActiveEntry>()
 const listeners = new Set<() => void>()
 
 function notify(): void {
@@ -177,8 +186,25 @@ export function activeProgress(id: string): number | null {
     return active.get(id)?.progress ?? null
 }
 
-export function listActiveDownloads(): { id: string; progress: number }[] {
-    return [...active.entries()].map(([id, task]) => ({ id, progress: task.progress }))
+export function listActiveDownloads(): { id: string; progress: number; paused: boolean }[] {
+    return [...active.entries()].map(([id, entry]) => ({ id, progress: entry.progress, paused: entry.paused }))
+}
+
+/** Pausa um download ativo (o arquivo parcial fica; retomar continua dele). */
+export async function pauseDownload(id: string): Promise<void> {
+    const entry = active.get(id)
+    if (!entry || entry.paused) return
+    entry.paused = true
+    await entry.task.pauseAsync().catch(() => undefined)
+    notify()
+}
+
+export function resumeDownload(id: string): void {
+    const entry = active.get(id)
+    if (!entry?.paused) return
+    entry.paused = false
+    notify()
+    entry.wake?.()
 }
 
 // Pendentes: pedidos que começaram mas não terminaram (app fechado no meio).
@@ -239,12 +265,28 @@ export async function startDownload(request: DownloadRequest): Promise<void> {
             notify()
         }
     })
-    active.set(request.id, { task, progress: 0 })
+    const entry: ActiveEntry = { task, progress: 0, paused: false }
+    active.set(request.id, entry)
     notify()
 
     try {
-        const result = await task.downloadAsync()
-        if (!result?.uri) throw new Error('Download interrompido.')
+        // Loop de pausa: pauseAsync derruba o await atual; o wake retoma com
+        // resumeAsync (que continua do byte onde parou).
+        let result: FileSystem.FileSystemDownloadResult | undefined
+        let resuming = false
+        for (;;) {
+            try {
+                result = resuming ? await task.resumeAsync() : await task.downloadAsync()
+            } catch (error) {
+                if (!entry.paused) throw error
+                result = undefined
+            }
+            if (result?.uri) break
+            if (entry.cancelled || !entry.paused) throw new Error('Download interrompido.')
+            await new Promise<void>(resolve => { entry.wake = resolve })
+            if (entry.cancelled) throw new Error('Download interrompido.')
+            resuming = true
+        }
         const info = await FileSystem.getInfoAsync(result.uri)
         const map = await loadRegistry()
         map[request.id] = {
@@ -316,7 +358,9 @@ export async function cancelDownload(id: string): Promise<void> {
     const entry = active.get(id)
     if (!entry) return
     // cancelAsync derruba o downloadAsync em andamento, que limpa o resto.
+    entry.cancelled = true
     await entry.task.cancelAsync().catch(() => undefined)
+    entry.wake?.() // download pausado precisa acordar pra morrer
     active.delete(id)
     notify()
 }

@@ -4,8 +4,8 @@ import { useCallback, useEffect, useState } from 'react'
 import { Alert, Image, SectionList, StyleSheet, Text, TouchableOpacity, View } from 'react-native'
 import {
     cancelDownload, discardInterrupted, groupDownloads, listActiveDownloads,
-    listDownloads, listInterrupted, removeDownload, startDownload,
-    subscribeDownloads, type DownloadItem, type DownloadRequest,
+    listDownloads, listInterrupted, pauseDownload, removeDownload, resumeDownload,
+    startDownload, subscribeDownloads, type DownloadItem, type DownloadRequest,
 } from '../services/downloads'
 import { colors, spacing } from '../ui/theme'
 import { EmptyState } from '../ui/components'
@@ -18,7 +18,7 @@ function formatMb(bytes: number): string {
 /** Baixados (tocam offline) + downloads em andamento com barra e cancelar. */
 export default function Downloads() {
     const [items, setItems] = useState<DownloadItem[]>([])
-    const [activeList, setActiveList] = useState<{ id: string; progress: number }[]>([])
+    const [activeList, setActiveList] = useState<{ id: string; progress: number; paused: boolean }[]>([])
     const [interrupted, setInterrupted] = useState<DownloadRequest[]>([])
 
     const refresh = useCallback(() => {
@@ -78,13 +78,32 @@ export default function Downloads() {
             <Stack.Screen options={{ title: t('downloadsTitle') }} />
             {activeList.map(activeItem => (
                 <View key={activeItem.id} style={styles.activeRow}>
-                    <Ionicons name="cloud-download" size={18} color={colors.accent} />
+                    <Ionicons
+                        name={activeItem.paused ? 'pause-circle' : 'cloud-download'}
+                        size={18}
+                        color={activeItem.paused ? colors.textDim : colors.accent}
+                    />
                     <View style={styles.activeInfo}>
-                        <Text style={styles.activeText}>{tf('downloadingPct', { pct: Math.round(activeItem.progress * 100) })}</Text>
+                        <Text style={styles.activeText}>
+                            {activeItem.paused
+                                ? tf('dlPaused', { pct: Math.round(activeItem.progress * 100) })
+                                : tf('downloadingPct', { pct: Math.round(activeItem.progress * 100) })}
+                        </Text>
                         <View style={styles.track}>
-                            <View style={[styles.fill, { width: `${Math.round(activeItem.progress * 100)}%` }]} />
+                            <View style={[styles.fill, { width: `${Math.round(activeItem.progress * 100)}%` },
+                                activeItem.paused && { backgroundColor: colors.textDim }]} />
                         </View>
                     </View>
+                    <TouchableOpacity
+                        accessibilityLabel={activeItem.paused ? t('a11yResume') : t('a11yPause')}
+                        onPress={() => {
+                            if (activeItem.paused) resumeDownload(activeItem.id)
+                            else void pauseDownload(activeItem.id)
+                        }}
+                        style={styles.iconBtn}
+                    >
+                        <Ionicons name={activeItem.paused ? 'play-circle-outline' : 'pause-circle-outline'} size={20} color={colors.accent} />
+                    </TouchableOpacity>
                     <TouchableOpacity accessibilityLabel={t('cancel')} onPress={() => void cancelDownload(activeItem.id)} style={styles.iconBtn}>
                         <Ionicons name="close-circle" size={20} color={colors.danger} />
                     </TouchableOpacity>

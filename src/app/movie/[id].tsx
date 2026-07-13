@@ -8,10 +8,11 @@ import { activeProgress, getDownload, removeDownload, startDownload, subscribeDo
 import { tapLight } from '../../services/haptics'
 import { emptyFavorites, isFavorite, loadFavorites, persistToggle, type Favorites } from '../../services/favorites'
 import { buildProgressId, getEntry, progressPct, resumePosition } from '../../services/progress'
-import { getClient, resolvePlayableUrl } from '../../services/session'
+import { getClient, resolvePlayableUrl , cachedFetch } from '../../services/session'
+import type { VodMovie , VodDetails } from '../../services/xtream'
+import { findMovieVersions, type MovieVersion } from '../../services/movieVersions'
 import { emptyVodDetails, fetchTmdbDetails, mergeDetails } from '../../services/tmdb'
 import { hasItem, loadWatchlist, toggleWatchlist } from '../../services/watchlist'
-import type { VodDetails } from '../../services/xtream'
 import { colors, spacing } from '../../ui/theme'
 import { currentLang, t, tf } from '../../i18n/strings'
 
@@ -29,6 +30,7 @@ export default function MovieDetail() {
     const [dlState, setDlState] = useState<'none' | 'active' | 'done'>('none')
     const [dlPct, setDlPct] = useState(0)
     const [inList, setInList] = useState(false)
+    const [versions, setVersions] = useState<MovieVersion<VodMovie>[]>([])
 
     const pid = buildProgressId('movie', String(id))
     const canCast = castAvailable()
@@ -83,6 +85,12 @@ export default function MovieDetail() {
             if (!client) { router.replace('/login'); return }
             const info = await client.getVodDetails(String(id)).catch(() => null)
             if (alive && info) setDetails(info)
+            // Outras versões do mesmo filme (4K/Legendado…) pro seletor.
+            const all = await cachedFetch('vod', () => client.getVodMovies()).catch(() => [] as VodMovie[])
+            const found = findMovieVersions({ stream_id: String(id), name: String(name ?? '') }, all
+                .map(movie => ({ ...movie, stream_id: String(movie.stream_id), name: movie.name })))
+            if (alive && found.length > 1) setVersions(found as MovieVersion<VodMovie>[])
+
             // TMDB (opcional): preenche o que o provedor deixou em branco.
             const tmdb = await fetchTmdbDetails('movie', String(name ?? ''), currentLang())
             if (alive && tmdb) setDetails(current => mergeDetails(current ?? info ?? emptyVodDetails(), tmdb))
@@ -212,6 +220,34 @@ export default function MovieDetail() {
                 </Text>
             </TouchableOpacity>
 
+            {versions.length > 1 ? (
+                <View style={styles.versionRow}>
+                    <Text style={styles.versionLabel}>{t('versionsLabel')}</Text>
+                    {versions.map(version => {
+                        const active = String(version.movie.stream_id) === String(id)
+                        return (
+                            <TouchableOpacity
+                                key={String(version.movie.stream_id)}
+                                style={[styles.versionChip, active && styles.versionChipOn]}
+                                disabled={active}
+                                onPress={() => {
+                                    router.replace({
+                                        pathname: '/movie/[id]',
+                                        params: {
+                                            id: String(version.movie.stream_id), name: version.movie.name,
+                                            cover: version.movie.stream_icon || cover || '',
+                                            container: version.movie.container_extension || 'mp4',
+                                        },
+                                    })
+                                }}
+                            >
+                                <Text style={[styles.versionText, active && styles.versionTextOn]}>{version.label}</Text>
+                            </TouchableOpacity>
+                        )
+                    })}
+                </View>
+            ) : null}
+
             {details?.trailer ? (
                 <TouchableOpacity style={styles.trailerBtn} onPress={() => void Linking.openURL(details.trailer)}>
                     <Ionicons name="logo-youtube" size={18} color={colors.text} />
@@ -287,6 +323,18 @@ const styles = StyleSheet.create({
         paddingVertical: 11,
     },
     trailerText: { color: colors.text, fontSize: 14, fontWeight: '600' },
+    versionRow: { flexDirection: 'row', flexWrap: 'wrap', alignItems: 'center', gap: spacing.sm },
+    versionLabel: { color: colors.textDim, fontSize: 13 },
+    versionChip: {
+        borderColor: colors.border,
+        borderWidth: 1,
+        borderRadius: 14,
+        paddingHorizontal: spacing.md,
+        paddingVertical: 5,
+    },
+    versionChipOn: { backgroundColor: colors.accentSoft, borderColor: colors.accent },
+    versionText: { color: colors.textDim, fontSize: 12, fontWeight: '600' },
+    versionTextOn: { color: colors.accent },
     credits: { color: colors.textDim, fontSize: 13, lineHeight: 19 },
     creditsLabel: { color: colors.text, fontWeight: '600' },
 })

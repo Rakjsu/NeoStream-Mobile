@@ -18,6 +18,7 @@ import { loadFavorites } from '../services/favorites'
 import { cachedFetch, getClient, resolvePlayableUrl } from '../services/session'
 import { tapLight } from '../services/haptics'
 import { alternateLiveUrl } from '../services/xtream'
+import { getAspect, nextAspect, setAspect, type AspectMode } from '../services/aspect'
 import { recordWatchMinute } from '../services/usage'
 import { currentZapChannel, hasZapContext, rankChannels, zapBy, zapList, zapTo, zapToNumber, type ZapChannel } from '../services/zap'
 import { TvTouchable } from '../ui/components'
@@ -132,6 +133,22 @@ export default function Player() {
     })
 
     const trackable = live !== '1' && !!pid && !!sid
+
+    // Proporção lembrada por conteúdo (pid no VOD; título no ao vivo).
+    const [aspect, setAspectState] = useState<AspectMode>('contain')
+    const aspectKey = trackable ? String(pid) : `live:${String(title ?? '')}`
+    useEffect(() => {
+        let alive = true
+        void getAspect(aspectKey).then(saved => { if (alive) setAspectState(saved) })
+        return () => { alive = false }
+    }, [aspectKey])
+
+    const cycleAspect = () => {
+        const next = nextAspect(aspect)
+        setAspectState(next)
+        void setAspect(aspectKey, next)
+        showTrackToast(t(next === 'contain' ? 'aspectContain' : next === 'cover' ? 'aspectCover' : 'aspectFill'))
+    }
 
     // Resgate ao vivo: erro num canal Xtream → tenta .ts↔.m3u8 UMA vez.
     const rescueTriedRef = useRef(false)
@@ -620,7 +637,7 @@ export default function Player() {
                 ref={videoRef}
                 player={player}
                 style={styles.video}
-                contentFit="contain"
+                contentFit={aspect}
                 nativeControls
                 allowsPictureInPicture
                 startsPictureInPictureAutomatically
@@ -674,6 +691,9 @@ export default function Player() {
                         <Text style={styles.rateText}>{rate}x</Text>
                     </TvTouchable>
                 ) : null}
+                <TvTouchable style={styles.trackBtn} accessibilityLabel={t('a11yAspect')} onPress={cycleAspect}>
+                    <Ionicons name="expand-outline" size={20} color={aspect !== 'contain' ? colors.accent : colors.text} />
+                </TvTouchable>
                 <TvTouchable
                     style={styles.trackBtn}
                     accessibilityLabel={t('a11yPip')}

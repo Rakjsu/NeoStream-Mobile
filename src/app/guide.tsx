@@ -234,11 +234,11 @@ export default function Guide() {
                         viewabilityConfig={VIEWABILITY}
                         ListEmptyComponent={<EmptyState icon="tv-outline" label={t('nowEmpty')} />}
                         contentContainerStyle={visibleChannels.length === 0 ? { flexGrow: 1 } : undefined}
-                        renderItem={({ item }) => {
+                        renderItem={({ item, index }) => {
                             const programs = scheduleMap[String(item.stream_id)]
                             return (
                                 <View style={styles.row}>
-                                    <TvTouchable style={styles.nameCell} onPress={() => play(item)}>
+                                    <TvTouchable style={styles.nameCell} hasTVPreferredFocus={index === 0} onPress={() => play(item)}>
                                         <Text style={styles.name} numberOfLines={2}>{item.name}</Text>
                                     </TvTouchable>
                                     <View style={styles.timeline}>

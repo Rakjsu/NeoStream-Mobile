@@ -147,6 +147,19 @@ async function persistExtras(): Promise<void> {
     } catch { /* best-effort */ }
 }
 
+/** Backup: só os perfis extras (padrão e convidado sempre existem). */
+export async function exportProfiles(): Promise<Profile[]> {
+    return (await listProfiles()).filter(p => p.id !== DEFAULT_PROFILE_ID && p.id !== GUEST_PROFILE_ID)
+}
+
+/** Restauração de backup: substitui os extras. */
+export async function restoreProfilesList(profiles: Profile[]): Promise<void> {
+    listCache = null
+    try {
+        await AsyncStorage.setItem(LIST_KEY, JSON.stringify(Array.isArray(profiles) ? profiles : []))
+    } catch { /* best-effort */ }
+}
+
 /** Só pra testes. */
 export function resetProfilesCache(): void {
     listCache = null

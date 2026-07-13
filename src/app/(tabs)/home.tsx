@@ -10,6 +10,7 @@ import { notifyNow } from '../../services/notify'
 import { listRecentChannels, recordRecentChannel } from '../../services/recents'
 import { checkRecurringReminders } from '../../services/recurring'
 import { scheduleWeeklySummary } from '../../services/weekly'
+import { checkScheduledRecordings } from '../../services/schedRec'
 import { hourBucketOf, loadHabits, topHabitKeys } from '../../services/habit'
 import { loadParental } from '../../services/parental'
 import { guardedCategoryIds } from '../../services/kids'
@@ -158,6 +159,7 @@ export default function HomeTab() {
 
             void checkRecurringReminders()
             void scheduleWeeklySummary()
+            void checkScheduledRecordings(t('recStartedNotif'))
 
             // "Pra agora": canais que você costuma ver NESTE dia/horário.
             const habitNow = new Date()

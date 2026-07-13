@@ -61,6 +61,12 @@ export function currentZapChannel(): ZapChannel | null {
     return index >= 0 ? list[index] ?? null : null
 }
 
+/** Espia o vizinho SEM trocar (preview do long-press no zap). */
+export function peekZap(delta: number): ZapChannel | null {
+    if (!hasZapContext()) return null
+    return list[wrapIndex(list.length, index, delta)] ?? null
+}
+
 /** Canal na posição `n` (1-based, como número de canal de TV); null fora. */
 export function zapToNumber(n: number): ZapChannel | null {
     if (!Number.isInteger(n) || n < 1 || n > list.length) return null

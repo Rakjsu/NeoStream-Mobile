@@ -22,7 +22,7 @@ import { getAspect, nextAspect, setAspect, type AspectMode } from '../services/a
 import { recordWatchMinute } from '../services/usage'
 import { recordHabitMinute } from '../services/habit'
 import { canRecordUrl, recordingTitle, startRecording, stopRecording } from '../services/recorder'
-import { currentZapChannel, hasZapContext, rankChannels, zapBy, zapList, zapTo, zapToNumber, type ZapChannel } from '../services/zap'
+import { currentZapChannel, hasZapContext, peekZap, rankChannels, zapBy, zapList, zapTo, zapToNumber, type ZapChannel } from '../services/zap'
 import { TvTouchable } from '../ui/components'
 import { colors, spacing } from '../ui/theme'
 import { t, tf } from '../i18n/strings'
@@ -409,6 +409,19 @@ export default function Player() {
             setLiveEpg('')
             void recordRecentChannel({ id: channel.id, name: channel.name, logo: '' })
             showEpg(channel.id)
+        })()
+    }
+
+    /** Long-press no zap: espia o vizinho (nome + agora do EPG) sem trocar. */
+    const peek = (delta: number) => {
+        const channel = peekZap(delta)
+        if (!channel) return
+        showTrackToast(`${delta > 0 ? '⏭' : '⏮'} ${channel.name}`)
+        void (async () => {
+            const client = await getClient()
+            if (!client) return
+            const nowNext = await cachedFetch(`epg:${channel.id}`, () => client.getShortEpg(channel.id)).catch(() => null)
+            if (nowNext?.now) showTrackToast(`${delta > 0 ? '⏭' : '⏮'} ${channel.name} · ${nowNext.now.title}`)
         })()
     }
 
@@ -835,10 +848,10 @@ export default function Player() {
                     >
                         <Ionicons name="list" size={24} color={colors.text} />
                     </TvTouchable>
-                    <TvTouchable style={styles.zapBtn} accessibilityLabel={t('a11yZapNext')} onPress={() => zap(1)}>
+                    <TvTouchable style={styles.zapBtn} accessibilityLabel={t('a11yZapNext')} onPress={() => zap(1)} onLongPress={() => peek(1)} delayLongPress={350}>
                         <Ionicons name="chevron-up" size={26} color={colors.text} />
                     </TvTouchable>
-                    <TvTouchable style={styles.zapBtn} accessibilityLabel={t('a11yZapPrev')} onPress={() => zap(-1)}>
+                    <TvTouchable style={styles.zapBtn} accessibilityLabel={t('a11yZapPrev')} onPress={() => zap(-1)} onLongPress={() => peek(-1)} delayLongPress={350}>
                         <Ionicons name="chevron-down" size={26} color={colors.text} />
                     </TvTouchable>
                     <TvTouchable

@@ -54,7 +54,7 @@ describe('backup v2 (retrocompatível)', () => {
         expect(v2.prefs?.downloadLimitGb).toBe(2)
     })
 
-    it('aceita v3 com Minha lista/TMDB/kids/buscas; rejeita v4', () => {
+    it('aceita v3 com Minha lista/TMDB/kids/buscas', () => {
         const v3 = parseBackup(JSON.stringify({
             app: 'neostream-mobile', version: 3, accounts: [],
             watchlist: [{ kind: 'movie', id: '7', name: 'Duna', cover: '', addedAt: 1 }],
@@ -63,7 +63,16 @@ describe('backup v2 (retrocompatível)', () => {
         expect(v3.watchlist?.[0].name).toBe('Duna')
         expect(v3.tmdbKey).toBe('k1')
         expect(v3.kidsMode).toBe(true)
-        expect(() => parseBackup(JSON.stringify({ app: 'neostream-mobile', version: 4, accounts: [] })))
+    })
+
+    it('aceita v4 com perfis; rejeita v5', () => {
+        const v4 = parseBackup(JSON.stringify({
+            app: 'neostream-mobile', version: 4, accounts: [],
+            profilesList: [{ id: 'p1', name: 'Sala', color: '#123' }],
+            profilesData: { p1: { neostream_favorites: '{}' } },
+        }))
+        expect(v4.profilesList?.[0].name).toBe('Sala')
+        expect(() => parseBackup(JSON.stringify({ app: 'neostream-mobile', version: 5, accounts: [] })))
             .toThrow(/não suportada/)
     })
 })

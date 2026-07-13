@@ -12,6 +12,7 @@ import { loadProgress, loadWatched, restoreProgress, type ProgressEntry } from '
 import { getDownloadLimitGb, setDownloadLimitGb } from './downloads'
 import { isDataSaverEnabled, setDataSaver } from './dataSaver'
 import { getActiveAccountId, listAccounts, restoreAccounts, type StoredAccount } from './session'
+import { exportProfiles, restoreProfilesList, type Profile } from './profiles'
 import { loadWatchlist, restoreWatchlist, type WatchItem } from './watchlist'
 import { getTmdbKey, setTmdbKey } from './tmdb'
 import { isKidsMode, setKidsMode } from './kids'
@@ -24,8 +25,8 @@ export interface BackupPrefs {
 
 export interface MobileBackup {
     app: 'neostream-mobile'
-    /** v1 (até 0.4.0) sem hidden/prefs; v2 sem watchlist/TMDB/kids/buscas. */
-    version: 1 | 2 | 3
+    /** v1 sem hidden/prefs; v2 sem watchlist/TMDB/kids; v3 sem perfis. */
+    version: 1 | 2 | 3 | 4
     accounts: StoredAccount[]
     activeId: string | null
     favorites: Favorites
@@ -38,6 +39,9 @@ export interface MobileBackup {
     tmdbKey?: string
     kidsMode?: boolean
     searches?: string[]
+    profilesList?: Profile[]
+    /** perfil extra → chave base → JSON cru (favoritos/progresso/vistos/lista). */
+    profilesData?: Record<string, Record<string, string>>
 }
 
 export async function collectBackup(): Promise<MobileBackup> {
@@ -47,6 +51,16 @@ export async function collectBackup(): Promise<MobileBackup> {
         getDownloadLimitGb(), isDataSaverEnabled(),
         loadWatchlist(), getTmdbKey(), isKidsMode(), listSearchTerms(),
     ])
+    const profilesList = await exportProfiles()
+    const profilesData: Record<string, Record<string, string>> = {}
+    for (const profile of profilesList) {
+        const bucket: Record<string, string> = {}
+        for (const base of ['neostream_favorites', 'neostream_progress', 'neostream_watched', 'neostream_watchlist']) {
+            const raw = await AsyncStorage.getItem(`${base}_p_${profile.id}`).catch(() => null)
+            if (raw) bucket[base] = raw
+        }
+        if (Object.keys(bucket).length > 0) profilesData[profile.id] = bucket
+    }
     const hiddenByAccount: Record<string, HiddenChannel[]> = {}
     for (const account of accounts) {
         const hidden = await listHiddenFor(account.id)
@@ -54,7 +68,7 @@ export async function collectBackup(): Promise<MobileBackup> {
     }
     return {
         app: 'neostream-mobile',
-        version: 3,
+        version: 4,
         accounts,
         activeId,
         favorites,
@@ -67,6 +81,8 @@ export async function collectBackup(): Promise<MobileBackup> {
         tmdbKey,
         kidsMode,
         searches,
+        profilesList,
+        profilesData,
     }
 }
 
@@ -86,7 +102,7 @@ export function parseBackup(text: string): MobileBackup {
     if (!backup || backup.app !== 'neostream-mobile') {
         throw new Error('Este arquivo não é um backup do NeoStream Mobile.')
     }
-    if (backup.version !== 1 && backup.version !== 2 && backup.version !== 3) {
+    if (![1, 2, 3, 4].includes(backup.version as number)) {
         throw new Error(`Versão de backup não suportada (${String(backup.version)}).`)
     }
     if (!Array.isArray(backup.accounts)) {
@@ -114,5 +130,14 @@ export async function applyBackup(backup: MobileBackup): Promise<void> {
     if (typeof backup.tmdbKey === 'string' && backup.tmdbKey) await setTmdbKey(backup.tmdbKey)
     if (typeof backup.kidsMode === 'boolean') await setKidsMode(backup.kidsMode)
     if (backup.searches) await restoreSearchTerms(backup.searches)
+    // Campos do v4: perfis extras + dados deles.
+    if (backup.profilesList) {
+        await restoreProfilesList(backup.profilesList)
+        for (const [profileId, bucket] of Object.entries(backup.profilesData ?? {})) {
+            for (const [base, raw] of Object.entries(bucket)) {
+                await AsyncStorage.setItem(`${base}_p_${profileId}`, raw).catch(() => undefined)
+            }
+        }
+    }
     await restoreAccounts(backup.accounts, backup.activeId ?? null)
 }

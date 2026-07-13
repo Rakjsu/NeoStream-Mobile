@@ -1,5 +1,5 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest'
-import { intersectAllowed, isKidsMode, resetKidsCache, setKidsMode, whitelistCategoryIds } from './kids'
+import { guardedCategoryIds, intersectAllowed, isKidsMode, resetKidsCache, setKidsMode, toggleKidsCategory, whitelistCategoryIds } from './kids'
 // Hoisted pelo vitest.
 import AsyncStorage from '@react-native-async-storage/async-storage'
 
@@ -57,5 +57,25 @@ describe('whitelist do modo infantil (puras)', () => {
         expect(intersectAllowed(null, new Set(['1']))).toEqual(new Set(['1']))
         expect(intersectAllowed(new Set(['1', '2']), null)).toEqual(new Set(['1', '2']))
         expect(intersectAllowed(new Set(['1', '2']), new Set(['2', '3']))).toEqual(new Set(['2']))
+    })
+})
+
+describe('guardedCategoryIds (integração kids + parental)', () => {
+    const cats = [
+        { category_id: '1', category_name: 'Infantil' },
+        { category_id: '2', category_name: 'Adultos XXX' },
+        { category_id: '3', category_name: 'Filmes' },
+    ]
+
+    it('kids OFF = só o parental; kids ON com whitelist = interseção', async () => {
+        resetKidsCache()
+        expect(await guardedCategoryIds(cats, false)).toBeNull()
+        const parentalOnly = await guardedCategoryIds(cats, true)
+        expect(parentalOnly?.has('2')).toBe(false)
+        await setKidsMode(true)
+        await toggleKidsCategory('Infantil')
+        const guarded = await guardedCategoryIds(cats, true)
+        expect([...(guarded ?? [])]).toEqual(['1'])
+        resetKidsCache()
     })
 })

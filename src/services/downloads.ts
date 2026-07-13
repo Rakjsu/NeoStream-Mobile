@@ -445,6 +445,12 @@ export async function cancelDownload(id: string): Promise<void> {
     notify()
 }
 
+/** Downloads já VISTOS — candidatos do botão "liberar espaço". */
+export async function listFreeable(): Promise<DownloadItem[]> {
+    const watched = await loadWatched().catch(() => new Set<string>())
+    return (await listDownloads()).filter(item => watched.has(item.id))
+}
+
 /** Renomeia um item (gravações: "rec_..." vira "Final do campeonato"). */
 export async function renameDownload(id: string, title: string): Promise<void> {
     const map = await loadRegistry()

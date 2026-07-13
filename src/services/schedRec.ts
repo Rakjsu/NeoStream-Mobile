@@ -53,6 +53,14 @@ export async function addScheduledRec(rec: ScheduledRec, notifTitle: string): Pr
     await notifyAt(notifTitle, rec.title, '/(tabs)/home', rec.startMs)
 }
 
+/** Cancela uma agendada e devolve a lista nova. */
+export async function removeScheduledRec(channelId: string, startMs: number): Promise<ScheduledRec[]> {
+    const next = (await listScheduledRecs()).filter(rec =>
+        !(rec.channelId === channelId && rec.startMs === startMs))
+    await persist(next)
+    return next
+}
+
 /** Chamado no load do Início: dispara o REC das intenções na janela. */
 export async function checkScheduledRecordings(recStartedTitle: string): Promise<void> {
     const { due, keep } = splitDue(await listScheduledRecs(), Date.now())

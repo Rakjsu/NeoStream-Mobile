@@ -8,6 +8,8 @@ import {
     listDownloads, listInterrupted, pauseDownload, removeDownload, renameDownload, resumeDownload,
     startDownload, subscribeDownloads, type DownloadItem, type DownloadRequest,
 } from '../services/downloads'
+import { recordingTitle, stopRecording } from '../services/recorder'
+import { listScheduledRecs, removeScheduledRec, type ScheduledRec } from '../services/schedRec'
 import { colors, spacing } from '../ui/theme'
 import { EmptyState } from '../ui/components'
 import { t, tf } from '../i18n/strings'
@@ -23,11 +25,15 @@ export default function Downloads() {
     const [interrupted, setInterrupted] = useState<DownloadRequest[]>([])
     const [renameId, setRenameId] = useState<string | null>(null)
     const [renameDraft, setRenameDraft] = useState('')
+    const [schedRecs, setSchedRecs] = useState<ScheduledRec[]>([])
+    const [recActive, setRecActive] = useState<string | null>(null)
 
     const refresh = useCallback(() => {
         void listDownloads().then(setItems)
         setActiveList(listActiveDownloads())
         void listInterrupted().then(setInterrupted)
+        void listScheduledRecs().then(setSchedRecs)
+        setRecActive(recordingTitle())
     }, [])
 
     useEffect(() => {
@@ -36,7 +42,9 @@ export default function Downloads() {
     }, [refresh])
 
     const play = (item: DownloadItem) => {
-        const [kind, sid] = item.id.split(':')
+        // Gravações retomam do ponto como um filme (progresso rastreável).
+        const [rawKind, sid] = item.id.split(':')
+        const kind = rawKind === 'rec' ? 'movie' : rawKind
         router.push({
             pathname: '/player',
             params: {
@@ -108,6 +116,34 @@ export default function Downloads() {
                         <Ionicons name={activeItem.paused ? 'play-circle-outline' : 'pause-circle-outline'} size={20} color={colors.accent} />
                     </TouchableOpacity>
                     <TouchableOpacity accessibilityLabel={t('cancel')} onPress={() => void cancelDownload(activeItem.id)} style={styles.iconBtn}>
+                        <Ionicons name="close-circle" size={20} color={colors.danger} />
+                    </TouchableOpacity>
+                </View>
+            ))}
+            {recActive ? (
+                <View style={styles.activeRow}>
+                    <Ionicons name="radio-button-on" size={18} color={colors.danger} />
+                    <Text style={[styles.activeText, { flex: 1 }]} numberOfLines={1}>{tf('recActiveNow', { title: recActive })}</Text>
+                    <TouchableOpacity
+                        style={styles.iconBtn}
+                        accessibilityLabel={t('cancel')}
+                        onPress={() => { void stopRecording().then(refresh) }}
+                    >
+                        <Ionicons name="stop-circle" size={22} color={colors.danger} />
+                    </TouchableOpacity>
+                </View>
+            ) : null}
+            {schedRecs.map(rec => (
+                <View key={`sr${rec.channelId}${rec.startMs}`} style={styles.activeRow}>
+                    <Ionicons name="recording-outline" size={18} color={colors.accent} />
+                    <Text style={[styles.activeText, { flex: 1 }]} numberOfLines={1}>
+                        ⏺ {rec.title} · {new Date(rec.startMs).toLocaleTimeString().slice(0, 5)}
+                    </Text>
+                    <TouchableOpacity
+                        style={styles.iconBtn}
+                        accessibilityLabel={t('cancel')}
+                        onPress={() => { void removeScheduledRec(rec.channelId, rec.startMs).then(setSchedRecs) }}
+                    >
                         <Ionicons name="close-circle" size={20} color={colors.danger} />
                     </TouchableOpacity>
                 </View>

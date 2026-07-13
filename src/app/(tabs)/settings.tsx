@@ -1,3 +1,4 @@
+import AsyncStorage from '@react-native-async-storage/async-storage'
 import { Ionicons } from '@expo/vector-icons'
 import Constants from 'expo-constants'
 import { router, useFocusEffect } from 'expo-router'
@@ -8,7 +9,7 @@ import * as FileSystem from 'expo-file-system/legacy'
 import { disableAppLock, enableAppLock, loadAppLock } from '../../services/appLock'
 import { applyCapturePolicy } from '../../services/privacy'
 import { isDataSaverEnabled, setDataSaver } from '../../services/dataSaver'
-import { getDownloadLimitGb, isSmartDownloads, isWifiOnly, listDownloads, setDownloadLimitGb, setSmartDownloads, setWifiOnly } from '../../services/downloads'
+import { getDownloadLimitGb, isSmartDownloads, isWifiOnly, listDownloads, setDownloadLimitGb, setSmartDownloads, setWifiOnly , listFreeable, removeDownload as removeDl } from '../../services/downloads'
 import { captureRef } from 'react-native-view-shot'
 import * as Sharing from 'expo-sharing'
 import { chooseCloudBackupDir, clearCloudBackupDir, getCloudBackupDir, listAutoBackups, readAutoBackup, type AutoBackupFile } from '../../services/autoBackup'
@@ -82,6 +83,8 @@ export default function SettingsTab() {
     const [smartDl, setSmartDlState] = useState(false)
     const [cloudDir, setCloudDir] = useState('')
     const [speedHist, setSpeedHist] = useState<SpeedSample[]>([])
+    const [bootLive, setBootLive] = useState(false)
+    const [freeMsg, setFreeMsg] = useState('')
     const [kidsCatCount, setKidsCatCount] = useState(0)
     const [amoled, setAmoled] = useState(themeVariant() === 'amoled')
 
@@ -108,6 +111,7 @@ export default function SettingsTab() {
         void isSmartDownloads().then(setSmartDlState)
         void getCloudBackupDir().then(setCloudDir)
         void loadSpeedHistory().then(setSpeedHist)
+        void AsyncStorage.getItem('neostream_boot_tab').then(v => setBootLive(v === 'live')).catch(() => undefined)
         refreshStorage()
         void loadUsage().then(map => {
             const today = dayKey(Date.now())
@@ -620,6 +624,36 @@ export default function SettingsTab() {
                 </TvTouchable>
                 {smartDl ? <Text style={styles.parentalHint}>{t('smartDlHint')}</Text> : null}
                 <TvTouchable
+                    style={styles.kidsRow}
+                    onPress={() => {
+                        const next = !bootLive
+                        setBootLive(next)
+                        void (next
+                            ? AsyncStorage.setItem('neostream_boot_tab', 'live')
+                            : AsyncStorage.removeItem('neostream_boot_tab')
+                        ).catch(() => undefined)
+                    }}
+                >
+                    <Ionicons name={bootLive ? 'tv' : 'tv-outline'} size={18} color={bootLive ? colors.accent : colors.textDim} />
+                    <Text style={[styles.kidsText, bootLive && { color: colors.accent }]}>{t('bootLive')}</Text>
+                </TvTouchable>
+                <TvTouchable
+                    style={styles.kidsRow}
+                    onPress={() => {
+                        void (async () => {
+                            const freeable = await listFreeable()
+                            if (freeable.length === 0) { setFreeMsg(t('freeSpaceNone')); return }
+                            const mb = Math.round(freeable.reduce((sum, item) => sum + item.sizeBytes, 0) / 1048576)
+                            for (const item of freeable) await removeDl(item.id)
+                            refreshStorage()
+                            setFreeMsg(tf('freed', { mb }))
+                        })()
+                    }}
+                >
+                    <Ionicons name="trash-bin-outline" size={18} color={colors.textDim} />
+                    <Text style={styles.kidsText}>{freeMsg || tf('freeSpaceBtn', { n: '?', mb: '?' })}</Text>
+                </TvTouchable>
+                <TvTouchable
                     style={styles.saverRow}
                     onPress={() => {
                         const next = !dataSaver
@@ -640,6 +674,10 @@ export default function SettingsTab() {
             </View>
 
             <Text style={styles.section}>{t('remindersSection')}</Text>
+            <TvTouchable style={[styles.kidsRow, { paddingBottom: spacing.sm }]} onPress={() => router.push('/agenda')}>
+                <Ionicons name="calendar-outline" size={18} color={colors.accent} />
+                <Text style={[styles.kidsText, { color: colors.accent }]}>{t('agendaOpen')}</Text>
+            </TvTouchable>
             <View style={[styles.card, { paddingVertical: spacing.md, gap: spacing.sm }]}>
                 {recurring.map(reminder => (
                     <View key={`r${reminder.channelId}${reminder.title}`} style={styles.diagRow}>

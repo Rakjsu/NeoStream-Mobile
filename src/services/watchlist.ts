@@ -3,6 +3,7 @@
  * favoritos ("gosto"). Toggle e consulta são PUROS; load/save no AsyncStorage.
  */
 import AsyncStorage from '@react-native-async-storage/async-storage'
+import { profileKey } from './profiles'
 
 export interface WatchItem {
     kind: 'movie' | 'series'
@@ -30,7 +31,7 @@ export function hasItem(list: WatchItem[], kind: WatchItem['kind'], id: string):
 
 export async function loadWatchlist(): Promise<WatchItem[]> {
     try {
-        const raw = await AsyncStorage.getItem(STORAGE_KEY)
+        const raw = await AsyncStorage.getItem(profileKey(STORAGE_KEY))
         const parsed = raw ? (JSON.parse(raw) as unknown) : []
         return Array.isArray(parsed)
             ? parsed.filter((item): item is WatchItem =>
@@ -44,7 +45,7 @@ export async function loadWatchlist(): Promise<WatchItem[]> {
 /** Restauração de backup. */
 export async function restoreWatchlist(list: WatchItem[]): Promise<void> {
     try {
-        await AsyncStorage.setItem(STORAGE_KEY, JSON.stringify(Array.isArray(list) ? list.slice(0, MAX_ITEMS) : []))
+        await AsyncStorage.setItem(profileKey(STORAGE_KEY), JSON.stringify(Array.isArray(list) ? list.slice(0, MAX_ITEMS) : []))
     } catch { /* best-effort */ }
 }
 
@@ -52,7 +53,7 @@ export async function restoreWatchlist(list: WatchItem[]): Promise<void> {
 export async function toggleWatchlist(item: WatchItem): Promise<WatchItem[]> {
     const next = toggleItem(await loadWatchlist(), item)
     try {
-        await AsyncStorage.setItem(STORAGE_KEY, JSON.stringify(next))
+        await AsyncStorage.setItem(profileKey(STORAGE_KEY), JSON.stringify(next))
     } catch { /* best-effort */ }
     return next
 }

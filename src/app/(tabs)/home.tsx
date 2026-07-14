@@ -11,6 +11,7 @@ import { listRecentChannels, recordRecentChannel } from '../../services/recents'
 import { checkRecurringReminders } from '../../services/recurring'
 import { scheduleWeeklySummary } from '../../services/weekly'
 import { hourBucketOf, loadHabits, topHabitKeys } from '../../services/habit'
+import { GUEST_PROFILE_ID, activeProfileId, listProfiles } from '../../services/profiles'
 import { defaultRailPrefs, loadRailPrefs, orderedRails, type RailPrefs } from '../../services/homeRails'
 import { loadParental } from '../../services/parental'
 import { guardedCategoryIds } from '../../services/kids'
@@ -62,6 +63,7 @@ export default function HomeTab() {
     const [cloudNudge, setCloudNudge] = useState(false)
     const [praAgora, setPraAgora] = useState<{ id: string; name: string; logo: string }[]>([])
     const [expiryDays, setExpiryDays] = useState<number | null>(null)
+    const [greeting, setGreeting] = useState('')
     const [railPrefs, setRailPrefs] = useState<RailPrefs>(defaultRailPrefs())
 
     const load = useCallback(async (force = false) => {
@@ -235,8 +237,12 @@ export default function HomeTab() {
                 return [{ id: recent.id, name: channel.name, logo: channel.stream_icon || recent.logo }]
             }).slice(0, RAIL_MAX))
 
-            // Séries favoritas com episódios novos desde a última visita.
-            const fresh = await checkNewEpisodes(visibleShows, favorites.series)
+            // Séries favoritas OU da Minha lista com episódios novos.
+            const followedSeries = [...new Set([
+                ...favorites.series,
+                ...watchlist.filter(item => item.kind === 'series').map(item => item.id),
+            ])]
+            const fresh = await checkNewEpisodes(visibleShows, followedSeries)
             setFreshEpisodes(fresh.slice(0, RAIL_MAX).map(seriesRail))
             if (fresh.length === 1) {
                 void notifyNow(t('newEpsTitle'), tf('newEpsOne', { title: fresh[0].name }), '/(tabs)/home')
@@ -301,6 +307,20 @@ export default function HomeTab() {
         } finally {
             setReady(true)
         }
+    }, [])
+
+    // 👋 Saudação pela hora + perfil ativo ("Boa noite, Sala 🦖").
+    useEffect(() => {
+        queueMicrotask(() => {
+            void listProfiles().then(profiles => {
+                const active = profiles.find(profile => profile.id === activeProfileId())
+                const hour = new Date().getHours()
+                const key = hour >= 6 && hour < 12 ? 'greetMorning' : hour >= 12 && hour < 18 ? 'greetAfternoon' : 'greetEvening'
+                const name = active?.id === GUEST_PROFILE_ID ? t('profileGuest') : active?.name ?? ''
+                const icon = active?.icon ? ` ${active.icon}` : ''
+                setGreeting(`${t(key)}${name ? `, ${name}` : ''}${icon}`)
+            }).catch(() => undefined)
+        })
     }, [])
 
     // Checagem de versão nova (1x/dia, cache no aparelho) — sem loja, é o
@@ -462,6 +482,7 @@ export default function HomeTab() {
                     </Text>
                 </View>
             ) : null}
+            {greeting ? <Text style={styles.greeting}>{greeting}</Text> : null}
             {error ? <Text style={styles.error}>{error}</Text> : null}
             {catalogAge ? <Text style={styles.ageText}>{catalogAge}</Text> : null}
             {empty ? (
@@ -525,6 +546,7 @@ export default function HomeTab() {
 const styles = StyleSheet.create({
     root: { flex: 1, backgroundColor: colors.bg },
     error: { color: colors.danger, marginHorizontal: spacing.lg, marginVertical: spacing.sm },
+    greeting: { color: colors.text, fontSize: 20, fontWeight: '800', marginHorizontal: spacing.lg, marginTop: spacing.xs, marginBottom: spacing.sm },
     ageText: { color: colors.textDim, fontSize: 11, marginHorizontal: spacing.lg, marginBottom: spacing.xs },
     updateBanner: {
         flexDirection: 'row',

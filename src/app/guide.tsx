@@ -14,7 +14,7 @@ import { cachedFetch, getClient, resolvePlayableUrl } from '../services/session'
 import { hasCatchup } from '../services/xtream'
 import type { Category, EpgProgram, LiveChannel } from '../services/xtream'
 import { rankChannels, setZapContext } from '../services/zap'
-import { EmptyState, Loading, SearchBar, TvTouchable } from '../ui/components'
+import { CategoryChips, EmptyState, Loading, SearchBar, TvTouchable } from '../ui/components'
 import { colors, spacing } from '../ui/theme'
 import { t, tf } from '../i18n/strings'
 
@@ -53,6 +53,8 @@ export default function Guide() {
     const [channels, setChannels] = useState<LiveChannel[] | null>(null)
     const [query, setQuery] = useState('')
     const [favOnly, setFavOnly] = useState(false)
+    const [categories, setCategories] = useState<Category[]>([])
+    const [category, setCategory] = useState('all')
     const [favSet, setFavSet] = useState<Set<string>>(new Set())
     const [scheduleMap, setScheduleMap] = useState<Record<string, EpgProgram[]>>({})
     const inFlight = useRef(new Set<string>())
@@ -82,6 +84,7 @@ export default function Guide() {
                     hiddenIdSet(),
                 ])
                 const allowed = await guardedCategoryIds(liveCats, parental.enabled)
+                setCategories(allowed ? liveCats.filter(cat => allowed.has(cat.category_id)) : liveCats)
                 const visible = live.filter(channel =>
                     !hidden.has(String(channel.stream_id))
                     && (!allowed || !channel.category_id || allowed.has(channel.category_id)))
@@ -235,6 +238,8 @@ export default function Guide() {
 
     const visibleChannels = channels?.filter(channel =>
         (!favOnly || favSet.has(String(channel.stream_id)))
+        && (category === 'all'
+            || (category === 'fav' ? favSet.has(String(channel.stream_id)) : channel.category_id === category))
         && (!query.trim() || channel.name.toLowerCase().includes(query.trim().toLowerCase()))) ?? null
 
     if (channels === null || visibleChannels === null) return <Loading label={t('loadingChannels')} />
@@ -259,6 +264,7 @@ export default function Guide() {
                     </TvTouchable>
                 ))}
             </View>
+            <CategoryChips categories={categories} selected={category} onSelect={setCategory} />
             <ScrollView
                 ref={scrollRef}
                 horizontal

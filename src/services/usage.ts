@@ -4,7 +4,7 @@
  * (testável); só load/save tocam o AsyncStorage. Base do futuro Wrapped.
  */
 import AsyncStorage from '@react-native-async-storage/async-storage'
-import { profileKey } from './profiles'
+import { DEFAULT_PROFILE_ID, listProfiles, profileKey } from './profiles'
 
 export type UsageKind = 'live' | 'movie' | 'episode'
 
@@ -283,4 +283,28 @@ export async function usageGoalJustHit(nowMs: number): Promise<number> {
     } catch {
         return 0
     }
+}
+
+export interface ProfileUsage {
+    id: string
+    name: string
+    icon?: string
+    minutes: number
+}
+
+/** Minutos dos últimos 7 dias POR PERFIL (lê a chave crua de cada um). */
+export async function usageByProfile(nowMs: number): Promise<ProfileUsage[]> {
+    const profiles = await listProfiles()
+    const today = dayKey(nowMs)
+    const results: ProfileUsage[] = []
+    for (const profile of profiles) {
+        const storageKey = profile.id === DEFAULT_PROFILE_ID ? STORAGE_KEY : `${STORAGE_KEY}_p_${profile.id}`
+        try {
+            const raw = await AsyncStorage.getItem(storageKey)
+            const map = raw ? (JSON.parse(raw) as UsageMap) : {}
+            const minutes = lastDays(map, today, 7).reduce((sum, item) => sum + item.minutes, 0)
+            if (minutes > 0) results.push({ id: profile.id, name: profile.name, icon: profile.icon, minutes })
+        } catch { /* perfil sem dados */ }
+    }
+    return results.sort((a, b) => b.minutes - a.minutes)
 }

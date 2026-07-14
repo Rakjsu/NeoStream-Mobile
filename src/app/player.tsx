@@ -22,6 +22,7 @@ import { getAspect, nextAspect, setAspect, type AspectMode } from '../services/a
 import { dayKey, formatMinutes, loadUsage, recordWatchMinute, summarize, usageGoalJustHit } from '../services/usage'
 import { getKidsTimeLimit, isKidsMode } from '../services/kids'
 import { traktScrobble } from '../services/trakt'
+import * as ScreenOrientation from 'expo-screen-orientation'
 import { loadParental } from '../services/parental'
 import { recordHabitMinute } from '../services/habit'
 import { canRecordUrl, recordingTitle, startRecording, stopRecording } from '../services/recorder'
@@ -409,6 +410,28 @@ export default function Player() {
         left: createGesturePan('left', { player: gesturePlayerRef, live: gestureLiveRef, toast: gestureToastRef, pinch: gesturePinchRef, aspect: gestureAspectRef }),
         right: createGesturePan('right', { player: gesturePlayerRef, live: gestureLiveRef, toast: gestureToastRef, pinch: gesturePinchRef, aspect: gestureAspectRef }),
     }))
+
+    // 🔄 Travar rotação: fixa a orientação ATUAL; sair do player libera.
+    const [orientationLocked, setOrientationLocked] = useState(false)
+    const toggleOrientationLock = () => {
+        void (async () => {
+            if (orientationLocked) {
+                await ScreenOrientation.unlockAsync().catch(() => undefined)
+                setOrientationLocked(false)
+                showTrackToast(t('rotationFree'))
+                return
+            }
+            const current = await ScreenOrientation.getOrientationAsync().catch(() => null)
+            const landscape = current === ScreenOrientation.Orientation.LANDSCAPE_LEFT
+                || current === ScreenOrientation.Orientation.LANDSCAPE_RIGHT
+            await ScreenOrientation.lockAsync(landscape
+                ? ScreenOrientation.OrientationLock.LANDSCAPE
+                : ScreenOrientation.OrientationLock.PORTRAIT_UP).catch(() => undefined)
+            setOrientationLocked(true)
+            showTrackToast(t('rotationLocked'))
+        })()
+    }
+    useEffect(() => () => { void ScreenOrientation.unlockAsync().catch(() => undefined) }, [])
 
     // 🕐 Relógio + resolução do stream (aparecem junto com os controles).
     const [clock, setClock] = useState('')
@@ -956,6 +979,13 @@ export default function Player() {
                     onPress={() => { setTouchLocked(true); setChrome(false); showTrackToast(t('lockHint')) }}
                 >
                     <Ionicons name="lock-open-outline" size={20} color={colors.text} />
+                </TvTouchable>
+                <TvTouchable
+                    style={styles.trackBtn}
+                    accessibilityLabel={t('a11yRotation')}
+                    onPress={toggleOrientationLock}
+                >
+                    <Ionicons name={orientationLocked ? 'phone-portrait' : 'sync-outline'} size={20} color={orientationLocked ? colors.accent : colors.text} />
                 </TvTouchable>
                 <TvTouchable style={styles.trackBtn} accessibilityLabel={t('a11yAspect')} onPress={cycleAspect}>
                     <Ionicons name="expand-outline" size={20} color={aspect !== 'contain' ? colors.accent : colors.text} />

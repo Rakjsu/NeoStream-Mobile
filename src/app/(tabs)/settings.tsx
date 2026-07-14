@@ -36,7 +36,7 @@ import {
     accountLabel, cachedFetch, clearCatalogCache, getClient, listAccounts, loadAccount, removeAccount, renameAccount, resolvePlayableUrl, switchAccount,
     type StoredAccount,
 } from '../../services/session'
-import { currentStreak, dayKey, formatMinutes, getUsageGoal, lastDays, lastMonths, loadMonthUsage, loadTitleUsage, loadUsage, monthKey, setUsageGoal, summarize, topTitles, usageCsv, weekDelta, type TopTitle, type UsageSummary } from '../../services/usage'
+import { currentStreak, dayKey, formatMinutes, getUsageGoal, lastDays, lastMonths, loadMonthUsage, loadTitleUsage, loadUsage, monthKey, setUsageGoal, summarize, topTitles, usageByProfile, usageCsv, weekDelta, type ProfileUsage, type TopTitle, type UsageSummary } from '../../services/usage'
 import { heatmapCells, loadHabits } from '../../services/habit'
 import { parseExpiry } from '../../services/xtream'
 import { TvTouchable } from '../../ui/components'
@@ -168,6 +168,7 @@ export default function SettingsTab() {
     const [kidsLimit, setKidsLimit] = useState(0)
     const [habitGrid, setHabitGrid] = useState<number[][]>([])
     const [usageGoal, setUsageGoalState] = useState(0)
+    const [profileUsage, setProfileUsage] = useState<ProfileUsage[]>([])
     const [traktCid, setTraktCid] = useState('')
     const [traktCsec, setTraktCsec] = useState('')
     const [traktOn, setTraktOn] = useState(false)
@@ -245,6 +246,7 @@ export default function SettingsTab() {
         void getKidsTimeLimit().then(setKidsLimit)
         void loadHabits().then(map => setHabitGrid(heatmapCells(map)))
         void getUsageGoal().then(setUsageGoalState)
+        void usageByProfile(Date.now()).then(setProfileUsage)
         void getTraktCreds().then(creds => { setTraktCid(creds.clientId); setTraktCsec(creds.clientSecret) })
         void isTraktConnected().then(setTraktOn)
         void AsyncStorage.getItem('neostream_boot_tab').then(v => setBootLive(v === 'live')).catch(() => undefined)
@@ -829,6 +831,23 @@ export default function SettingsTab() {
                     </Text>
                 ) : null}
                 {habitGrid.length > 0 ? <HabitHeatmap cells={habitGrid} /> : null}
+                {profileUsage.length > 1 ? (
+                    <View style={{ gap: 4 }}>
+                        <Text style={styles.parentalHint}>{t('usageByProfile')}</Text>
+                        {profileUsage.map(profile => (
+                            <View key={profile.id} style={styles.diagRow}>
+                                <Text style={styles.heatIcon}>{profile.icon ?? '👤'}</Text>
+                                <Text style={styles.diagLabel} numberOfLines={1}>
+                                    {profile.id === 'default' ? t('profileDefault') : profile.id === 'guest' ? t('profileGuest') : profile.name}
+                                </Text>
+                                <View style={styles.profileBarTrack}>
+                                    <View style={[styles.profileBarFill, { width: `${Math.max(6, Math.round((profile.minutes / profileUsage[0].minutes) * 100))}%` }]} />
+                                </View>
+                                <Text style={styles.diagMeta}>{formatMinutes(profile.minutes)}</Text>
+                            </View>
+                        ))}
+                    </View>
+                ) : null}
                 <TvTouchable
                     style={styles.kidsRow}
                     onPress={() => {
@@ -1402,6 +1421,8 @@ const styles = StyleSheet.create({
     heatLabel: { flex: 1, textAlign: 'center', color: colors.textDim, fontSize: 9 },
     heatIcon: { fontSize: 10, width: 18 },
     heatCell: { flex: 1, height: 16, borderRadius: 3, backgroundColor: colors.accent },
+    profileBarTrack: { flex: 1, height: 8, borderRadius: 4, backgroundColor: colors.card, overflow: 'hidden' },
+    profileBarFill: { height: 8, borderRadius: 4, backgroundColor: colors.accent },
     root: { flex: 1, backgroundColor: colors.bg },
     section: { color: colors.textDim, fontSize: 13, textTransform: 'uppercase', marginBottom: spacing.sm, marginTop: spacing.md },
     card: {

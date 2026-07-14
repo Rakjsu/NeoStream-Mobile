@@ -64,3 +64,14 @@ export async function recordHabitMinute(kind: string, title: string, nowMs: numb
         await AsyncStorage.setItem(profileKey(STORAGE_KEY), JSON.stringify(map))
     } catch { /* best-effort */ }
 }
+
+export const HOUR_BUCKETS: HourBucket[] = ['morning', 'afternoon', 'evening', 'night']
+
+/** Minutos totais por célula — linhas = 7 dias, colunas = 4 faixas (PURO). */
+export function heatmapCells(map: HabitMap): number[][] {
+    return Array.from({ length: 7 }, (_, weekday) =>
+        HOUR_BUCKETS.map(bucket => {
+            const entries = map[habitCell(weekday, bucket)] ?? {}
+            return Object.values(entries).reduce((sum, minutes) => sum + minutes, 0)
+        }))
+}

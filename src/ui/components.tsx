@@ -72,6 +72,7 @@ export function TvTouchable({ focusStyle, style, children, ...props }: React.Com
     const [focused, setFocused] = useState(false)
     return (
         <TouchableOpacity
+            accessibilityRole="button"
             {...props}
             style={[style, focused && (focusStyle ?? styles.tvFocus)]}
             onFocus={() => setFocused(true)}
@@ -83,7 +84,7 @@ export function TvTouchable({ focusStyle, style, children, ...props }: React.Com
 }
 
 /** Card de pôster 2:3 pras grades de Filmes/Séries (❤ = favorito; ✓ = seleção em lote). */
-export function PosterCard({ name, cover, fav, selected }: { name: string; cover?: string; fav?: boolean; selected?: boolean }) {
+export function PosterCard({ name, cover, fav, selected, badge }: { name: string; cover?: string; fav?: boolean; selected?: boolean; badge?: string }) {
     return (
         <View style={[styles.poster, selected && styles.posterSelected]}>
             {selected ? (
@@ -101,6 +102,11 @@ export function PosterCard({ name, cover, fav, selected }: { name: string; cover
             {fav ? (
                 <View style={styles.favBadge}>
                     <Ionicons name="heart" size={12} color="#fff" />
+                </View>
+            ) : null}
+            {badge && !selected ? (
+                <View style={styles.newBadge}>
+                    <Text style={styles.newBadgeText}>{badge}</Text>
                 </View>
             ) : null}
             <Text style={styles.posterName} numberOfLines={2}>{name}</Text>
@@ -310,6 +316,17 @@ const styles = StyleSheet.create({
         borderRadius: 10,
         padding: 4,
     },
+    newBadge: {
+        position: 'absolute',
+        top: 6,
+        left: 6,
+        zIndex: 1,
+        backgroundColor: colors.accent,
+        borderRadius: 4,
+        paddingHorizontal: 4,
+        paddingVertical: 1,
+    },
+    newBadgeText: { color: '#fff', fontSize: 9, fontWeight: '800' },
     chipsScroll: { flexGrow: 0, marginBottom: spacing.sm },
     chipsRow: { gap: spacing.sm, paddingHorizontal: spacing.lg },
     chip: {

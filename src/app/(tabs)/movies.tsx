@@ -1,4 +1,5 @@
 import { Ionicons } from '@expo/vector-icons'
+import AsyncStorage from '@react-native-async-storage/async-storage'
 import { router, useFocusEffect } from 'expo-router'
 import { useCallback, useEffect, useMemo, useState } from 'react'
 import { Alert, FlatList, RefreshControl, StyleSheet, Text, TouchableOpacity, useWindowDimensions, View } from 'react-native'
@@ -11,7 +12,7 @@ import { buildProgressId } from '../../services/progress'
 import { cachedFetch, getClient, resolvePlayableUrl } from '../../services/session'
 import type { Category, VodMovie } from '../../services/xtream'
 import { CategoryChips, ContinueRail, EmptyState, Loading, PosterCard, SearchBar, TvTouchable } from '../../ui/components'
-import { nextSortMode, sortCatalog, type SortMode } from '../../services/sorting'
+import { isRecentlyAdded, nextSortMode, sortCatalog, type SortMode } from '../../services/sorting'
 import { colors, spacing } from '../../ui/theme'
 import { SORT_KEY, t, tf } from '../../i18n/strings'
 
@@ -26,6 +27,8 @@ export default function MoviesTab() {
     const [error, setError] = useState('')
     const [allowed, setAllowed] = useState<Set<string> | null>(null)
     const [sort, setSort] = useState<SortMode>('default')
+    // Relógio congelado por render (regra react-hooks/purity) — badge NOVO.
+    const [nowMs] = useState(() => Date.now())
     // Seleção em lote: long-press entra; toque marca; barra age em todos.
     const [selection, setSelection] = useState<Set<string> | null>(null)
 
@@ -69,7 +72,22 @@ export default function MoviesTab() {
     }
     // Colunas pela largura: 3 no celular em pé, 5-6 deitado/tablet.
     const { width } = useWindowDimensions()
-    const columns = Math.max(3, Math.min(8, Math.floor(width / 128)))
+    // Densidade: automática ou fixa (3/4/5), compartilhada entre as abas.
+    const [density, setDensity] = useState(0) // 0 = auto
+    useEffect(() => {
+        void AsyncStorage.getItem('neostream_grid_cols')
+            .then(raw => setDensity(Number(raw) || 0))
+            .catch(() => undefined)
+    }, [])
+    const cycleDensity = () => {
+        const next = density === 0 ? 3 : density >= 5 ? 0 : density + 1
+        setDensity(next)
+        void (next === 0
+            ? AsyncStorage.removeItem('neostream_grid_cols')
+            : AsyncStorage.setItem('neostream_grid_cols', String(next))
+        ).catch(() => undefined)
+    }
+    const columns = density > 0 ? density : Math.max(3, Math.min(8, Math.floor(width / 128)))
 
     const load = useCallback(async (force = false) => {
         try {
@@ -170,6 +188,9 @@ export default function MoviesTab() {
                     <Ionicons name="swap-vertical" size={14} color={sort === 'default' ? colors.textDim : colors.accent} />
                     <Text style={[styles.sortText, sort !== 'default' && { color: colors.accent }]}>{t(SORT_KEY[sort])}</Text>
                 </TouchableOpacity>
+                <TouchableOpacity style={styles.sortBtn} accessibilityLabel={tf('gridDensity', { n: density || 'auto' })} onPress={cycleDensity}>
+                    <Text style={[styles.sortText, density > 0 && { color: colors.accent }]}>{density > 0 ? `▦${density}` : '▦'}</Text>
+                </TouchableOpacity>
             </View>
             {error ? <Text style={styles.error}>{error}</Text> : null}
             {selection ? (
@@ -227,6 +248,7 @@ export default function MoviesTab() {
                                 cover={item.stream_icon}
                                 fav={isFavorite(favorites, 'movie', id)}
                                 selected={selection?.has(id)}
+                                badge={isRecentlyAdded(item.added, nowMs) ? t('newBadge') : undefined}
                             />
                         </TvTouchable>
                     )

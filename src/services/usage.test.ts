@@ -1,5 +1,5 @@
 import { describe, it, expect, vi } from 'vitest'
-import { addMinutes, addMonthMinute, addTitleMinute, dayKey, formatMinutes, lastDays, lastMonths, monthKey, summarize, topTitles, usageCsv, yearSummary, type MonthUsageMap, type TitleUsageMap, type UsageMap } from './usage'
+import { addMinutes, addMonthMinute, addTitleMinute, currentStreak, weekDelta, dayKey, formatMinutes, lastDays, lastMonths, monthKey, summarize, topTitles, usageCsv, yearSummary, type MonthUsageMap, type TitleUsageMap, type UsageMap } from './usage'
 
 vi.mock('@react-native-async-storage/async-storage', () => ({
     default: { getItem: vi.fn(), setItem: vi.fn(), removeItem: vi.fn() },
@@ -122,5 +122,31 @@ describe('lastMonths / usageCsv (fase 3)', () => {
 
     it('CSV ordenado com cabeçalho', () => {
         expect(usageCsv(months)).toBe('mes,tv,filmes,series\n2026-05,100,20,0\n2026-07,0,0,30')
+    })
+})
+
+describe('currentStreak', () => {
+    it('conta dias seguidos; hoje vazio começa de ontem; buraco zera', () => {
+        const map: UsageMap = {
+            '2026-07-13': { live: 10 },
+            '2026-07-12': { movie: 5 },
+            '2026-07-11': { episode: 1 },
+            '2026-07-09': { live: 99 },
+        }
+        expect(currentStreak(map, '2026-07-13')).toBe(3)
+        expect(currentStreak({ '2026-07-12': { live: 1 } }, '2026-07-13')).toBe(1)
+        expect(currentStreak({}, '2026-07-13')).toBe(0)
+    })
+})
+
+describe('weekDelta', () => {
+    it('separa a janela desta semana da anterior', () => {
+        const map: UsageMap = {
+            '2026-07-13': { live: 60 },
+            '2026-07-08': { movie: 30 },
+            '2026-07-05': { episode: 100 },
+            '2026-06-20': { live: 999 },
+        }
+        expect(weekDelta(map, '2026-07-13')).toEqual({ current: 90, previous: 100 })
     })
 })

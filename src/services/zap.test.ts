@@ -73,3 +73,24 @@ describe('zap por número', () => {
         clearZapContext()
     })
 })
+
+describe('números reais de canal (campo num do provedor)', () => {
+    it('zapToNumber prioriza o num real e cai na posição sem match', () => {
+        setZapContext([
+            { id: 'a', name: 'A', num: 10 },
+            { id: 'b', name: 'B', num: 22 },
+            { id: 'c', name: 'C' },
+        ], 'a')
+        expect(zapToNumber(22)?.id).toBe('b')
+        expect(zapToNumber(3)?.id).toBe('c') // posição 3 (nenhum canal com num=3)
+        expect(zapToNumber(99)).toBeNull()
+        clearZapContext()
+    })
+
+    it('channelNumber devolve o num real quando existe', () => {
+        setZapContext([{ id: 'a', name: 'A', num: '15' }, { id: 'b', name: 'B' }], 'a')
+        expect(channelNumber('a')).toBe(15)
+        expect(channelNumber('b')).toBe(2)
+        clearZapContext()
+    })
+})

@@ -1,9 +1,12 @@
 import { Ionicons } from '@expo/vector-icons'
+import { ExpoSpeechRecognitionModule, useSpeechRecognitionEvent } from 'expo-speech-recognition'
 import { Image } from 'expo-image'
 import { router } from 'expo-router'
 import { useCallback, useEffect, useMemo, useState } from 'react'
 import { Alert, ScrollView, StyleSheet, Text, TouchableOpacity, View } from 'react-native'
 import { loadFavorites } from '../../services/favorites'
+import { enqueueDownloads } from '../../services/downloads'
+import { M3uClient } from '../../services/m3u'
 import { notifyAt } from '../../services/notify'
 import { hasCatchup } from '../../services/xtream'
 import { loadWatchlist, type WatchItem } from '../../services/watchlist'
@@ -11,12 +14,12 @@ import { loadParental } from '../../services/parental'
 import { guardedCategoryIds } from '../../services/kids'
 import { recordRecentChannel } from '../../services/recents'
 import { clearSearchTerms, listSearchTerms, recordSearchTerm } from '../../services/searchHistory'
-import { cachedFetch, getClient } from '../../services/session'
+import { cachedFetch, getClient, resolvePlayableUrl } from '../../services/session'
 import type { Category, EpgProgram, LiveChannel, SeriesItem, VodMovie } from '../../services/xtream'
 import { setZapContext } from '../../services/zap'
 import { EmptyState, Loading, SearchBar } from '../../ui/components'
 import { colors, spacing } from '../../ui/theme'
-import { t, tf } from '../../i18n/strings'
+import { currentLang, t, tf } from '../../i18n/strings'
 
 const MAX_PER_SECTION = 10
 
@@ -40,6 +43,26 @@ export default function SearchTab() {
         const timer = setInterval(() => setNowMs(Date.now()), 60_000)
         return () => clearInterval(timer)
     }, [])
+    // 🎤 Busca por voz: transcrição parcial já vai preenchendo o campo.
+    const [listening, setListening] = useState(false)
+    useSpeechRecognitionEvent('result', event => {
+        const transcript = event.results?.[0]?.transcript ?? ''
+        if (transcript) setQuery(transcript)
+    })
+    useSpeechRecognitionEvent('end', () => setListening(false))
+    useSpeechRecognitionEvent('error', () => setListening(false))
+    const startVoice = () => {
+        void (async () => {
+            const permission = await ExpoSpeechRecognitionModule.requestPermissionsAsync()
+            if (!permission.granted) return
+            setListening(true)
+            ExpoSpeechRecognitionModule.start({
+                lang: currentLang() === 'pt' ? 'pt-BR' : currentLang() === 'es' ? 'es-ES' : 'en-US',
+                interimResults: true,
+            })
+        })()
+    }
+
     // Filtros por tipo: todos ligados por padrão; um toque foca.
     const [kinds, setKinds] = useState({ channels: true, movies: true, series: true })
     const toggleKind = (key: keyof typeof kinds) => {
@@ -83,11 +106,21 @@ export default function SearchTab() {
     // "No guia hoje": procura o termo na grade dos canais FAVORITOS (até 8),
     // com debounce — cada grade vem do cache SWR (day:<id>).
     useEffect(() => {
-        if (q.length < 3 || !channels || favLive.length === 0) { queueMicrotask(() => setGuideHits([])); return }
+        if (q.length < 3 || !channels) { queueMicrotask(() => setGuideHits([])); return }
         const timer = setTimeout(() => {
             void (async () => {
                 const client = await getClient()
-                if (!client?.getDaySchedule) return
+                // M3U: o XMLTV inteiro já está em memória — procura em TODOS os canais.
+                if (client instanceof M3uClient) {
+                    const hits = await client.searchGuide(q, 10).catch(() => [])
+                    const byId = new Map(channels.map(c => [String(c.stream_id), c]))
+                    setGuideHits(hits.flatMap(hit => {
+                        const channel = byId.get(hit.channelId)
+                        return channel ? [{ channel, program: hit.program }] : []
+                    }))
+                    return
+                }
+                if (!client?.getDaySchedule || favLive.length === 0) { setGuideHits([]); return }
                 const targets = channels.filter(c => favLive.includes(String(c.stream_id))).slice(0, 8)
                 const perChannel = await Promise.all(targets.map(async channel => {
                     const id = String(channel.stream_id)
@@ -112,7 +145,26 @@ export default function SearchTab() {
                 if (!client?.catchupUrl || !hasCatchup(channel)) return
                 const durationMin = Math.max(1, Math.round((program.endMs - program.startMs) / 60_000))
                 const url = client.catchupUrl(String(channel.stream_id), program.startMs, durationMin, program.id)
-                if (url) router.push({ pathname: '/player', params: { url, title: `⏪ ${program.title}` } })
+                if (!url) return
+                Alert.alert(`⏪ ${program.title}`, channel.name, [
+                    { text: t('cancel'), style: 'cancel' },
+                    ...(url.includes('.m3u8') ? [] : [{
+                        text: t('catchupDlBtn'),
+                        onPress: () => {
+                            void (async () => {
+                                await enqueueDownloads([{
+                                    id: `rec:catchup:${channel.stream_id}:${program.startMs}`,
+                                    url: await resolvePlayableUrl(url),
+                                    title: `⏪ ${program.title}`,
+                                    cover: channel.stream_icon || '',
+                                    container: 'ts',
+                                }])
+                                Alert.alert(t('catchupDlQueued'))
+                            })()
+                        },
+                    }]),
+                    { text: t('catchupPlayBtn'), onPress: () => router.push({ pathname: '/player', params: { url, title: `⏪ ${program.title}` } }) },
+                ])
             })()
             return
         }
@@ -148,7 +200,7 @@ export default function SearchTab() {
         const client = await getClient()
         if (!client) return
         remember()
-        setZapContext(results.channels.map(c => ({ id: String(c.stream_id), name: c.name })), String(channel.stream_id))
+        setZapContext(results.channels.map(c => ({ id: String(c.stream_id), name: c.name, num: c.num })), String(channel.stream_id))
         void recordRecentChannel({ id: String(channel.stream_id), name: channel.name, logo: channel.stream_icon || '' })
         router.push({
             pathname: '/player',
@@ -163,7 +215,18 @@ export default function SearchTab() {
 
     return (
         <View style={styles.root}>
-            <SearchBar value={query} onChange={setQuery} placeholder={t('searchAll')} />
+            <View style={styles.searchRow}>
+                <View style={{ flex: 1 }}>
+                    <SearchBar value={query} onChange={setQuery} placeholder={t('searchAll')} />
+                </View>
+                <TouchableOpacity
+                    style={[styles.micBtn, listening && styles.micBtnOn]}
+                    accessibilityLabel={t('voiceSearch')}
+                    onPress={startVoice}
+                >
+                    <Ionicons name={listening ? 'mic' : 'mic-outline'} size={20} color={listening ? '#fff' : colors.textDim} />
+                </TouchableOpacity>
+            </View>
             <View style={styles.kindRow}>
                 {([
                     ['channels', t('secChannels')],
@@ -358,6 +421,18 @@ const styles = StyleSheet.create({
     guideMeta: { color: colors.textDim, fontSize: 12 },
     historyBox: { paddingBottom: spacing.lg },
     kindRow: { flexDirection: 'row', gap: spacing.sm, paddingHorizontal: spacing.lg, paddingBottom: spacing.sm },
+    searchRow: { flexDirection: 'row', alignItems: 'center', paddingRight: spacing.lg, gap: spacing.sm },
+    micBtn: {
+        width: 40,
+        height: 40,
+        borderRadius: 20,
+        alignItems: 'center',
+        justifyContent: 'center',
+        borderWidth: 1,
+        borderColor: colors.border,
+        backgroundColor: colors.card,
+    },
+    micBtnOn: { backgroundColor: colors.accent, borderColor: colors.accent },
     kindChip: {
         borderColor: colors.border,
         borderWidth: 1,

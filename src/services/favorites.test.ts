@@ -1,5 +1,5 @@
 import { describe, it, expect, vi } from 'vitest'
-import { emptyFavorites, isFavorite, toggleFavorite } from './favorites'
+import { emptyFavorites, isFavorite, moveFavorite, toggleFavorite } from './favorites'
 
 // Hoisted pelo vitest — evita o import real (que puxa react-native).
 vi.mock('@react-native-async-storage/async-storage', () => ({
@@ -24,5 +24,27 @@ describe('favoritos (toggle puro)', () => {
         const next = toggleFavorite(original, 'series', 's1')
         expect(original.series).toEqual([])
         expect(next.series).toEqual(['s1'])
+    })
+})
+
+describe('moveFavorite (ordem personalizada)', () => {
+    it('sobe/desce e ignora movimentos impossíveis', () => {
+        let favs = emptyFavorites()
+        favs = toggleFavorite(favs, 'live', 'a')
+        favs = toggleFavorite(favs, 'live', 'b')
+        favs = toggleFavorite(favs, 'live', 'c')
+        expect(moveFavorite(favs, 'live', 'c', -1).live).toEqual(['a', 'c', 'b'])
+        expect(moveFavorite(favs, 'live', 'a', -1)).toBe(favs) // topo não sobe
+        expect(moveFavorite(favs, 'live', 'c', 1)).toBe(favs) // fundo não desce
+        expect(moveFavorite(favs, 'live', 'x', 1)).toBe(favs) // id desconhecido
+    })
+
+    it('não muta o original', () => {
+        let favs = emptyFavorites()
+        favs = toggleFavorite(favs, 'live', 'a')
+        favs = toggleFavorite(favs, 'live', 'b')
+        const next = moveFavorite(favs, 'live', 'b', -1)
+        expect(favs.live).toEqual(['a', 'b'])
+        expect(next.live).toEqual(['b', 'a'])
     })
 })

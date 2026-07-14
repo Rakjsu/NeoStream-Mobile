@@ -1,11 +1,26 @@
 import { Ionicons } from '@expo/vector-icons'
 import { router, Tabs } from 'expo-router'
 import { TouchableOpacity, View } from 'react-native'
+import { useEffect } from 'react'
+import { checkScheduledRecordings } from '../../services/schedRec'
+import { onRecStopAction } from '../../services/notify'
+import { stopRecording } from '../../services/recorder'
 import { OfflineBanner } from '../../ui/components'
 import { t } from '../../i18n/strings'
 import { colors } from '../../ui/theme'
 
 export default function TabsLayout() {
+    // Gravação agendada: checa em QUALQUER aba, a cada minuto com o app aberto.
+    useEffect(() => {
+        const run = () => { void checkScheduledRecordings() }
+        queueMicrotask(run)
+        const timer = setInterval(run, 60_000)
+        return () => clearInterval(timer)
+    }, [])
+
+    // ⏹ da notificação de gravação para o REC sem precisar abrir o app.
+    useEffect(() => onRecStopAction(() => { void stopRecording() }), [])
+
     return (
         <View style={{ flex: 1 }}>
         <OfflineBanner />

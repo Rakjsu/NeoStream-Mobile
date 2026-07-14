@@ -10,6 +10,8 @@ export interface Profile {
     id: string
     name: string
     color: string
+    /** Emoji de avatar opcional (vence a letra inicial do nome). */
+    icon?: string
     /** PIN de 4 dígitos opcional — protege o perfil (ex.: o dos adultos). */
     pin?: string
 }
@@ -144,6 +146,46 @@ async function persistExtras(): Promise<void> {
     try {
         await AsyncStorage.setItem(LIST_KEY, JSON.stringify(
             (listCache ?? []).filter(p => p.id !== DEFAULT_PROFILE_ID && p.id !== GUEST_PROFILE_ID)))
+    } catch { /* best-effort */ }
+}
+
+/** Edita nome/cor/avatar/PIN de um perfil extra (pin/icon: '' remove). */
+export async function updateProfile(id: string, changes: { name?: string; pin?: string; color?: string; icon?: string }): Promise<void> {
+    if (id === DEFAULT_PROFILE_ID || id === GUEST_PROFILE_ID) return
+    listCache = (await listProfiles()).map(profile => {
+        if (profile.id !== id) return profile
+        return {
+            ...profile,
+            name: changes.name?.trim() || profile.name,
+            color: changes.color || profile.color,
+            icon: changes.icon === '' ? undefined : changes.icon ?? profile.icon,
+            pin: changes.pin === '' ? undefined
+                : changes.pin && /^\d{4}$/.test(changes.pin) ? changes.pin : profile.pin,
+        }
+    })
+    await persistExtras()
+}
+
+/** Cria um perfil já com os favoritos/Minha lista do perfil ATIVO. */
+export async function copyCurrentDataTo(profileId: string): Promise<void> {
+    for (const base of ['neostream_favorites', 'neostream_watchlist']) {
+        try {
+            const raw = await AsyncStorage.getItem(profileKey(base))
+            if (raw) await AsyncStorage.setItem(`${base}_p_${profileId}`, raw)
+        } catch { /* best-effort */ }
+    }
+}
+
+/** Backup: só os perfis extras (padrão e convidado sempre existem). */
+export async function exportProfiles(): Promise<Profile[]> {
+    return (await listProfiles()).filter(p => p.id !== DEFAULT_PROFILE_ID && p.id !== GUEST_PROFILE_ID)
+}
+
+/** Restauração de backup: substitui os extras. */
+export async function restoreProfilesList(profiles: Profile[]): Promise<void> {
+    listCache = null
+    try {
+        await AsyncStorage.setItem(LIST_KEY, JSON.stringify(Array.isArray(profiles) ? profiles : []))
     } catch { /* best-effort */ }
 }
 

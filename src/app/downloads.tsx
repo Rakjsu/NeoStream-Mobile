@@ -2,12 +2,15 @@ import { Ionicons } from '@expo/vector-icons'
 import { Image } from 'expo-image'
 import { Stack, router } from 'expo-router'
 import { useCallback, useEffect, useState } from 'react'
-import { Alert, SectionList, StyleSheet, Text, TouchableOpacity, View } from 'react-native'
+import { Alert, SectionList, StyleSheet, Text, TextInput, TouchableOpacity, View } from 'react-native'
 import {
     cancelDownload, discardInterrupted, groupDownloads, listActiveDownloads,
-    listDownloads, listInterrupted, pauseDownload, removeDownload, resumeDownload,
+    listDownloads, listInterrupted, pauseDownload, removeDownload, renameDownload, resumeDownload, toggleLockDownload,
     startDownload, subscribeDownloads, type DownloadItem, type DownloadRequest,
 } from '../services/downloads'
+import * as Sharing from 'expo-sharing'
+import { recordingTitle, stopRecording } from '../services/recorder'
+import { listScheduledRecs, removeScheduledRec, type ScheduledRec } from '../services/schedRec'
 import { colors, spacing } from '../ui/theme'
 import { EmptyState } from '../ui/components'
 import { t, tf } from '../i18n/strings'
@@ -19,13 +22,19 @@ function formatMb(bytes: number): string {
 /** Baixados (tocam offline) + downloads em andamento com barra e cancelar. */
 export default function Downloads() {
     const [items, setItems] = useState<DownloadItem[]>([])
-    const [activeList, setActiveList] = useState<{ id: string; progress: number; paused: boolean }[]>([])
+    const [activeList, setActiveList] = useState<{ id: string; progress: number; paused: boolean; speedBps: number }[]>([])
     const [interrupted, setInterrupted] = useState<DownloadRequest[]>([])
+    const [renameId, setRenameId] = useState<string | null>(null)
+    const [renameDraft, setRenameDraft] = useState('')
+    const [schedRecs, setSchedRecs] = useState<ScheduledRec[]>([])
+    const [recActive, setRecActive] = useState<string | null>(null)
 
     const refresh = useCallback(() => {
         void listDownloads().then(setItems)
         setActiveList(listActiveDownloads())
         void listInterrupted().then(setInterrupted)
+        void listScheduledRecs().then(setSchedRecs)
+        setRecActive(recordingTitle())
     }, [])
 
     useEffect(() => {
@@ -34,7 +43,9 @@ export default function Downloads() {
     }, [refresh])
 
     const play = (item: DownloadItem) => {
-        const [kind, sid] = item.id.split(':')
+        // Gravações retomam do ponto como um filme (progresso rastreável).
+        const [rawKind, sid] = item.id.split(':')
+        const kind = rawKind === 'rec' ? 'movie' : rawKind
         router.push({
             pathname: '/player',
             params: {
@@ -57,7 +68,7 @@ export default function Downloads() {
     }
 
     const totalBytes = items.reduce((sum, item) => sum + item.sizeBytes, 0)
-    const sections = groupDownloads(items, t('secMovies'))
+    const sections = groupDownloads(items, t('secMovies'), t('recGroup'))
 
     const confirmRemoveGroup = (title: string, data: DownloadItem[]) => {
         Alert.alert(t('delGroupTitle'), tf('delGroupMsg', { n: data.length, title }), [
@@ -89,6 +100,9 @@ export default function Downloads() {
                             {activeItem.paused
                                 ? tf('dlPaused', { pct: Math.round(activeItem.progress * 100) })
                                 : tf('downloadingPct', { pct: Math.round(activeItem.progress * 100) })}
+                            {!activeItem.paused && activeItem.speedBps > 0
+                                ? ` · ${(activeItem.speedBps / 1048576).toFixed(1)} MB/s`
+                                : ''}
                         </Text>
                         <View style={styles.track}>
                             <View style={[styles.fill, { width: `${Math.round(activeItem.progress * 100)}%` },
@@ -106,6 +120,34 @@ export default function Downloads() {
                         <Ionicons name={activeItem.paused ? 'play-circle-outline' : 'pause-circle-outline'} size={20} color={colors.accent} />
                     </TouchableOpacity>
                     <TouchableOpacity accessibilityLabel={t('cancel')} onPress={() => void cancelDownload(activeItem.id)} style={styles.iconBtn}>
+                        <Ionicons name="close-circle" size={20} color={colors.danger} />
+                    </TouchableOpacity>
+                </View>
+            ))}
+            {recActive ? (
+                <View style={styles.activeRow}>
+                    <Ionicons name="radio-button-on" size={18} color={colors.danger} />
+                    <Text style={[styles.activeText, { flex: 1 }]} numberOfLines={1}>{tf('recActiveNow', { title: recActive })}</Text>
+                    <TouchableOpacity
+                        style={styles.iconBtn}
+                        accessibilityLabel={t('cancel')}
+                        onPress={() => { void stopRecording().then(refresh) }}
+                    >
+                        <Ionicons name="stop-circle" size={22} color={colors.danger} />
+                    </TouchableOpacity>
+                </View>
+            ) : null}
+            {schedRecs.map(rec => (
+                <View key={`sr${rec.channelId}${rec.startMs}`} style={styles.activeRow}>
+                    <Ionicons name="recording-outline" size={18} color={colors.accent} />
+                    <Text style={[styles.activeText, { flex: 1 }]} numberOfLines={1}>
+                        ⏺ {rec.title} · {new Date(rec.startMs).toLocaleTimeString().slice(0, 5)}
+                    </Text>
+                    <TouchableOpacity
+                        style={styles.iconBtn}
+                        accessibilityLabel={t('cancel')}
+                        onPress={() => { void removeScheduledRec(rec.channelId, rec.startMs).then(setSchedRecs) }}
+                    >
                         <Ionicons name="close-circle" size={20} color={colors.danger} />
                     </TouchableOpacity>
                 </View>
@@ -135,6 +177,31 @@ export default function Downloads() {
                     ))}
                 </View>
             ) : null}
+            {renameId ? (
+                <View style={styles.renameRow}>
+                    <TextInput
+                        style={styles.renameInput}
+                        value={renameDraft}
+                        onChangeText={setRenameDraft}
+                        placeholder={t('recRename')}
+                        placeholderTextColor={colors.textDim}
+                        autoFocus
+                        maxLength={60}
+                    />
+                    <TouchableOpacity
+                        style={styles.iconBtn}
+                        onPress={() => {
+                            void renameDownload(renameId, `⏺ ${renameDraft.trim()}`)
+                            setRenameId(null)
+                        }}
+                    >
+                        <Ionicons name="checkmark-circle" size={24} color={colors.accent} />
+                    </TouchableOpacity>
+                    <TouchableOpacity style={styles.iconBtn} onPress={() => setRenameId(null)}>
+                        <Ionicons name="close-circle-outline" size={24} color={colors.textDim} />
+                    </TouchableOpacity>
+                </View>
+            ) : null}
             <SectionList
                 sections={sections}
                 keyExtractor={item => item.id}
@@ -158,7 +225,45 @@ export default function Downloads() {
                 }
                 contentContainerStyle={items.length === 0 ? { flexGrow: 1 } : undefined}
                 renderItem={({ item }) => (
-                    <TouchableOpacity style={styles.row} onPress={() => play(item)}>
+                    <TouchableOpacity
+                        style={styles.row}
+                        onPress={() => play(item)}
+                        onLongPress={() => {
+                            if (!item.id.startsWith('rec:')) return
+                            // Ficha da gravação: data + tamanho e as ações juntas.
+                            Alert.alert(
+                                item.title,
+                                tf('recInfoMsg', {
+                                    date: new Date(item.downloadedAt).toLocaleString(),
+                                    mb: Math.max(1, Math.round(item.sizeBytes / 1048576)),
+                                }),
+                                [
+                                    { text: t('cancel'), style: 'cancel' },
+                                    {
+                                        text: t('recRename'),
+                                        onPress: () => {
+                                            setRenameDraft(item.title.replace(/^⏺ /, ''))
+                                            setRenameId(item.id)
+                                        },
+                                    },
+                                    {
+                                        text: item.locked ? t('recUnprotect') : t('recProtect'),
+                                        onPress: () => void toggleLockDownload(item.id),
+                                    },
+                                    {
+                                        text: t('exportBtn'),
+                                        onPress: () => {
+                                            void Sharing.isAvailableAsync().then(ok => {
+                                                if (ok) void Sharing.shareAsync(item.fileUri).catch(() => undefined)
+                                            })
+                                        },
+                                    },
+                                    { text: t('delete'), style: 'destructive', onPress: () => void removeDownload(item.id) },
+                                ],
+                            )
+                        }}
+                        delayLongPress={400}
+                    >
                         {item.cover ? (
                             <Image source={{ uri: item.cover }} style={styles.cover} contentFit="cover" transition={120} />
                         ) : (
@@ -168,7 +273,7 @@ export default function Downloads() {
                         )}
                         <View style={styles.info}>
                             <Text style={styles.title} numberOfLines={2}>{item.title}</Text>
-                            <Text style={styles.meta}>{formatMb(item.sizeBytes)} · {t('offline')}</Text>
+                            <Text style={styles.meta}>{item.locked ? '🔐 ' : ''}{formatMb(item.sizeBytes)} · {t('offline')}</Text>
                         </View>
                         <TouchableOpacity accessibilityLabel={t('a11yDelete')} onPress={() => confirmRemove(item)} style={styles.iconBtn}>
                             <Ionicons name="trash-outline" size={18} color={colors.danger} />
@@ -224,4 +329,21 @@ const styles = StyleSheet.create({
     title: { color: colors.text, fontSize: 14 },
     meta: { color: colors.textDim, fontSize: 12 },
     iconBtn: { padding: spacing.xs },
+    renameRow: {
+        flexDirection: 'row',
+        alignItems: 'center',
+        gap: spacing.sm,
+        marginHorizontal: spacing.lg,
+        marginTop: spacing.md,
+    },
+    renameInput: {
+        flex: 1,
+        backgroundColor: colors.card,
+        borderColor: colors.border,
+        borderWidth: 1,
+        borderRadius: 8,
+        color: colors.text,
+        paddingHorizontal: spacing.md,
+        paddingVertical: 7,
+    },
 })

@@ -5,6 +5,7 @@
  */
 import AsyncStorage from '@react-native-async-storage/async-storage'
 import { loadEpgOverrides } from './epgMap'
+import { applyExternalEpg } from './extEpg'
 import { M3uClient } from './m3u'
 import { StalkerClient } from './stalker'
 import { XtreamClient, normalizeBaseUrl, type CatalogClient, type UserInfo, type XtreamAccount } from './xtream'
@@ -50,9 +51,12 @@ export function accountLabel(account: XtreamAccount & { alias?: string }): strin
 
 /** Client certo pro tipo da conta (Xtream, lista M3U ou portal Stalker). */
 export function buildClient(account: XtreamAccount): CatalogClient {
-    if (account.type === 'm3u') return new M3uClient(normalizeBaseUrl(account.url))
-    if (account.type === 'stalker') return new StalkerClient(account.url, account.username)
-    return new XtreamClient(account)
+    const client = account.type === 'm3u' ? new M3uClient(normalizeBaseUrl(account.url))
+        : account.type === 'stalker' ? new StalkerClient(account.url, account.username)
+            : new XtreamClient(account)
+    // EPG externo (se configurado) sobrepõe agora/a seguir e grade de qualquer conta.
+    applyExternalEpg(client)
+    return client
 }
 
 /** Insere/atualiza uma conta (PURO) — dedup pelo id determinístico. */

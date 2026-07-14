@@ -3,7 +3,7 @@ import { Ionicons } from '@expo/vector-icons'
 import { Image } from 'expo-image'
 import { Stack, router } from 'expo-router'
 import { useVideoPlayer, VideoView } from 'expo-video'
-import { useEffect, useState } from 'react'
+import { useEffect, useRef, useState } from 'react'
 import { FlatList, StyleSheet, Text, View } from 'react-native'
 import { loadFavorites } from '../services/favorites'
 import { hiddenIdSet } from '../services/hidden'
@@ -27,9 +27,19 @@ function applyVolume(target: { volume: number; muted: boolean }, on: boolean) {
 interface Slot {
     url: string
     name: string
+    id?: string
 }
 
 const EMPTY_SLOT: Slot = { url: '', name: '' }
+
+// Fora do componente: Date.now num handler esbarra na regra react-hooks/purity.
+function isDoubleTap(ref: { current: { index: number; at: number } }, index: number): boolean {
+    const now = Date.now()
+    const double = ref.current.index === index && now - ref.current.at < 350
+    ref.current = double ? { index: -1, at: 0 } : { index, at: now }
+    return double
+}
+
 const SAVE_KEY = 'neostream_multiview'
 type Layout = '2x2' | '1x2'
 
@@ -115,7 +125,7 @@ export default function MultiView() {
             const url = client.liveStreamUrl(channel.stream_id)
             setSlots(current => {
                 const next = current.map((slot, index) =>
-                    index === picking ? { url, name: channel.name } : slot)
+                    index === picking ? { url, name: channel.name, id: String(channel.stream_id) } : slot)
                 persist(next, layout)
                 return next
             })
@@ -125,8 +135,15 @@ export default function MultiView() {
         })()
     }
 
+    // Toque simples: áudio. Toque DUPLO num quadrante: abre em tela cheia.
+    const lastTapRef = useRef({ index: -1, at: 0 })
     const pressSlot = (index: number) => {
-        if (!slots[index].url) { setPicking(index); return }
+        const slot = slots[index]
+        if (!slot.url) { setPicking(index); return }
+        if (isDoubleTap(lastTapRef, index)) {
+            router.push({ pathname: '/player', params: { url: slot.url, title: slot.name, live: '1' } })
+            return
+        }
         tapLight()
         setActive(index)
     }
@@ -158,6 +175,7 @@ export default function MultiView() {
                 {slots.slice(0, layout === '1x2' ? 2 : 4).map((slot, index) => (
                     <TvTouchable
                         key={index}
+                        accessibilityLabel={slot.name || t('multiviewAdd')}
                         style={[styles.cell, layout === '1x2' && styles.cellHalf,
                             index === active && slot.url ? styles.cellActive : null]}
                         onPress={() => pressSlot(index)}

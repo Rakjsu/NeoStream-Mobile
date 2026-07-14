@@ -5,10 +5,13 @@
  */
 import AsyncStorage from '@react-native-async-storage/async-storage'
 import { onProfileSwitch, profileKey } from './profiles'
+import { syncTraktWatched } from './trakt'
 
 export type ProgressKind = 'movie' | 'episode'
 
 export interface ProgressEntry {
+    /** true = position é PORCENTAGEM do Trakt; o player converte ao saber a duração. */
+    fromTraktPct?: boolean
     /** "movie:<streamId>" | "episode:<episodeId>" (ver buildProgressId). */
     id: string
     kind: ProgressKind
@@ -123,7 +126,12 @@ export async function loadProgress(): Promise<Record<string, ProgressEntry>> {
 export async function saveSample(entry: ProgressEntry): Promise<void> {
     const map = await loadProgress()
     // Terminou (>=95%): sai do rail mas entra no histórico de vistos (✓).
-    if (isFinished(entry.position, entry.duration)) await markWatched(entry.id)
+    if (isFinished(entry.position, entry.duration)) {
+        // Trakt (se conectado): só na PRIMEIRA vez que vira visto — melhor esforço.
+        const seen = await loadWatched()
+        if (!seen.has(entry.id)) void syncTraktWatched(entry.kind, entry.title).catch(() => undefined)
+        await markWatched(entry.id)
+    }
     cache = applySample(map, entry)
     try {
         await AsyncStorage.setItem(profileKey(STORAGE_KEY), JSON.stringify(cache))

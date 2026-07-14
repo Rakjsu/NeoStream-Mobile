@@ -67,3 +67,13 @@ describe('perfis', () => {
         expect((await listProfiles())).toHaveLength(2) // padrão + convidado
     })
 })
+
+describe('convidado', () => {
+    it('entrar no convidado apaga os dados dele (sessão sempre limpa)', async () => {
+        await initProfiles()
+        await switchProfile('guest')
+        expect(activeProfileId()).toBe('guest')
+        expect((AsyncStorage as unknown as { multiRemove: { mock: { calls: unknown[][] } } }).multiRemove).toHaveBeenCalled()
+        expect(profileKey('neostream_favorites')).toBe('neostream_favorites_p_guest')
+    })
+})

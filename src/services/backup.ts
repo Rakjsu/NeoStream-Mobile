@@ -5,6 +5,7 @@
  * v1/v2/v3; coletar/aplicar delegam pros serviços.
  */
 import AsyncStorage from '@react-native-async-storage/async-storage'
+import CryptoJS from 'crypto-js'
 import { loadFavorites, restoreFavorites, type Favorites } from './favorites'
 import { listHiddenFor, restoreHiddenFor, type HiddenChannel } from './hidden'
 import { loadParental, restoreParental, type ParentalState } from './parental'
@@ -12,9 +13,13 @@ import { loadProgress, loadWatched, restoreProgress, type ProgressEntry } from '
 import { getDownloadLimitGb, setDownloadLimitGb } from './downloads'
 import { isDataSaverEnabled, setDataSaver } from './dataSaver'
 import { getActiveAccountId, listAccounts, restoreAccounts, type StoredAccount } from './session'
+import { exportProfiles, restoreProfilesList, type Profile } from './profiles'
 import { loadWatchlist, restoreWatchlist, type WatchItem } from './watchlist'
 import { getTmdbKey, setTmdbKey } from './tmdb'
-import { isKidsMode, setKidsMode } from './kids'
+import { getKidsTimeLimit, isKidsMode, setKidsMode, setKidsTimeLimit } from './kids'
+import { getTraktCreds, setTraktCreds, type TraktCreds } from './trakt'
+import { getExtEpgUrl, setExtEpgUrl } from './extEpg'
+import { loadRailPrefs, saveRailPrefs, type RailPrefs } from './homeRails'
 import { listSearchTerms, restoreSearchTerms } from './searchHistory'
 
 export interface BackupPrefs {
@@ -24,8 +29,8 @@ export interface BackupPrefs {
 
 export interface MobileBackup {
     app: 'neostream-mobile'
-    /** v1 (até 0.4.0) sem hidden/prefs; v2 sem watchlist/TMDB/kids/buscas. */
-    version: 1 | 2 | 3
+    /** v1 sem hidden/prefs; v2 sem watchlist/TMDB/kids; v3 sem perfis; v4 sem Trakt/EPG ext/rails. */
+    version: 1 | 2 | 3 | 4 | 5
     accounts: StoredAccount[]
     activeId: string | null
     favorites: Favorites
@@ -38,15 +43,33 @@ export interface MobileBackup {
     tmdbKey?: string
     kidsMode?: boolean
     searches?: string[]
+    profilesList?: Profile[]
+    /** perfil extra → chave base → JSON cru (favoritos/progresso/vistos/lista). */
+    profilesData?: Record<string, Record<string, string>>
+    traktCreds?: TraktCreds
+    extEpgUrl?: string
+    railPrefs?: RailPrefs
+    kidsLimitMin?: number
 }
 
 export async function collectBackup(): Promise<MobileBackup> {
     const [accounts, activeId, favorites, progress, watched, parental, downloadLimitGb, dataSaver,
-        watchlist, tmdbKey, kidsMode, searches] = await Promise.all([
+        watchlist, tmdbKey, kidsMode, searches, traktCreds, extEpgUrl, railPrefs, kidsLimitMin] = await Promise.all([
         listAccounts(), getActiveAccountId(), loadFavorites(), loadProgress(), loadWatched(), loadParental(),
         getDownloadLimitGb(), isDataSaverEnabled(),
         loadWatchlist(), getTmdbKey(), isKidsMode(), listSearchTerms(),
+        getTraktCreds(), getExtEpgUrl(), loadRailPrefs(), getKidsTimeLimit(),
     ])
+    const profilesList = await exportProfiles()
+    const profilesData: Record<string, Record<string, string>> = {}
+    for (const profile of profilesList) {
+        const bucket: Record<string, string> = {}
+        for (const base of ['neostream_favorites', 'neostream_progress', 'neostream_watched', 'neostream_watchlist']) {
+            const raw = await AsyncStorage.getItem(`${base}_p_${profile.id}`).catch(() => null)
+            if (raw) bucket[base] = raw
+        }
+        if (Object.keys(bucket).length > 0) profilesData[profile.id] = bucket
+    }
     const hiddenByAccount: Record<string, HiddenChannel[]> = {}
     for (const account of accounts) {
         const hidden = await listHiddenFor(account.id)
@@ -54,7 +77,7 @@ export async function collectBackup(): Promise<MobileBackup> {
     }
     return {
         app: 'neostream-mobile',
-        version: 3,
+        version: 5,
         accounts,
         activeId,
         favorites,
@@ -67,6 +90,12 @@ export async function collectBackup(): Promise<MobileBackup> {
         tmdbKey,
         kidsMode,
         searches,
+        profilesList,
+        profilesData,
+        traktCreds,
+        extEpgUrl,
+        railPrefs,
+        kidsLimitMin,
     }
 }
 
@@ -86,7 +115,7 @@ export function parseBackup(text: string): MobileBackup {
     if (!backup || backup.app !== 'neostream-mobile') {
         throw new Error('Este arquivo não é um backup do NeoStream Mobile.')
     }
-    if (backup.version !== 1 && backup.version !== 2 && backup.version !== 3) {
+    if (![1, 2, 3, 4, 5].includes(backup.version as number)) {
         throw new Error(`Versão de backup não suportada (${String(backup.version)}).`)
     }
     if (!Array.isArray(backup.accounts)) {
@@ -114,5 +143,44 @@ export async function applyBackup(backup: MobileBackup): Promise<void> {
     if (typeof backup.tmdbKey === 'string' && backup.tmdbKey) await setTmdbKey(backup.tmdbKey)
     if (typeof backup.kidsMode === 'boolean') await setKidsMode(backup.kidsMode)
     if (backup.searches) await restoreSearchTerms(backup.searches)
+    // Campos do v4: perfis extras + dados deles.
+    if (backup.profilesList) {
+        await restoreProfilesList(backup.profilesList)
+        for (const [profileId, bucket] of Object.entries(backup.profilesData ?? {})) {
+            for (const [base, raw] of Object.entries(bucket)) {
+                await AsyncStorage.setItem(`${base}_p_${profileId}`, raw).catch(() => undefined)
+            }
+        }
+    }
+    // Campos do v5: Trakt, EPG externo, rails do Início e limite infantil.
+    if (backup.traktCreds?.clientId) await setTraktCreds(backup.traktCreds)
+    if (typeof backup.extEpgUrl === 'string' && backup.extEpgUrl) await setExtEpgUrl(backup.extEpgUrl)
+    if (backup.railPrefs) await saveRailPrefs(backup.railPrefs)
+    if (typeof backup.kidsLimitMin === 'number' && backup.kidsLimitMin > 0) await setKidsTimeLimit(backup.kidsLimitMin)
     await restoreAccounts(backup.accounts, backup.activeId ?? null)
+}
+
+// --------------------------------------------------- backup com senha --
+
+const ENC_PREFIX = 'NEOENC1:'
+
+export function isEncryptedBackup(text: string): boolean {
+    return text.trim().startsWith(ENC_PREFIX)
+}
+
+/** Senha vazia = texto puro (compatível com backups antigos). */
+export function protectBackup(json: string, password: string): string {
+    if (!password.trim()) return json
+    return ENC_PREFIX + CryptoJS.AES.encrypt(json, password).toString()
+}
+
+/** null = senha errada ou arquivo corrompido. */
+export function decryptBackup(text: string, password: string): string | null {
+    try {
+        const body = text.trim().slice(ENC_PREFIX.length)
+        const plain = CryptoJS.AES.decrypt(body, password).toString(CryptoJS.enc.Utf8)
+        return plain.startsWith('{') ? plain : null
+    } catch {
+        return null
+    }
 }

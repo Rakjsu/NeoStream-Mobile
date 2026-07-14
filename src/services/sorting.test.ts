@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest'
-import { nextSortMode, sortCatalog, type SortMode } from './sorting'
+import { nextSortMode, sortCatalog, type SortMode , isRecentlyAdded } from './sorting'
 
 describe('nextSortMode (ciclo do botão)', () => {
     it('padrão → recentes → a–z → nota → padrão', () => {
@@ -27,5 +27,15 @@ describe('sortCatalog', () => {
         expect(sortCatalog(items, 'rating', addedOf).map(i => i.name)).toEqual(['Água', 'Zebra', 'Casa'])
         // Não muta o original.
         expect(items[0].name).toBe('Zebra')
+    })
+})
+
+describe('isRecentlyAdded', () => {
+    const now = 1_800_000_000_000 // epoch ms fixo
+    it('true dentro de 7 dias; false pra antigo, lixo e vazio', () => {
+        expect(isRecentlyAdded(String(now / 1000 - 86_400), now)).toBe(true)
+        expect(isRecentlyAdded(String(now / 1000 - 8 * 86_400), now)).toBe(false)
+        expect(isRecentlyAdded('lixo', now)).toBe(false)
+        expect(isRecentlyAdded(undefined, now)).toBe(false)
     })
 })

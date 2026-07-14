@@ -60,3 +60,26 @@ describe('M3uClient (fetch mockado)', () => {
         await expect(new M3uClient('http://srv/404.m3u').authenticate()).rejects.toThrow('HTTP 404')
     })
 })
+
+describe('searchGuide (XMLTV inteiro)', () => {
+    it('acha programa em qualquer canal e devolve o id do canal da playlist', async () => {
+        const playlist = '#EXTM3U url-tvg="http://epg/guia.xml"\n#EXTINF:-1 tvg-id="globo.br",Globo HD\nhttp://srv/live/globo.m3u8\n'
+        const stamp = (ms: number) => {
+            const d = new Date(ms)
+            const p = (n: number) => String(n).padStart(2, '0')
+            return `${d.getUTCFullYear()}${p(d.getUTCMonth() + 1)}${p(d.getUTCDate())}${p(d.getUTCHours())}${p(d.getUTCMinutes())}00 +0000`
+        }
+        const start = Date.now() + 3600_000
+        const xml = '<tv><channel id="globo.br"><display-name>Globo HD</display-name></channel>'
+            + `<programme start="${stamp(start)}" stop="${stamp(start + 3600_000)}" channel="globo.br"><title>Jogo do Flamengo</title></programme></tv>`
+        vi.stubGlobal('fetch', vi.fn(async (url: unknown) => ({
+            ok: true, status: 200, text: async () => (String(url).includes('guia.xml') ? xml : playlist),
+        })))
+        const client = new M3uClient('http://srv/lista.m3u')
+        const hits = await client.searchGuide('flamengo')
+        expect(hits).toHaveLength(1)
+        expect(hits[0].program.title).toBe('Jogo do Flamengo')
+        expect(client.liveStreamUrl(hits[0].channelId)).toBe('http://srv/live/globo.m3u8')
+        expect(await client.searchGuide('inexistente')).toEqual([])
+    })
+})

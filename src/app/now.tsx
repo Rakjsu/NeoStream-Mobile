@@ -10,6 +10,7 @@ import { guardedCategoryIds } from '../services/kids'
 import { listRecentChannels, recordRecentChannel } from '../services/recents'
 import { notifyAt } from '../services/notify'
 import { addRecurring } from '../services/recurring'
+import { addScheduledRec } from '../services/schedRec'
 import { cachedFetch, getClient } from '../services/session'
 import { hasCatchup } from '../services/xtream'
 import type { Category, EpgProgram, LiveChannel, NowNext } from '../services/xtream'
@@ -199,6 +200,18 @@ export default function NowOnTv() {
                                                     onPress: () => {
                                                         void notifyAt(tf('remindNotif', { title: program.title }), schedule.name, '/now', program.startMs)
                                                             .then(ok => { if (ok) Alert.alert(t('remindSet')) })
+                                                    },
+                                                },
+                                                {
+                                                    text: t('recScheduleBtn'),
+                                                    onPress: () => {
+                                                        void addScheduledRec({
+                                                            channelId: schedule.channelId,
+                                                            channelName: schedule.name,
+                                                            title: program.title,
+                                                            startMs: program.startMs,
+                                                            endMs: program.endMs,
+                                                        }, t('recNotifTitle')).then(() => Alert.alert(t('recScheduledMsg')))
                                                     },
                                                 },
                                                 {

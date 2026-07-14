@@ -4,7 +4,7 @@ import { useKeepAwake } from 'expo-keep-awake'
 import { router, useLocalSearchParams } from 'expo-router'
 import { useVideoPlayer, VideoView, type AudioTrack, type SubtitleTrack } from 'expo-video'
 import { useEffect, useRef, useState } from 'react'
-import { FlatList, PanResponder, Platform, StyleSheet, Text, TextInput, View } from 'react-native'
+import { Alert, FlatList, PanResponder, Platform, StyleSheet, Text, TextInput, View } from 'react-native'
 import { useSafeAreaInsets } from 'react-native-safe-area-context'
 import { StatusBar } from 'expo-status-bar'
 import * as Brightness from 'expo-brightness'
@@ -19,10 +19,13 @@ import { cachedFetch, getClient, resolvePlayableUrl } from '../services/session'
 import { tapLight } from '../services/haptics'
 import { alternateLiveUrl } from '../services/xtream'
 import { getAspect, nextAspect, setAspect, type AspectMode } from '../services/aspect'
-import { recordWatchMinute } from '../services/usage'
+import { dayKey, formatMinutes, loadUsage, recordWatchMinute, summarize, usageGoalJustHit } from '../services/usage'
+import { getKidsTimeLimit, isKidsMode } from '../services/kids'
+import { traktScrobble } from '../services/trakt'
+import { loadParental } from '../services/parental'
 import { recordHabitMinute } from '../services/habit'
 import { canRecordUrl, recordingTitle, startRecording, stopRecording } from '../services/recorder'
-import { currentZapChannel, hasZapContext, rankChannels, zapBy, zapList, zapTo, zapToNumber, type ZapChannel } from '../services/zap'
+import { currentZapChannel, hasZapContext, peekZap, rankChannels, zapBy, zapList, zapTo, zapToNumber, type ZapChannel } from '../services/zap'
 import { TvTouchable } from '../ui/components'
 import { colors, spacing } from '../ui/theme'
 import { t, tf } from '../i18n/strings'
@@ -50,16 +53,54 @@ function applyBackgroundMode(
 function applyVolume(target: { volume: number }, volume: number) {
     target.volume = volume
 }
+// Conexão instável = 3 rebuffers em 90s (Date.now fora do componente — purity).
+function recordRebuffer(ref: { current: number[] }): boolean {
+    const now = Date.now()
+    ref.current = [...ref.current.filter(at => now - at < 90_000), now]
+    return ref.current.length >= 3
+}
 function applySeek(target: { currentTime: number }, deltaSec: number) {
     target.currentTime = Math.max(0, target.currentTime + deltaSec)
 }
+function applySeekTo(target: { currentTime: number }, seconds: number) {
+    target.currentTime = Math.max(0, seconds)
+}
 
 const clamp01 = (value: number) => Math.min(1, Math.max(0, value))
+
+// Destravar exige toque duplo — Date.now fora do componente (regra purity).
+function isUnlockDoubleTap(ref: { current: number }): boolean {
+    const now = Date.now()
+    const double = now - ref.current < 400
+    ref.current = double ? 0 : now
+    return double
+}
 
 interface GestureRefs {
     player: React.MutableRefObject<{ volume: number; currentTime: number }>
     live: React.MutableRefObject<boolean>
     toast: React.MutableRefObject<(text: string) => void>
+    pinch: React.MutableRefObject<{ dist: number }>
+    aspect: React.MutableRefObject<(cover: boolean) => void>
+}
+
+// Pinça: a distância entre 2 dedos cresce/encolhe além do limiar → zoom.
+function pinchDelta(state: { dist: number }, touches: { pageX: number; pageY: number }[]): 'in' | 'out' | null {
+    const dist = Math.hypot(touches[0].pageX - touches[1].pageX, touches[0].pageY - touches[1].pageY)
+    if (state.dist === 0) {
+        state.dist = dist
+        return null
+    }
+    const delta = dist - state.dist
+    if (delta > 60) {
+        state.dist = dist
+        return 'out'
+    }
+    if (delta < -60) {
+        state.dist = dist
+        return 'in'
+    }
+    return null
 }
 
 /**
@@ -82,7 +123,14 @@ function createGesturePan(side: 'left' | 'right', refs: GestureRefs) {
                     .catch(() => { startValue = 0.5 })
             }
         },
-        onPanResponderMove: (_event, gesture) => {
+        onPanResponderMove: (event, gesture) => {
+            // Dois dedos = pinça (zoom); o arrasto de brilho/volume ignora.
+            const touches = event.nativeEvent.touches
+            if (touches.length >= 2) {
+                const zoom = pinchDelta(refs.pinch.current, touches)
+                if (zoom) refs.aspect.current(zoom === 'out')
+                return
+            }
             if (Math.abs(gesture.dy) < 12 || startValue < 0) return
             const next = clamp01(startValue - gesture.dy / 250)
             if (side === 'right') {
@@ -94,6 +142,7 @@ function createGesturePan(side: 'left' | 'right', refs: GestureRefs) {
             }
         },
         onPanResponderRelease: (_event, gesture) => {
+            refs.pinch.current.dist = 0
             if (Math.abs(gesture.dx) > 10 || Math.abs(gesture.dy) > 10) return // foi arrasto
             const now = Date.now()
             const doubleTap = now - lastTapAt < 300
@@ -136,6 +185,11 @@ export default function Player() {
 
     const trackable = live !== '1' && !!pid && !!sid
 
+    // ⏳ Limite diário do modo infantil: estourou → trava atrás do PIN parental.
+    const [timeUp, setTimeUp] = useState(false)
+    const [timeUpPin, setTimeUpPin] = useState('')
+    const limitOverrideRef = useRef(false)
+
     // Proporção lembrada por conteúdo (pid no VOD; título no ao vivo).
     const [aspect, setAspectState] = useState<AspectMode>('contain')
     const aspectKey = trackable ? String(pid) : `live:${String(title ?? '')}`
@@ -154,6 +208,15 @@ export default function Player() {
 
     // REC: despeja o stream .ts em disco até o stop (vira item offline).
     const [recording, setRecording] = useState(recordingTitle() !== null)
+    const beginRecording = (autoStopMs?: number) => {
+        void (async () => {
+            if (!canRecordUrl(source)) { showTrackToast(t('recFail')); return }
+            const ok = await startRecording(source, liveTitle || String(title ?? ''), autoStopMs)
+            setRecording(ok)
+            showTrackToast(ok ? t('recStart') : t('recFail'))
+        })()
+    }
+
     const toggleRecording = () => {
         void (async () => {
             if (recording || recordingTitle()) {
@@ -162,11 +225,33 @@ export default function Player() {
                 showTrackToast(saved ? t('recSaved') : t('recFail'))
                 return
             }
-            if (!canRecordUrl(source)) { showTrackToast(t('recFail')); return }
-            const ok = await startRecording(source, liveTitle || String(title ?? ''))
-            setRecording(ok)
-            showTrackToast(ok ? t('recStart') : t('recFail'))
+            beginRecording()
         })()
+    }
+
+    /** Long-press no ⏺: escolher a duração (X min ou fim do programa via EPG). */
+    const pickRecordingDuration = () => {
+        if (recording || recordingTitle()) return
+        Alert.alert(t('recAutoTitle'), '', [
+            { text: t('recManual'), onPress: () => beginRecording() },
+            { text: '30 min', onPress: () => beginRecording(30 * 60_000) },
+            { text: '60 min', onPress: () => beginRecording(60 * 60_000) },
+            {
+                text: t('recUntilEnd'),
+                onPress: () => {
+                    void (async () => {
+                        const channel = currentZapChannel()
+                        const client = await getClient()
+                        const nowNext = channel && client
+                            ? await cachedFetch(`epg:${channel.id}`, () => client.getShortEpg(channel.id)).catch(() => null)
+                            : null
+                        const endMs = nowNext?.now?.endMs
+                        beginRecording(endMs && endMs > Date.now() ? endMs - Date.now() : undefined)
+                    })()
+                },
+            },
+            { text: t('cancel'), style: 'cancel' },
+        ])
     }
 
     // Resgate ao vivo: erro num canal Xtream → tenta .ts↔.m3u8 UMA vez.
@@ -203,6 +288,18 @@ export default function Player() {
         if (toastTimer.current) clearTimeout(toastTimer.current)
         toastTimer.current = setTimeout(() => setTrackToast(''), 2000)
     }
+
+    // 📶 Rebuffering repetido = conexão instável — avisa uma vez por sessão.
+    const bufferTimesRef = useRef<number[]>([])
+    const netWarnedRef = useRef(false)
+    useEffect(() => {
+        if (status !== 'loading' || netWarnedRef.current) return
+        if (recordRebuffer(bufferTimesRef)) {
+            netWarnedRef.current = true
+            showTrackToast(t('unstableNet'))
+        }
+    }, [status])
+
 
     // Tela cheia de verdade: barra de navegação some enquanto o player vive.
     useEffect(() => {
@@ -293,17 +390,42 @@ export default function Player() {
     const gesturePlayerRef = useRef<{ volume: number; currentTime: number }>(player)
     const gestureLiveRef = useRef(live === '1')
     const gestureToastRef = useRef<(text: string) => void>(() => undefined)
+    const gesturePinchRef = useRef({ dist: 0 })
+    const gestureAspectRef = useRef<(cover: boolean) => void>(() => undefined)
     useEffect(() => {
         gesturePlayerRef.current = player
         gestureLiveRef.current = live === '1'
         gestureToastRef.current = showTrackToast
+        gestureAspectRef.current = (cover: boolean) => {
+            const next: AspectMode = cover ? 'cover' : 'contain'
+            setAspectState(next)
+            void setAspect(aspectKey, next)
+            showTrackToast(t(cover ? 'aspectCover' : 'aspectContain'))
+        }
     })
     // A fábrica só GUARDA as refs — nenhum .current é lido aqui no render.
     // eslint-disable-next-line react-hooks/refs
     const [pans] = useState(() => ({
-        left: createGesturePan('left', { player: gesturePlayerRef, live: gestureLiveRef, toast: gestureToastRef }),
-        right: createGesturePan('right', { player: gesturePlayerRef, live: gestureLiveRef, toast: gestureToastRef }),
+        left: createGesturePan('left', { player: gesturePlayerRef, live: gestureLiveRef, toast: gestureToastRef, pinch: gesturePinchRef, aspect: gestureAspectRef }),
+        right: createGesturePan('right', { player: gesturePlayerRef, live: gestureLiveRef, toast: gestureToastRef, pinch: gesturePinchRef, aspect: gestureAspectRef }),
     }))
+
+    // 🕐 Relógio + resolução do stream (aparecem junto com os controles).
+    const [clock, setClock] = useState('')
+    const [videoRes, setVideoRes] = useState(0)
+    useEffect(() => {
+        const update = () => {
+            setClock(new Date().toTimeString().slice(0, 5))
+            try {
+                const height = player.videoTrack?.size?.height ?? 0
+                setVideoRes(current => (height > 0 ? height : current))
+            } catch { /* player já liberado */ }
+        }
+        queueMicrotask(update)
+        const timer = setInterval(update, 15_000)
+        return () => clearInterval(timer)
+        // eslint-disable-next-line react-hooks/exhaustive-deps
+    }, [])
 
     // A barra do topo (e o zap) some após 5s sem toque; um toque no topo traz de volta.
     const [chrome, setChrome] = useState(true)
@@ -344,6 +466,20 @@ export default function Player() {
     const [liveEpg, setLiveEpg] = useState('')
     const zappable = live === '1' && hasZapContext()
 
+    // "Ainda está assistindo?": 4h de live sem trocar de canal → pausa + overlay.
+    const [stillAsking, setStillAsking] = useState(false)
+    const [stillRound, setStillRound] = useState(0)
+    useEffect(() => {
+        if (live !== '1') return
+        const timer = setTimeout(() => {
+            try { player.pause() } catch { /* player já liberado */ }
+            setStillAsking(true)
+        }, 4 * 3600_000)
+        return () => clearTimeout(timer)
+        // eslint-disable-next-line react-hooks/exhaustive-deps
+    }, [live, liveTitle, stillRound])
+
+
     const showEpg = (channelId: string) => {
         void (async () => {
             const client = await getClient()
@@ -367,6 +503,19 @@ export default function Player() {
         })()
     }
 
+    /** Long-press no zap: espia o vizinho (nome + agora do EPG) sem trocar. */
+    const peek = (delta: number) => {
+        const channel = peekZap(delta)
+        if (!channel) return
+        showTrackToast(`${delta > 0 ? '⏭' : '⏮'} ${channel.name}`)
+        void (async () => {
+            const client = await getClient()
+            if (!client) return
+            const nowNext = await cachedFetch(`epg:${channel.id}`, () => client.getShortEpg(channel.id)).catch(() => null)
+            if (nowNext?.now) showTrackToast(`${delta > 0 ? '⏭' : '⏮'} ${channel.name} · ${nowNext.now.title}`)
+        })()
+    }
+
     const zap = (delta: number) => {
         const channel = zapBy(delta)
         if (channel) {
@@ -374,6 +523,10 @@ export default function Player() {
             switchChannel(channel)
         }
     }
+
+    // 🔒 Cadeado: trava todos os toques (anti-pause de bolso/orelha).
+    const [touchLocked, setTouchLocked] = useState(false)
+    const unlockTapRef = useRef(0)
 
     // Zap por número: teclado na tela; commit após 1,5s parado (ou no ✓).
     const [numPadOpen, setNumPadOpen] = useState(false)
@@ -601,17 +754,37 @@ export default function Player() {
     }, [pid, trackable])
 
     // Retomar do ponto salvo (re-executa se a fonte virar o arquivo local).
+    const traktPctRef = useRef(0)
     useEffect(() => {
         if (!trackable) return
         let cancelled = false
         void getEntry(String(pid)).then(entry => {
+            if (cancelled) return
+            if (entry?.fromTraktPct) {
+                // Progresso do Trakt em % — converte quando a duração chegar.
+                traktPctRef.current = entry.position
+                return
+            }
             const at = resumePosition(entry)
-            if (!cancelled && at > 0) player.currentTime = at
+            if (at > 0) player.currentTime = at
         })
         return () => { cancelled = true }
         // player é estável pra um mesmo source — pid/source são o que importa.
         // eslint-disable-next-line react-hooks/exhaustive-deps
     }, [pid, trackable, source])
+
+    // % do Trakt vira segundos assim que o player conhece a duração.
+    useEffect(() => {
+        if (status !== 'readyToPlay' || traktPctRef.current <= 0) return
+        try {
+            const total = player.duration
+            if (total > 0) {
+                applySeekTo(player, (total * traktPctRef.current) / 100)
+                traktPctRef.current = 0
+            }
+        } catch { /* player já liberado */ }
+        // eslint-disable-next-line react-hooks/exhaustive-deps
+    }, [status])
 
     // Tempo assistido: 1 minuto contabilizado por minuto tocando (local ou TV).
     useEffect(() => {
@@ -628,6 +801,22 @@ export default function Player() {
             if (playing) {
                 void recordWatchMinute(usageKind, Date.now(), usageTitle)
                 void recordHabitMinute(usageKind, usageTitle, Date.now())
+                // Limite do modo infantil: checa junto com a contagem do minuto.
+                void (async () => {
+                    if (limitOverrideRef.current) return
+                    if (!(await isKidsMode())) return
+                    const limit = await getKidsTimeLimit()
+                    if (limit <= 0) return
+                    const todayMinutes = summarize(await loadUsage(), dayKey(Date.now())).totalMinutes
+                    if (todayMinutes >= limit) {
+                        setTimeUp(true)
+                        try { player.pause() } catch { /* player já liberado */ }
+                    }
+                })()
+                // Meta de tempo (adulto): estourou → UM aviso gentil por dia.
+                void usageGoalJustHit(Date.now()).then(goalMin => {
+                    if (goalMin > 0) showTrackToast(tf('usageGoalHit', { time: formatMinutes(goalMin) }))
+                })
             }
         }, 60_000)
         return () => clearInterval(timer)
@@ -669,6 +858,21 @@ export default function Player() {
         // eslint-disable-next-line react-hooks/exhaustive-deps
     }, [pid, trackable])
 
+    // 🎬 Trakt: scrobble start ao abrir; pause com o progresso ao sair
+    // (o visto final vai pelo /sync/history do progress — sem play duplicado).
+    useEffect(() => {
+        if (!trackable) return
+        const scrobbleKind = kind === 'episode' ? 'episode' as const : 'movie' as const
+        const scrobbleTitle = String(title ?? '')
+        void traktScrobble('start', scrobbleKind, scrobbleTitle, 0)
+        return () => {
+            const { position, duration } = lastSample.current
+            const progress = duration > 0 ? Math.min(99, Math.round((position / duration) * 100)) : 0
+            void traktScrobble('pause', scrobbleKind, scrobbleTitle, progress)
+        }
+        // eslint-disable-next-line react-hooks/exhaustive-deps
+    }, [pid, trackable])
+
     return (
         <View style={styles.root}>
             <StatusBar hidden />
@@ -704,8 +908,15 @@ export default function Player() {
                         <Text style={styles.epg} numberOfLines={1}>{liveEpg}</Text>
                     ) : null}
                 </View>
+                <Text style={styles.clock}>{videoRes > 0 ? `${videoRes}p · ` : ''}{clock}</Text>
                 {live === '1' ? (
-                    <TvTouchable style={styles.trackBtn} accessibilityLabel={t('a11yRec')} onPress={toggleRecording}>
+                    <TvTouchable
+                        style={styles.trackBtn}
+                        accessibilityLabel={t('a11yRec')}
+                        onPress={toggleRecording}
+                        onLongPress={pickRecordingDuration}
+                        delayLongPress={400}
+                    >
                         <Ionicons
                             name={recording ? 'stop-circle' : 'radio-button-on'}
                             size={20}
@@ -739,6 +950,13 @@ export default function Player() {
                         <Text style={styles.rateText}>{rate}x</Text>
                     </TvTouchable>
                 ) : null}
+                <TvTouchable
+                    style={styles.trackBtn}
+                    accessibilityLabel={t('a11yLock')}
+                    onPress={() => { setTouchLocked(true); setChrome(false); showTrackToast(t('lockHint')) }}
+                >
+                    <Ionicons name="lock-open-outline" size={20} color={colors.text} />
+                </TvTouchable>
                 <TvTouchable style={styles.trackBtn} accessibilityLabel={t('a11yAspect')} onPress={cycleAspect}>
                     <Ionicons name="expand-outline" size={20} color={aspect !== 'contain' ? colors.accent : colors.text} />
                 </TvTouchable>
@@ -784,10 +1002,10 @@ export default function Player() {
                     >
                         <Ionicons name="list" size={24} color={colors.text} />
                     </TvTouchable>
-                    <TvTouchable style={styles.zapBtn} accessibilityLabel={t('a11yZapNext')} onPress={() => zap(1)}>
+                    <TvTouchable style={styles.zapBtn} accessibilityLabel={t('a11yZapNext')} onPress={() => zap(1)} onLongPress={() => peek(1)} delayLongPress={350}>
                         <Ionicons name="chevron-up" size={26} color={colors.text} />
                     </TvTouchable>
-                    <TvTouchable style={styles.zapBtn} accessibilityLabel={t('a11yZapPrev')} onPress={() => zap(-1)}>
+                    <TvTouchable style={styles.zapBtn} accessibilityLabel={t('a11yZapPrev')} onPress={() => zap(-1)} onLongPress={() => peek(-1)} delayLongPress={350}>
                         <Ionicons name="chevron-down" size={26} color={colors.text} />
                     </TvTouchable>
                     <TvTouchable
@@ -905,6 +1123,73 @@ export default function Player() {
                 </View>
             ) : null}
 
+            {stillAsking ? (
+                <View style={styles.errorBox}>
+                    <Ionicons name="cafe-outline" size={28} color={colors.accent} />
+                    <Text style={styles.errorText}>{t('stillTitle')}</Text>
+                    <TvTouchable
+                        style={styles.upNextPlay}
+                        onPress={() => {
+                            setStillAsking(false)
+                            setStillRound(round => round + 1)
+                            try { player.play() } catch { /* player já liberado */ }
+                        }}
+                    >
+                        <Ionicons name="play" size={16} color="#fff" />
+                        <Text style={styles.upNextPlayText}>{t('stillBtn')}</Text>
+                    </TvTouchable>
+                </View>
+            ) : null}
+
+            {touchLocked ? (
+                <View
+                    style={styles.lockOverlay}
+                    onStartShouldSetResponder={() => true}
+                    onResponderRelease={() => {
+                        if (isUnlockDoubleTap(unlockTapRef)) setTouchLocked(false)
+                        else showTrackToast(t('lockHint'))
+                    }}
+                >
+                    <Ionicons name="lock-closed" size={22} color="rgba(244,244,248,0.35)" style={styles.lockIcon} />
+                </View>
+            ) : null}
+
+            {timeUp ? (
+                <View style={styles.timeUpOverlay}>
+                    <Ionicons name="hourglass-outline" size={44} color={colors.accent} />
+                    <Text style={styles.timeUpTitle}>{t('kidsTimeUp')}</Text>
+                    <Text style={styles.timeUpHint}>{t('kidsTimeUpHint')}</Text>
+                    <TextInput
+                        style={styles.timeUpPin}
+                        value={timeUpPin}
+                        onChangeText={text => {
+                            const digits = text.replace(/[^0-9]/g, '')
+                            setTimeUpPin(digits)
+                            if (digits.length === 4) {
+                                void loadParental().then(state => {
+                                    if (state.pin && digits === state.pin) {
+                                        limitOverrideRef.current = true
+                                        setTimeUp(false)
+                                        setTimeUpPin('')
+                                        try { player.play() } catch { /* player já liberado */ }
+                                    } else {
+                                        setTimeUpPin('')
+                                    }
+                                })
+                            }
+                        }}
+                        placeholder="••••"
+                        placeholderTextColor="rgba(244,244,248,0.4)"
+                        keyboardType="number-pad"
+                        secureTextEntry
+                        maxLength={4}
+                    />
+                    <TvTouchable style={styles.timeUpExit} onPress={() => router.back()}>
+                        <Text style={styles.timeUpExitText}>{t('kidsTimeUpExit')}</Text>
+                    </TvTouchable>
+                </View>
+            ) : null}
+
             {status === 'error' ? (
                 <View style={styles.errorBox}>
                     <Ionicons name="warning" size={28} color={colors.danger} />
@@ -963,6 +1248,38 @@ const styles = StyleSheet.create({
         left: 0,
         right: 0,
     },
+    lockOverlay: {
+        position: 'absolute',
+        top: 0, left: 0, right: 0, bottom: 0,
+        zIndex: 30,
+    },
+    lockIcon: { position: 'absolute', top: 48, right: 18 },
+    timeUpOverlay: {
+        position: 'absolute',
+        top: 0, left: 0, right: 0, bottom: 0,
+        zIndex: 40,
+        backgroundColor: 'rgba(0,0,0,0.94)',
+        alignItems: 'center',
+        justifyContent: 'center',
+        gap: 12,
+        padding: 24,
+    },
+    timeUpTitle: { color: colors.text, fontSize: 18, fontWeight: '700', textAlign: 'center' },
+    timeUpHint: { color: colors.textDim, fontSize: 13, textAlign: 'center' },
+    timeUpPin: {
+        width: 140,
+        textAlign: 'center',
+        backgroundColor: colors.card,
+        borderColor: colors.border,
+        borderWidth: 1,
+        borderRadius: 10,
+        color: colors.text,
+        fontSize: 18,
+        paddingVertical: 8,
+    },
+    timeUpExit: { paddingHorizontal: 18, paddingVertical: 8 },
+    timeUpExitText: { color: colors.accent, fontSize: 14, fontWeight: '700' },
+    clock: { color: colors.textDim, fontSize: 13, fontWeight: '700', marginRight: spacing.sm },
     zapCol: {
         position: 'absolute',
         right: spacing.sm,

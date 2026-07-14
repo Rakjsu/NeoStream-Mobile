@@ -5,10 +5,15 @@
  */
 import * as FileSystem from 'expo-file-system/legacy'
 import { addLocalDownload } from './downloads'
+import { notifyRecordingStarted } from './notify'
 
 const DIR = `${FileSystem.documentDirectory}downloads/`
+// Abaixo disso o REC para sozinho — gravar até encher o disco trava o Android.
+const MIN_FREE_BYTES = 500 * 1024 * 1024
 
 interface ActiveRecording {
+    autoStop?: ReturnType<typeof setTimeout>
+    diskWatch?: ReturnType<typeof setInterval>
     task?: FileSystem.DownloadResumable
     /** Gravação HLS: chamar pra parar o loop de segmentos. */
     stopHls?: () => void
@@ -46,6 +51,14 @@ export function canRecordUrl(url: string): boolean {
  * arquivo com o FileHandle da API NOVA do expo-file-system (a legada não
  * tem append). Se a API não existir, a gravação HLS falha limpa.
  */
+async function diskFull(): Promise<boolean> {
+    try {
+        return (await FileSystem.getFreeDiskStorageAsync()) < MIN_FREE_BYTES
+    } catch {
+        return false // sem como medir → não bloqueia
+    }
+}
+
 async function runHlsLoop(url: string, fileUri: string, isStopped: () => boolean): Promise<void> {
     const FSN = await import('expo-file-system')
     const file = new FSN.File(fileUri)
@@ -59,6 +72,7 @@ async function runHlsLoop(url: string, fileUri: string, isStopped: () => boolean
         const entries = parseHlsSegments(first, url)
         if (entries[0] && /\.m3u8($|\?)/.test(entries[0])) mediaUrl = entries[0]
         while (!isStopped()) {
+            if (await diskFull()) { void stopRecording(); break }
             try {
                 const playlist = await (await fetch(mediaUrl)).text()
                 for (const segment of parseHlsSegments(playlist, mediaUrl)) {
@@ -76,8 +90,9 @@ async function runHlsLoop(url: string, fileUri: string, isStopped: () => boolean
     }
 }
 
-export async function startRecording(url: string, title: string): Promise<boolean> {
+export async function startRecording(url: string, title: string, autoStopMs?: number): Promise<boolean> {
     if (current || !canRecordUrl(url)) return false
+    if (await diskFull()) return false
     await FileSystem.makeDirectoryAsync(DIR, { intermediates: true }).catch(() => undefined)
     const startedAt = Date.now()
     const fileUri = `${DIR}rec_${startedAt}.ts`
@@ -85,7 +100,9 @@ export async function startRecording(url: string, title: string): Promise<boolea
         let stopped = false
         try {
             current = { stopHls: () => { stopped = true }, title, fileUri, startedAt }
+            armAutoStop(autoStopMs)
             void runHlsLoop(url, fileUri, () => stopped).catch(() => { stopped = true })
+            void notifyRecordingStarted(title)
             return true
         } catch {
             current = null
@@ -94,15 +111,29 @@ export async function startRecording(url: string, title: string): Promise<boolea
     }
     const task = FileSystem.createDownloadResumable(url, fileUri)
     current = { task, title, fileUri, startedAt }
+    armAutoStop(autoStopMs)
+    // TS cru não tem ciclo próprio — vigia o disco a cada 30s.
+    current.diskWatch = setInterval(() => {
+        void diskFull().then(full => { if (full) void stopRecording() })
+    }, 30_000)
     // O downloadAsync só "termina" quando o stop pausar — erro real limpa tudo.
     void task.downloadAsync().catch(() => undefined)
+    void notifyRecordingStarted(title)
     return true
+}
+
+/** Auto-stop: "gravar por X" / "até o fim do programa" param sozinhos. */
+function armAutoStop(ms?: number): void {
+    if (!current || !ms || ms <= 0) return
+    current.autoStop = setTimeout(() => { void stopRecording() }, ms)
 }
 
 /** Para e registra a gravação nos Downloads (null = não estava gravando). */
 export async function stopRecording(): Promise<string | null> {
     if (!current) return null
-    const { task, stopHls, title, fileUri, startedAt } = current
+    const { task, stopHls, title, fileUri, startedAt, autoStop, diskWatch } = current
+    if (autoStop) clearTimeout(autoStop)
+    if (diskWatch) clearInterval(diskWatch)
     current = null
     stopHls?.()
     await task?.pauseAsync().catch(() => undefined)

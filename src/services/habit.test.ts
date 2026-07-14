@@ -1,5 +1,5 @@
 import { describe, expect, it, vi } from 'vitest'
-import { addHabitMinute, hourBucketOf, topHabitKeys, type HabitMap } from './habit'
+import { addHabitMinute, heatmapCells, hourBucketOf, topHabitKeys, type HabitMap } from './habit'
 
 vi.mock('@react-native-async-storage/async-storage', () => ({
     default: { getItem: vi.fn(), setItem: vi.fn() },
@@ -35,5 +35,19 @@ describe('hábitos por horário', () => {
         const keys = topHabitKeys(map, 0, 'night', 60)
         expect(keys).toHaveLength(50)
         expect(keys).toContain('live|Novo')
+    })
+})
+
+describe('heatmapCells', () => {
+    it('soma os minutos por dia × faixa e zera o resto', () => {
+        let map: HabitMap = {}
+        map = addHabitMinute(map, 1, 'evening', 'live|Jornal')
+        map = addHabitMinute(map, 1, 'evening', 'live|Filme')
+        map = addHabitMinute(map, 0, 'morning', 'live|Desenho')
+        const cells = heatmapCells(map)
+        expect(cells).toHaveLength(7)
+        expect(cells[1][2]).toBe(2) // segunda × evening
+        expect(cells[0][0]).toBe(1) // domingo × morning
+        expect(cells[3][1]).toBe(0)
     })
 })

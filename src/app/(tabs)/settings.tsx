@@ -1,14 +1,16 @@
+import AsyncStorage from '@react-native-async-storage/async-storage'
 import { Ionicons } from '@expo/vector-icons'
 import Constants from 'expo-constants'
 import { router, useFocusEffect } from 'expo-router'
-import { useCallback, useRef, useState } from 'react'
-import { Alert, Linking, ScrollView, Share, StyleSheet, Text, TextInput, View } from 'react-native'
+import { useCallback, useEffect, useRef, useState } from 'react'
+import { Alert, Linking, ScrollView, Share, StyleSheet, Text, TextInput, TouchableOpacity, View } from 'react-native'
 import * as DocumentPicker from 'expo-document-picker'
+import * as LocalAuthentication from 'expo-local-authentication'
 import * as FileSystem from 'expo-file-system/legacy'
 import { disableAppLock, enableAppLock, loadAppLock } from '../../services/appLock'
 import { applyCapturePolicy } from '../../services/privacy'
 import { isDataSaverEnabled, setDataSaver } from '../../services/dataSaver'
-import { getDownloadLimitGb, isSmartDownloads, isWifiOnly, listDownloads, setDownloadLimitGb, setSmartDownloads, setWifiOnly } from '../../services/downloads'
+import { getDownloadLimitGb, isSmartDownloads, isWifiOnly, listDownloads, setDownloadLimitGb, setSmartDownloads, setWifiOnly , listFreeable, removeDownload as removeDl } from '../../services/downloads'
 import { captureRef } from 'react-native-view-shot'
 import * as Sharing from 'expo-sharing'
 import { chooseCloudBackupDir, clearCloudBackupDir, getCloudBackupDir, listAutoBackups, readAutoBackup, type AutoBackupFile } from '../../services/autoBackup'
@@ -17,22 +19,119 @@ import { cancelScheduled, listScheduled, type ScheduledReminder } from '../../se
 import { listRecurring, removeRecurring, type RecurringReminder } from '../../services/recurring'
 import { buildSetupLink } from '../../services/setupLink'
 import { getTmdbKey, setTmdbKey } from '../../services/tmdb'
-import { listHiddenChannels, unhideChannel, type HiddenChannel } from '../../services/hidden'
-import { applyBackup, collectBackup, parseBackup, serializeBackup } from '../../services/backup'
-import { disableParental, enableParental, isValidPin, loadParental } from '../../services/parental'
-import { isKidsMode, listKidsCategories, setKidsMode } from '../../services/kids'
-import { runSpeedTest, type SpeedVerdict } from '../../services/speedtest'
+import { hideChannel, listHiddenChannels, unhideChannel, type HiddenChannel } from '../../services/hidden'
+import { applyBackup, collectBackup, decryptBackup, isEncryptedBackup, parseBackup, protectBackup, serializeBackup } from '../../services/backup'
+import { probeAll } from '../../services/probe'
+import { loadFavorites } from '../../services/favorites'
+import { disableParental, enableParental, isValidPin, listBlockedCategories, loadParental } from '../../services/parental'
+import { getKidsTimeLimit, isKidsMode, listKidsCategories, setKidsMode, setKidsTimeLimit } from '../../services/kids'
+import { disconnectTrakt, getTraktCreds, isTraktConnected, pollDeviceToken, setTraktCreds, startDeviceAuth } from '../../services/trakt'
+import { getExtEpgUrl, setExtEpgUrl } from '../../services/extEpg'
+import { defaultRailPrefs, loadRailPrefs, moveRail, railOrderAll, saveRailPrefs, toggleRail, type RailKey, type RailPrefs } from '../../services/homeRails'
+import { M3uClient } from '../../services/m3u'
+import { loadSpeedHistory, runSpeedTest, saveSpeedSample, type SpeedSample, type SpeedVerdict } from '../../services/speedtest'
 import { clearHistory } from '../../services/progress'
 import { checkForUpdate } from '../../services/updates'
 import {
-    accountLabel, cachedFetch, clearCatalogCache, getClient, listAccounts, loadAccount, removeAccount, renameAccount, switchAccount,
+    accountLabel, cachedFetch, clearCatalogCache, getClient, listAccounts, loadAccount, removeAccount, renameAccount, resolvePlayableUrl, switchAccount,
     type StoredAccount,
 } from '../../services/session'
-import { dayKey, formatMinutes, lastDays, lastMonths, loadMonthUsage, loadTitleUsage, loadUsage, monthKey, summarize, topTitles, usageCsv, type TopTitle, type UsageSummary } from '../../services/usage'
+import { currentStreak, dayKey, formatMinutes, getUsageGoal, lastDays, lastMonths, loadMonthUsage, loadTitleUsage, loadUsage, monthKey, setUsageGoal, summarize, topTitles, usageCsv, weekDelta, type TopTitle, type UsageSummary } from '../../services/usage'
+import { heatmapCells, loadHabits } from '../../services/habit'
 import { parseExpiry } from '../../services/xtream'
 import { TvTouchable } from '../../ui/components'
 import { colors, setThemeVariant, spacing, themeVariant } from '../../ui/theme'
 import { t, tf } from '../../i18n/strings'
+
+
+// Chips de navegação num componente próprio: dentro do SettingsTab (gigante),
+// qualquer leitura do estado sectionY no map fazia o React Compiler pular o arquivo.
+function SectionNav({ sectionY, onJump }: { sectionY: Record<string, number>; onJump: (y: number) => void }) {
+    return (
+        <View style={styles.navRow}>
+            {([
+                ['secAccounts', '👤'], ['secParental', '🧒'], ['secUsage', '📊'],
+                ['secStorage', '💾'], ['secBackup', '☁️'], ['secAbout', 'ℹ️'],
+            ] as const).map(([key, icon]) => (
+                <TouchableOpacity key={key} style={styles.navChip} onPress={() => onJump(sectionY[key] ?? 0)}>
+                    <Text style={styles.navChipText}>{icon} {t(key)}</Text>
+                </TouchableOpacity>
+            ))}
+        </View>
+    )
+}
+
+// Heatmap dia × faixa de hora (componente próprio — ver nota do SectionNav).
+function HabitHeatmap({ cells }: { cells: number[][] }) {
+    const max = Math.max(1, ...cells.flat())
+    const dayLabels = t('heatmapDays').split(',')
+    const bucketIcons = ['🌅', '☀️', '🌆', '🌙']
+    if (cells.flat().every(value => value === 0)) return null
+    return (
+        <View style={{ gap: 3 }}>
+            <Text style={styles.parentalHint}>{t('heatmapTitle')}</Text>
+            <View style={{ flexDirection: 'row', gap: 3 }}>
+                <View style={{ width: 18 }} />
+                {dayLabels.map((label, position) => (
+                    <Text key={`${label}${position}`} style={styles.heatLabel}>{label}</Text>
+                ))}
+            </View>
+            {bucketIcons.map((icon, bucketIdx) => (
+                <View key={icon} style={{ flexDirection: 'row', gap: 3, alignItems: 'center' }}>
+                    <Text style={styles.heatIcon}>{icon}</Text>
+                    {cells.map((day, dayIdx) => (
+                        <View
+                            key={String(dayIdx)}
+                            style={[styles.heatCell, { opacity: day[bucketIdx] === 0 ? 0.08 : 0.25 + 0.75 * (day[bucketIdx] / max) }]}
+                        />
+                    ))}
+                </View>
+            ))}
+        </View>
+    )
+}
+
+// Rótulo de cada rail configurável (reusa as strings das próprias rails).
+function railLabel(key: RailKey): string {
+    switch (key) {
+        case 'watchlist': return t('watchlistRail')
+        case 'freshEpisodes': return t('newEpisodesRail')
+        case 'favPosters': return t('favRail')
+        case 'because': return tf('becauseRail', { title: '…' })
+        case 'praAgora': return t('praAgoraRail')
+        case 'recentChannels': return t('recentChannelsRail')
+        case 'favChannels': return t('favChannelsRail')
+        case 'newMovies': return t('newMoviesRail')
+        case 'newSeries': return t('newSeriesRail')
+    }
+}
+
+// Componente próprio (como o SectionNav): map lendo estado dentro do
+// SettingsTab gigante faz o React Compiler pular o arquivo inteiro.
+function HomeRailsConfig({ prefs, onChange }: { prefs: RailPrefs; onChange: (next: RailPrefs) => void }) {
+    return (
+        <View style={{ gap: 2 }}>
+            <Text style={styles.parentalHint}>{t('homeRailsTitle')}</Text>
+            {railOrderAll(prefs).map(key => {
+                const hiddenRail = prefs.hidden.includes(key)
+                return (
+                    <View key={key} style={styles.diagRow}>
+                        <TouchableOpacity style={{ padding: 4 }} accessibilityLabel={railLabel(key)} onPress={() => onChange(toggleRail(prefs, key))}>
+                            <Ionicons name={hiddenRail ? 'eye-off-outline' : 'eye-outline'} size={16} color={hiddenRail ? colors.textDim : colors.accent} />
+                        </TouchableOpacity>
+                        <Text style={[styles.diagLabel, hiddenRail && { color: colors.textDim }]} numberOfLines={1}>{railLabel(key)}</Text>
+                        <TouchableOpacity style={{ padding: 4 }} accessibilityLabel={t('favUp')} onPress={() => onChange(moveRail(prefs, key, -1))}>
+                            <Ionicons name="chevron-up" size={14} color={colors.textDim} />
+                        </TouchableOpacity>
+                        <TouchableOpacity style={{ padding: 4 }} accessibilityLabel={t('favDown')} onPress={() => onChange(moveRail(prefs, key, 1))}>
+                            <Ionicons name="chevron-down" size={14} color={colors.textDim} />
+                        </TouchableOpacity>
+                    </View>
+                )
+            })}
+        </View>
+    )
+}
 
 function InfoRow({ label, value }: { label: string; value: string }) {
     return (
@@ -60,9 +159,29 @@ export default function SettingsTab() {
     const [usage, setUsage] = useState<UsageSummary>({ totals: { live: 0, movie: 0, episode: 0 }, totalMinutes: 0 })
     const [usageDays, setUsageDays] = useState<{ day: string; minutes: number }[]>([])
     const [usageMonths, setUsageMonths] = useState<{ month: string; minutes: number }[]>([])
+    const [streak, setStreak] = useState(0)
+    const [weekDiff, setWeekDiff] = useState<number | null>(null)
+    const [epgCov, setEpgCov] = useState<{ matched: number; total: number; misses: { id: string; name: string }[] } | null>(null)
+    const [extEpgDraft, setExtEpgDraft] = useState('')
+    const [railPrefs, setRailPrefs] = useState<RailPrefs>(defaultRailPrefs())
+    const [bioOk, setBioOk] = useState(false)
+    const [kidsLimit, setKidsLimit] = useState(0)
+    const [habitGrid, setHabitGrid] = useState<number[][]>([])
+    const [usageGoal, setUsageGoalState] = useState(0)
+    const [traktCid, setTraktCid] = useState('')
+    const [traktCsec, setTraktCsec] = useState('')
+    const [traktOn, setTraktOn] = useState(false)
+    const [traktMsg, setTraktMsg] = useState('')
+    const [favCheck, setFavCheck] = useState<{ dead: { id: string; name: string }[]; total: number } | null>(null)
+    const [favChecking, setFavChecking] = useState(false)
+    const [backupPass, setBackupPass] = useState('')
     const [topLive, setTopLive] = useState<TopTitle[]>([])
     const [topShows, setTopShows] = useState<TopTitle[]>([])
     const usageShotRef = useRef<View>(null)
+    // Navegação rápida: guarda o Y de cada seção pro chip dar scrollTo.
+    // Estado (não ref): indexar ref.current[chave] num handler do map faz o React Compiler pular o arquivo.
+    const scrollRef = useRef<ScrollView>(null)
+    const [sectionY, setSectionY] = useState<Record<string, number>>({})
     const [aliasDraft, setAliasDraft] = useState('')
     const [importText, setImportText] = useState('')
     const [backupMsg, setBackupMsg] = useState('')
@@ -81,11 +200,24 @@ export default function SettingsTab() {
     const [wifiOnly, setWifiOnlyState] = useState(false)
     const [smartDl, setSmartDlState] = useState(false)
     const [cloudDir, setCloudDir] = useState('')
+    const [speedHist, setSpeedHist] = useState<SpeedSample[]>([])
+    const [bootLive, setBootLive] = useState(false)
+    const [freeMsg, setFreeMsg] = useState('')
     const [kidsCatCount, setKidsCatCount] = useState(0)
+    const [blockedCount, setBlockedCount] = useState(0)
     const [amoled, setAmoled] = useState(themeVariant() === 'amoled')
 
     const refreshStorage = useCallback(() => {
         void listDownloads().then(items => setDlBytes(items.reduce((sum, item) => sum + item.sizeBytes, 0)))
+    }, [])
+
+    // Biometria disponível? (digital/rosto cadastrado) — atalho no gate do PIN.
+    useEffect(() => {
+        queueMicrotask(() => {
+            void Promise.all([LocalAuthentication.hasHardwareAsync(), LocalAuthentication.isEnrolledAsync()])
+                .then(([hw, enrolled]) => setBioOk(hw && enrolled))
+                .catch(() => undefined)
+        })
     }, [])
 
     const refresh = useCallback(() => {
@@ -94,6 +226,7 @@ export default function SettingsTab() {
         void loadParental().then(state => setParentalOn(state.enabled))
         void isKidsMode().then(on => { setKidsOn(on); setKidsGate(on) })
         void listKidsCategories().then(list => setKidsCatCount(list.length))
+        void listBlockedCategories().then(list => setBlockedCount(list.length))
         void getTmdbKey().then(setTmdbDraft)
         void loadAppLock().then(state => setLockOn(state.enabled))
         void listAutoBackups().then(setAutoCopies)
@@ -106,11 +239,23 @@ export default function SettingsTab() {
         void isWifiOnly().then(setWifiOnlyState)
         void isSmartDownloads().then(setSmartDlState)
         void getCloudBackupDir().then(setCloudDir)
+        void loadSpeedHistory().then(setSpeedHist)
+        void getExtEpgUrl().then(setExtEpgDraft)
+        void loadRailPrefs().then(setRailPrefs)
+        void getKidsTimeLimit().then(setKidsLimit)
+        void loadHabits().then(map => setHabitGrid(heatmapCells(map)))
+        void getUsageGoal().then(setUsageGoalState)
+        void getTraktCreds().then(creds => { setTraktCid(creds.clientId); setTraktCsec(creds.clientSecret) })
+        void isTraktConnected().then(setTraktOn)
+        void AsyncStorage.getItem('neostream_boot_tab').then(v => setBootLive(v === 'live')).catch(() => undefined)
         refreshStorage()
         void loadUsage().then(map => {
             const today = dayKey(Date.now())
             setUsage(summarize(map, today))
             setUsageDays(lastDays(map, today))
+            setStreak(currentStreak(map, today))
+            const delta = weekDelta(map, today)
+            setWeekDiff(delta.previous > 0 || delta.current > 0 ? delta.current - delta.previous : null)
         })
         void loadMonthUsage().then(map => setUsageMonths(lastMonths(map, monthKey(Date.now()))))
         void loadTitleUsage().then(titles => {
@@ -190,6 +335,60 @@ export default function SettingsTab() {
         })()
     }
 
+    // 🩺 Testa os streams dos favoritos em lote (teto de 30, 4 por vez).
+    const runFavCheck = async () => {
+        setFavChecking(true)
+        try {
+            const client = await getClient()
+            if (!client) return
+            const [live, favorites] = await Promise.all([
+                cachedFetch('live', () => client.getLiveChannels()),
+                loadFavorites(),
+            ])
+            const targets = live.filter(c => favorites.live.includes(String(c.stream_id))).slice(0, 30)
+            const withUrls = await Promise.all(targets.map(async channel => ({
+                channel,
+                url: await resolvePlayableUrl(client.liveStreamUrl(String(channel.stream_id))).catch(() => ''),
+            })))
+            const results = await probeAll(withUrls, entry => entry.url)
+            setFavCheck({
+                total: targets.length,
+                dead: results
+                    .filter(r => r.item.url.startsWith('http') && !r.alive)
+                    .map(r => ({ id: String(r.item.channel.stream_id), name: r.item.channel.name })),
+            })
+        } finally {
+            setFavChecking(false)
+        }
+    }
+
+    // Trakt: salva as credenciais, mostra o código e fica perguntando até
+    // o usuário autorizar no site (device code — intervalo vem da API).
+    const connectTrakt = async () => {
+        await setTraktCreds({ clientId: traktCid, clientSecret: traktCsec })
+        const auth = await startDeviceAuth()
+        if (!auth) { Alert.alert(t('traktFail')); return }
+        setTraktMsg(tf('traktWaiting', { code: auth.userCode }))
+        Alert.alert('Trakt', tf('traktCodeMsg', { code: auth.userCode }), [
+            { text: t('cancel'), style: 'cancel' },
+            { text: t('traktOpenSite'), onPress: () => { void Linking.openURL(auth.verificationUrl) } },
+        ])
+        const deadline = Date.now() + auth.expiresIn * 1000
+        const tick = async () => {
+            if (Date.now() > deadline) { setTraktMsg(''); return }
+            const result = await pollDeviceToken(auth.deviceCode)
+            if (result === 'ok') {
+                setTraktOn(true)
+                setTraktMsg('')
+                Alert.alert(t('traktConnected'))
+                return
+            }
+            if (result === 'error') { setTraktMsg(''); Alert.alert(t('traktFail')); return }
+            setTimeout(() => { void tick() }, auth.intervalSec * 1000)
+        }
+        setTimeout(() => { void tick() }, auth.intervalSec * 1000)
+    }
+
     const expiry = parseExpiry(active?.userInfo?.exp_date)
 
     if (kidsGate) {
@@ -223,14 +422,30 @@ export default function SettingsTab() {
                 >
                     <Text style={styles.parentalBtnText}>{t('enable')}</Text>
                 </TvTouchable>
+                {bioOk ? (
+                    <TvTouchable
+                        style={[styles.parentalBtn, { backgroundColor: colors.card }]}
+                        onPress={() => {
+                            void LocalAuthentication.authenticateAsync({ cancelLabel: 'PIN' }).then(result => {
+                                if (result.success) {
+                                    setKidsGate(false)
+                                    setGatePin('')
+                                }
+                            }).catch(() => undefined)
+                        }}
+                    >
+                        <Text style={styles.parentalBtnText}>👆 {t('bioUnlock')}</Text>
+                    </TvTouchable>
+                ) : null}
                 {gateError ? <Text style={styles.pinError}>{gateError}</Text> : null}
             </View>
         )
     }
 
     return (
-        <ScrollView style={styles.root} contentContainerStyle={{ padding: spacing.lg }}>
-            <Text style={styles.section}>{t('secAccounts')}</Text>
+        <ScrollView ref={scrollRef} style={styles.root} contentContainerStyle={{ padding: spacing.lg }} stickyHeaderIndices={[0]}>
+            <SectionNav sectionY={sectionY} onJump={y => scrollRef.current?.scrollTo({ y, animated: true })} />
+            <Text style={styles.section} onLayout={e => { const y = e.nativeEvent.layout.y; setSectionY(prev => ({ ...prev, ['secAccounts']: y })) }}>{t('secAccounts')}</Text>
             <View style={styles.card}>
                 {accounts.map(account => {
                     const isActive = account.id === active?.id
@@ -341,12 +556,126 @@ export default function SettingsTab() {
                                     '4k': 'speed4k', hd: 'speedHd', sd: 'speedSd', slow: 'speedSlow',
                                 }
                                 setSpeedMsg(tf('speedResult', { mbps: result.mbps, verdict: t(verdictKey[result.verdict]) }))
+                                await saveSpeedSample({ at: Date.now(), mbps: result.mbps, verdict: result.verdict })
+                                setSpeedHist(await loadSpeedHistory())
                             })()
                         }}
                     >
                         <Ionicons name="speedometer-outline" size={16} color="#fff" />
                         <Text style={styles.backupBtnText}>{speedMsg || t('speedBtn')}</Text>
                     </TvTouchable>
+                    <TvTouchable
+                        style={[styles.backupBtn, styles.restoreBtn]}
+                        onPress={() => {
+                            const lines = [
+                                `NeoStream Mobile v${Constants.expoConfig?.version ?? '?'}`,
+                                `Conta: ${active ? accountLabel(active).replace(/^[^@]+@/, '***@') : '—'} (${active?.type ?? 'xtream'})`,
+                                '',
+                                'Velocímetro:',
+                                ...speedHist.slice(0, 5).map(s =>
+                                    `  ${new Date(s.at).toLocaleString()} — ${s.mbps} Mbps (${s.verdict})`),
+                                '',
+                                'Últimos erros:',
+                                ...errorList.slice(0, 5).map(e => `  ${new Date(e.at).toLocaleString()} — ${e.message}`),
+                            ]
+                            void Share.share({ message: lines.join('\n') }).catch(() => undefined)
+                        }}
+                    >
+                        <Ionicons name="document-text-outline" size={16} color="#fff" />
+                        <Text style={styles.backupBtnText}>{t('diagCopyBtn')}</Text>
+                    </TvTouchable>
+                    <TvTouchable
+                        style={[styles.backupBtn, styles.restoreBtn, favChecking && { opacity: 0.6 }]}
+                        disabled={favChecking}
+                        onPress={() => { void runFavCheck() }}
+                    >
+                        <Ionicons name="pulse-outline" size={16} color="#fff" />
+                        <Text style={styles.backupBtnText}>
+                            {favChecking ? t('favCheckRunning')
+                                : favCheck ? tf('favCheckResult', { dead: favCheck.dead.length, total: favCheck.total })
+                                    : t('favCheckBtn')}
+                        </Text>
+                    </TvTouchable>
+                    {favCheck?.dead.map(dead => (
+                        <View key={dead.id} style={styles.diagRow}>
+                            <Ionicons name="close-circle-outline" size={14} color={colors.danger} />
+                            <Text style={styles.diagLabel} numberOfLines={1}>{dead.name}</Text>
+                            <TouchableOpacity
+                                accessibilityLabel={t('hide')}
+                                onPress={() => {
+                                    void hideChannel({ id: dead.id, name: dead.name }).then(() => {
+                                        setFavCheck(current => current
+                                            ? { ...current, dead: current.dead.filter(d => d.id !== dead.id) }
+                                            : current)
+                                        refresh()
+                                    })
+                                }}
+                            >
+                                <Text style={[styles.diagMeta, { color: colors.accent }]}>{t('hide')}</Text>
+                            </TouchableOpacity>
+                        </View>
+                    ))}
+                    <Text style={styles.parentalHint}>{t('extEpgHint')}</Text>
+                    <View style={styles.accountRow}>
+                        <TextInput
+                            style={styles.aliasInput}
+                            value={extEpgDraft}
+                            onChangeText={setExtEpgDraft}
+                            placeholder="https://…/epg.xml"
+                            placeholderTextColor={colors.textDim}
+                            autoCapitalize="none"
+                            autoCorrect={false}
+                        />
+                        <TvTouchable
+                            style={styles.trash}
+                            accessibilityLabel={t('a11yConfirm')}
+                            onPress={() => {
+                                void setExtEpgUrl(extEpgDraft).then(() => Alert.alert(t('extEpgSaved')))
+                            }}
+                        >
+                            <Ionicons name="checkmark" size={20} color={colors.accent} />
+                        </TvTouchable>
+                    </View>
+                    <TvTouchable
+                        style={[styles.backupBtn, styles.restoreBtn]}
+                        onPress={() => {
+                            void (async () => {
+                                const client = await getClient()
+                                if (!(client instanceof M3uClient)) { Alert.alert(t('epgCovOnlyM3u')); return }
+                                setEpgCov(await client.epgCoverage())
+                            })()
+                        }}
+                    >
+                        <Ionicons name="flask-outline" size={16} color="#fff" />
+                        <Text style={styles.backupBtnText}>
+                            {epgCov ? tf('epgCovResult', { matched: epgCov.matched, total: epgCov.total }) : t('epgCovBtn')}
+                        </Text>
+                    </TvTouchable>
+                    {epgCov ? epgCov.misses.slice(0, 5).map(miss => (
+                        <TouchableOpacity
+                            key={miss.id}
+                            style={styles.diagRow}
+                            onPress={() => router.push({ pathname: '/epgfix', params: { channel: miss.id, name: miss.name } })}
+                        >
+                            <Ionicons name="help-circle-outline" size={14} color={colors.danger} />
+                            <Text style={styles.diagLabel} numberOfLines={1}>{miss.name}</Text>
+                            <Text style={[styles.diagMeta, { color: colors.accent }]}>{t('epgFixBtn')}</Text>
+                        </TouchableOpacity>
+                    )) : null}
+                    {speedHist.length > 0 ? (
+                        <View style={{ gap: 4 }}>
+                            <Text style={styles.parentalHint}>{t('speedHistTitle')}</Text>
+                            {speedHist.slice(0, 5).map(sample => (
+                                <View key={sample.at} style={styles.diagRow}>
+                                    <Ionicons name="speedometer-outline" size={14} color={colors.textDim} />
+                                    <Text style={styles.diagLabel}>
+                                        {new Date(sample.at).toLocaleDateString()} {new Date(sample.at).toLocaleTimeString().slice(0, 5)}
+                                    </Text>
+                                    <Text style={styles.diagMeta}>{sample.mbps} Mbps</Text>
+                                </View>
+                            ))}
+                        </View>
+                    ) : null}
                     {Array.isArray(diag) ? diag.map(row => (
                         <View key={row.label} style={styles.diagRow}>
                             <Ionicons
@@ -364,7 +693,7 @@ export default function SettingsTab() {
                 </View>
             </View>
 
-            <Text style={styles.section}>{t('secParental')}</Text>
+            <Text style={styles.section} onLayout={e => { const y = e.nativeEvent.layout.y; setSectionY(prev => ({ ...prev, ['secParental']: y })) }}>{t('secParental')}</Text>
             <View style={[styles.card, { paddingVertical: spacing.md, gap: spacing.md }]}>
                 <Text style={styles.parentalHint}>
                     {parentalOn ? t('parentalOnHint') : t('parentalOffHint')}
@@ -420,9 +749,29 @@ export default function SettingsTab() {
                         {kidsOn ? t('kidsOn') : t('kidsOff')}
                     </Text>
                 </TvTouchable>
+                {parentalOn ? (
+                    <TvTouchable style={styles.kidsRow} onPress={() => router.push('/blockedcats')}>
+                        <Ionicons name="lock-closed-outline" size={18} color={colors.textDim} />
+                        <Text style={styles.kidsText}>{tf('blockedCatsBtn', { n: blockedCount })}</Text>
+                    </TvTouchable>
+                ) : null}
                 <TvTouchable style={styles.kidsRow} onPress={() => router.push('/kidscats')}>
                     <Ionicons name="albums-outline" size={18} color={colors.textDim} />
                     <Text style={styles.kidsText}>{tf('kidsCatsBtn', { n: kidsCatCount })}</Text>
+                </TvTouchable>
+                <TvTouchable
+                    style={styles.kidsRow}
+                    onPress={() => {
+                        // Off → 30 → 60 → 90 → 120 → off.
+                        const next = kidsLimit === 0 ? 30 : kidsLimit >= 120 ? 0 : kidsLimit + 30
+                        setKidsLimit(next)
+                        void setKidsTimeLimit(next)
+                    }}
+                >
+                    <Ionicons name="hourglass-outline" size={18} color={kidsLimit > 0 ? colors.accent : colors.textDim} />
+                    <Text style={[styles.kidsText, kidsLimit > 0 && { color: colors.accent }]}>
+                        {kidsLimit > 0 ? tf('kidsLimitLabel', { n: kidsLimit }) : t('kidsLimitOff')}
+                    </Text>
                 </TvTouchable>
             </View>
 
@@ -459,7 +808,7 @@ export default function SettingsTab() {
                 {lockError ? <Text style={styles.pinError}>{lockError}</Text> : null}
             </View>
 
-            <Text style={styles.section}>{t('secUsage')}</Text>
+            <Text style={styles.section} onLayout={e => { const y = e.nativeEvent.layout.y; setSectionY(prev => ({ ...prev, ['secUsage']: y })) }}>{t('secUsage')}</Text>
             <View ref={usageShotRef} collapsable={false} style={styles.card}>
                 <InfoRow label={t('usageWeek')} value="" />
                 <View style={styles.usageBars}>
@@ -473,6 +822,27 @@ export default function SettingsTab() {
                         )
                     })}
                 </View>
+                {streak >= 2 ? <Text style={[styles.parentalHint, { color: colors.accent }]}>{tf('streakLabel', { n: streak })}</Text> : null}
+                {weekDiff !== null ? (
+                    <Text style={styles.parentalHint}>
+                        {tf('weekVsLast', { sign: weekDiff >= 0 ? '+' : '−', diff: formatMinutes(Math.abs(weekDiff)) })}
+                    </Text>
+                ) : null}
+                {habitGrid.length > 0 ? <HabitHeatmap cells={habitGrid} /> : null}
+                <TvTouchable
+                    style={styles.kidsRow}
+                    onPress={() => {
+                        // Off → 2h → 3h → 4h → 5h → 6h → off.
+                        const next = usageGoal === 0 ? 120 : usageGoal >= 360 ? 0 : usageGoal + 60
+                        setUsageGoalState(next)
+                        void setUsageGoal(next)
+                    }}
+                >
+                    <Ionicons name="alarm-outline" size={18} color={usageGoal > 0 ? colors.accent : colors.textDim} />
+                    <Text style={[styles.kidsText, usageGoal > 0 && { color: colors.accent }]}>
+                        {usageGoal > 0 ? tf('usageGoalLabel', { time: formatMinutes(usageGoal) }) : t('usageGoalOff')}
+                    </Text>
+                </TvTouchable>
                 <Text style={styles.parentalHint}>{t('usageMonths')}</Text>
                 <View style={styles.usageBars}>
                     {usageMonths.map(entry => {
@@ -545,7 +915,7 @@ export default function SettingsTab() {
                 </View>
             </View>
 
-            <Text style={styles.section}>{t('secStorage')}</Text>
+            <Text style={styles.section} onLayout={e => { const y = e.nativeEvent.layout.y; setSectionY(prev => ({ ...prev, ['secStorage']: y })) }}>{t('secStorage')}</Text>
             <View style={[styles.card, { paddingVertical: spacing.md, gap: spacing.md }]}>
                 <Text style={styles.parentalHint}>{t('storageHint')}</Text>
                 <View style={styles.limitRow}>
@@ -602,6 +972,37 @@ export default function SettingsTab() {
                 </TvTouchable>
                 {smartDl ? <Text style={styles.parentalHint}>{t('smartDlHint')}</Text> : null}
                 <TvTouchable
+                    style={styles.kidsRow}
+                    onPress={() => {
+                        const next = !bootLive
+                        setBootLive(next)
+                        void (next
+                            ? AsyncStorage.setItem('neostream_boot_tab', 'live')
+                            : AsyncStorage.removeItem('neostream_boot_tab')
+                        ).catch(() => undefined)
+                    }}
+                >
+                    <Ionicons name={bootLive ? 'tv' : 'tv-outline'} size={18} color={bootLive ? colors.accent : colors.textDim} />
+                    <Text style={[styles.kidsText, bootLive && { color: colors.accent }]}>{t('bootLive')}</Text>
+                </TvTouchable>
+                <HomeRailsConfig prefs={railPrefs} onChange={next => { setRailPrefs(next); void saveRailPrefs(next) }} />
+                <TvTouchable
+                    style={styles.kidsRow}
+                    onPress={() => {
+                        void (async () => {
+                            const freeable = await listFreeable()
+                            if (freeable.length === 0) { setFreeMsg(t('freeSpaceNone')); return }
+                            const mb = Math.round(freeable.reduce((sum, item) => sum + item.sizeBytes, 0) / 1048576)
+                            for (const item of freeable) await removeDl(item.id)
+                            refreshStorage()
+                            setFreeMsg(tf('freed', { mb }))
+                        })()
+                    }}
+                >
+                    <Ionicons name="trash-bin-outline" size={18} color={colors.textDim} />
+                    <Text style={styles.kidsText}>{freeMsg || tf('freeSpaceBtn', { n: '?', mb: '?' })}</Text>
+                </TvTouchable>
+                <TvTouchable
                     style={styles.saverRow}
                     onPress={() => {
                         const next = !dataSaver
@@ -622,6 +1023,10 @@ export default function SettingsTab() {
             </View>
 
             <Text style={styles.section}>{t('remindersSection')}</Text>
+            <TvTouchable style={[styles.kidsRow, { paddingBottom: spacing.sm }]} onPress={() => router.push('/agenda')}>
+                <Ionicons name="calendar-outline" size={18} color={colors.accent} />
+                <Text style={[styles.kidsText, { color: colors.accent }]}>{t('agendaOpen')}</Text>
+            </TvTouchable>
             <View style={[styles.card, { paddingVertical: spacing.md, gap: spacing.sm }]}>
                 {recurring.map(reminder => (
                     <View key={`r${reminder.channelId}${reminder.title}`} style={styles.diagRow}>
@@ -699,14 +1104,24 @@ export default function SettingsTab() {
                 </TvTouchable>
             </View>
 
-            <Text style={styles.section}>{t('secBackup')}</Text>
+            <Text style={styles.section} onLayout={e => { const y = e.nativeEvent.layout.y; setSectionY(prev => ({ ...prev, ['secBackup']: y })) }}>{t('secBackup')}</Text>
             <View style={[styles.card, { paddingVertical: spacing.md, gap: spacing.md }]}>
                 <Text style={styles.parentalHint}>{t('backupHint')}</Text>
+                <TextInput
+                    style={styles.aliasInput}
+                    value={backupPass}
+                    onChangeText={setBackupPass}
+                    placeholder={t('backupPassPh')}
+                    placeholderTextColor={colors.textDim}
+                    autoCapitalize="none"
+                    autoCorrect={false}
+                    secureTextEntry
+                />
                 <TvTouchable
                     style={styles.backupBtn}
                     onPress={() => {
                         void (async () => {
-                            const json = serializeBackup(await collectBackup())
+                            const json = protectBackup(serializeBackup(await collectBackup()), backupPass)
                             await Share.share({ message: json }).catch(() => undefined)
                         })()
                     }}
@@ -739,7 +1154,7 @@ export default function SettingsTab() {
                     onPress={() => {
                         void (async () => {
                             try {
-                                const json = serializeBackup(await collectBackup())
+                                const json = protectBackup(serializeBackup(await collectBackup()), backupPass)
                                 const permission = await FileSystem.StorageAccessFramework.requestDirectoryPermissionsAsync()
                                 if (!permission.granted) return
                                 const fileUri = await FileSystem.StorageAccessFramework.createFileAsync(
@@ -771,7 +1186,12 @@ export default function SettingsTab() {
                     disabled={!importText.trim()}
                     onPress={() => {
                         try {
-                            const backup = parseBackup(importText)
+                            const raw = isEncryptedBackup(importText) ? decryptBackup(importText, backupPass) : importText
+                            if (raw === null) {
+                                setBackupMsg(t('backupPassWrong'))
+                                return
+                            }
+                            const backup = parseBackup(raw)
                             Alert.alert(
                                 t('restoreTitle'),
                                 tf('restoreMsg', { n: backup.accounts.length }),
@@ -872,9 +1292,51 @@ export default function SettingsTab() {
                         <Text style={styles.parentalBtnText}>{t('saveBtn')}</Text>
                     </TvTouchable>
                 </View>
+                <Text style={styles.parentalHint}>{t('traktHint')}</Text>
+                <View style={styles.accountRow}>
+                    <TextInput
+                        style={styles.aliasInput}
+                        value={traktCid}
+                        onChangeText={setTraktCid}
+                        placeholder="Trakt Client ID"
+                        placeholderTextColor={colors.textDim}
+                        autoCapitalize="none"
+                        autoCorrect={false}
+                    />
+                </View>
+                <View style={styles.accountRow}>
+                    <TextInput
+                        style={styles.aliasInput}
+                        value={traktCsec}
+                        onChangeText={setTraktCsec}
+                        placeholder="Trakt Client Secret"
+                        placeholderTextColor={colors.textDim}
+                        autoCapitalize="none"
+                        autoCorrect={false}
+                        secureTextEntry
+                    />
+                </View>
+                {traktOn ? (
+                    <TvTouchable
+                        style={[styles.backupBtn, styles.restoreBtn]}
+                        onPress={() => { void disconnectTrakt().then(() => setTraktOn(false)) }}
+                    >
+                        <Ionicons name="link" size={16} color="#fff" />
+                        <Text style={styles.backupBtnText}>{t('traktConnected')} — {t('traktDisconnect')}</Text>
+                    </TvTouchable>
+                ) : (
+                    <TvTouchable
+                        style={[styles.backupBtn, styles.restoreBtn, (!traktCid.trim() || !traktCsec.trim()) && { opacity: 0.5 }]}
+                        disabled={!traktCid.trim() || !traktCsec.trim()}
+                        onPress={() => { void connectTrakt() }}
+                    >
+                        <Ionicons name="link-outline" size={16} color="#fff" />
+                        <Text style={styles.backupBtnText}>{traktMsg || t('traktConnect')}</Text>
+                    </TvTouchable>
+                )}
             </View>
 
-            <Text style={styles.section}>{t('secAbout')}</Text>
+            <Text style={styles.section} onLayout={e => { const y = e.nativeEvent.layout.y; setSectionY(prev => ({ ...prev, ['secAbout']: y })) }}>{t('secAbout')}</Text>
             <View style={[styles.card, { paddingVertical: spacing.md, gap: spacing.md }]}>
                 <InfoRow label={t('versionRow')} value={`v${Constants.expoConfig?.version ?? '?'}`} />
                 <TvTouchable
@@ -921,6 +1383,25 @@ export default function SettingsTab() {
 }
 
 const styles = StyleSheet.create({
+    navRow: {
+        flexDirection: 'row',
+        flexWrap: 'wrap',
+        gap: 6,
+        backgroundColor: colors.bg,
+        paddingBottom: spacing.sm,
+    },
+    navChip: {
+        borderColor: colors.border,
+        borderWidth: 1,
+        borderRadius: 14,
+        paddingHorizontal: 10,
+        paddingVertical: 5,
+        backgroundColor: colors.card,
+    },
+    navChipText: { color: colors.textDim, fontSize: 11, fontWeight: '600' },
+    heatLabel: { flex: 1, textAlign: 'center', color: colors.textDim, fontSize: 9 },
+    heatIcon: { fontSize: 10, width: 18 },
+    heatCell: { flex: 1, height: 16, borderRadius: 3, backgroundColor: colors.accent },
     root: { flex: 1, backgroundColor: colors.bg },
     section: { color: colors.textDim, fontSize: 13, textTransform: 'uppercase', marginBottom: spacing.sm, marginTop: spacing.md },
     card: {

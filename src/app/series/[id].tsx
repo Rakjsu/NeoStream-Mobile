@@ -13,6 +13,7 @@ import {
     progressPct, removeEntry, unmarkWatched, type ProgressEntry,
 } from '../../services/progress'
 import { getClient, resolvePlayableUrl } from '../../services/session'
+import { WebView } from 'react-native-webview'
 import { fetchTmdbDetails } from '../../services/tmdb'
 import { hasItem, loadWatchlist, toggleWatchlist } from '../../services/watchlist'
 import type { Episode } from '../../services/xtream'
@@ -41,6 +42,8 @@ export default function SeriesDetail() {
     const [queued, setQueued] = useState<Set<string>>(new Set())
     const [hideSeen, setHideSeen] = useState(false)
     const [inList, setInList] = useState(false)
+    const [trailer, setTrailer] = useState('')
+    const [trailerOpen, setTrailerOpen] = useState(false)
 
     useEffect(() => {
         let alive = true
@@ -65,6 +68,7 @@ export default function SeriesDetail() {
                 if (alive && tmdb) {
                     setPlot(current => current || tmdb.plot)
                     setInfoCover(current => current || tmdb.cover)
+                    if (tmdb.trailer) setTrailer(tmdb.trailer)
                 }
             } catch (err) {
                 if (alive) {
@@ -244,6 +248,11 @@ export default function SeriesDetail() {
                             <Ionicons name={hideSeen ? 'eye-off' : 'eye-outline'} size={16} color={colors.textDim} />
                             <Text style={styles.seenText}>{hideSeen ? t('showSeen') : t('hideSeen')}</Text>
                         </TouchableOpacity>
+                        {trailer ? (
+                            <TouchableOpacity style={styles.seenBtn} accessibilityLabel={t('trailerBtn')} onPress={() => setTrailerOpen(true)}>
+                                <Ionicons name="logo-youtube" size={16} color={colors.textDim} />
+                            </TouchableOpacity>
+                        ) : null}
                         <TouchableOpacity
                             style={styles.seenBtn}
                             accessibilityLabel={t('watchlistBtn')}
@@ -285,6 +294,22 @@ export default function SeriesDetail() {
     return (
         <View style={styles.root}>
             <Stack.Screen options={{ title: name ?? 'Série' }} />
+            {trailerOpen && trailer ? (
+                <View style={styles.trailerModal}>
+                    <WebView
+                        style={{ flex: 1, backgroundColor: '#000' }}
+                        source={{
+                            uri: trailer.replace(/.*(?:v=|youtu\.be\/)([\w-]{6,})[^\w-]?.*/, 'https://www.youtube.com/embed/$1?autoplay=1'),
+                            headers: { Referer: 'https://neostream.app/' },
+                        }}
+                        allowsFullscreenVideo
+                        mediaPlaybackRequiresUserAction={false}
+                    />
+                    <TouchableOpacity style={styles.trailerClose} accessibilityLabel={t('trailerClose')} onPress={() => setTrailerOpen(false)}>
+                        <Ionicons name="close-circle" size={34} color="#fff" />
+                    </TouchableOpacity>
+                </View>
+            ) : null}
             {seasons === null ? (
                 <Loading label={t('loadingEpisodes')} />
             ) : (
@@ -391,6 +416,13 @@ export default function SeriesDetail() {
 }
 
 const styles = StyleSheet.create({
+    trailerModal: {
+        position: 'absolute',
+        top: 0, left: 0, right: 0, bottom: 0,
+        backgroundColor: '#000',
+        zIndex: 20,
+    },
+    trailerClose: { position: 'absolute', top: 40, right: 16 },
     root: { flex: 1, backgroundColor: colors.bg },
     header: { padding: spacing.lg, gap: spacing.md },
     hero: { flexDirection: 'row', gap: spacing.lg },

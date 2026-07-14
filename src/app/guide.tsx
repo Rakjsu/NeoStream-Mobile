@@ -8,7 +8,9 @@ import { loadParental } from '../services/parental'
 import { guardedCategoryIds } from '../services/kids'
 import { listRecentChannels, recordRecentChannel } from '../services/recents'
 import { notifyAt } from '../services/notify'
-import { cachedFetch, getClient } from '../services/session'
+import { addRecurring } from '../services/recurring'
+import { enqueueDownloads } from '../services/downloads'
+import { cachedFetch, getClient, resolvePlayableUrl } from '../services/session'
 import { hasCatchup } from '../services/xtream'
 import type { Category, EpgProgram, LiveChannel } from '../services/xtream'
 import { rankChannels, setZapContext } from '../services/zap'
@@ -116,7 +118,7 @@ export default function Guide() {
         void (async () => {
             const client = await getClient()
             if (!client || !channels) return
-            setZapContext(channels.map(c => ({ id: String(c.stream_id), name: c.name })), String(channel.stream_id))
+            setZapContext(channels.map(c => ({ id: String(c.stream_id), name: c.name, num: c.num })), String(channel.stream_id))
             void recordRecentChannel({ id: String(channel.stream_id), name: channel.name, logo: channel.stream_icon || '' })
             router.push({
                 pathname: '/player',
@@ -139,15 +141,64 @@ export default function Guide() {
         })()
     }
 
+    // ⏪ Programa que já passou: assistir agora ou BAIXAR (vira item nas Gravações).
+    const offerCatchup = (channel: LiveChannel, program: EpgProgram) => {
+        void (async () => {
+            const client = await getClient()
+            if (!client?.catchupUrl) return
+            const durationMin = Math.max(1, Math.round((program.endMs - program.startMs) / 60_000))
+            const raw = client.catchupUrl(String(channel.stream_id), program.startMs, durationMin, program.id)
+            if (!raw) return
+            Alert.alert(`⏪ ${program.title}`, channel.name, [
+                { text: t('cancel'), style: 'cancel' },
+                // HLS não vira arquivo único — o download só aparece pra stream direto.
+                ...(raw.includes('.m3u8') ? [] : [{
+                    text: t('catchupDlBtn'),
+                    onPress: () => {
+                        void (async () => {
+                            await enqueueDownloads([{
+                                id: `rec:catchup:${channel.stream_id}:${program.startMs}`,
+                                url: await resolvePlayableUrl(raw),
+                                title: `⏪ ${program.title}`,
+                                cover: channel.stream_icon || '',
+                                container: 'ts',
+                            }])
+                            Alert.alert(t('catchupDlQueued'))
+                        })()
+                    },
+                }]),
+                { text: t('catchupPlayBtn'), onPress: () => playCatchup(channel, program) },
+            ])
+        })()
+    }
+
     const remind = (channel: LiveChannel, program: EpgProgram) => {
-        void notifyAt(tf('remindNotif', { title: program.title }), channel.name, '/guide', program.startMs)
-            .then(ok => { if (ok) Alert.alert(t('remindSet')) })
+        Alert.alert(program.title, channel.name, [
+            { text: t('cancel'), style: 'cancel' },
+            {
+                text: t('remindWeekly'),
+                onPress: () => {
+                    void addRecurring({
+                        title: program.title,
+                        channelId: String(channel.stream_id),
+                        channelName: channel.name,
+                    }).then(() => Alert.alert(t('remindWeeklySet')))
+                },
+            },
+            {
+                text: t('remindBtn'),
+                onPress: () => {
+                    void notifyAt(tf('remindNotif', { title: program.title }), channel.name, '/guide', program.startMs)
+                        .then(ok => { if (ok) Alert.alert(t('remindSet')) })
+                },
+            },
+        ])
     }
 
     const pressProgram = (channel: LiveChannel, program: EpgProgram) => {
         if (program.startMs <= nowMs && nowMs < program.endMs) { play(channel); return }
         if (program.endMs <= nowMs) {
-            if (hasCatchup(channel)) playCatchup(channel, program)
+            if (hasCatchup(channel)) offerCatchup(channel, program)
             return
         }
         remind(channel, program)
@@ -234,12 +285,12 @@ export default function Guide() {
                         viewabilityConfig={VIEWABILITY}
                         ListEmptyComponent={<EmptyState icon="tv-outline" label={t('nowEmpty')} />}
                         contentContainerStyle={visibleChannels.length === 0 ? { flexGrow: 1 } : undefined}
-                        renderItem={({ item }) => {
+                        renderItem={({ item, index }) => {
                             const programs = scheduleMap[String(item.stream_id)]
                             return (
                                 <View style={styles.row}>
-                                    <TvTouchable style={styles.nameCell} onPress={() => play(item)}>
-                                        <Text style={styles.name} numberOfLines={2}>{item.name}</Text>
+                                    <TvTouchable style={styles.nameCell} hasTVPreferredFocus={index === 0} onPress={() => play(item)}>
+                                        <Text style={styles.name} numberOfLines={2}>{item.num ? `${item.num} · ` : ''}{item.name}</Text>
                                     </TvTouchable>
                                     <View style={styles.timeline}>
                                         {programs === undefined ? (

@@ -73,6 +73,45 @@ export async function disableParental(pin: string): Promise<boolean> {
     return true
 }
 
+// ---------------------------------------------- categorias bloqueadas --
+
+const BLOCKED_KEY = 'neostream_blocked_cats'
+let blockedCache: string[] | null = null
+
+/** Nomes de categoria bloqueados na mão (fase 2 do parental). */
+export async function listBlockedCategories(): Promise<string[]> {
+    if (blockedCache) return blockedCache
+    try {
+        const raw = await AsyncStorage.getItem(BLOCKED_KEY)
+        const parsed = raw ? (JSON.parse(raw) as unknown) : []
+        blockedCache = Array.isArray(parsed) ? parsed.filter((n): n is string => typeof n === 'string') : []
+    } catch {
+        blockedCache = []
+    }
+    return blockedCache
+}
+
+export async function toggleBlockedCategory(name: string): Promise<string[]> {
+    const list = await listBlockedCategories()
+    blockedCache = list.includes(name) ? list.filter(item => item !== name) : [...list, name]
+    try {
+        await AsyncStorage.setItem(BLOCKED_KEY, JSON.stringify(blockedCache))
+    } catch { /* best-effort */ }
+    return blockedCache
+}
+
+/** Tira os bloqueados de um filtro (PURO; base null = sem outras restrições). */
+export function withoutBlocked(base: Set<string> | null, categories: Category[], names: string[]): Set<string> | null {
+    if (names.length === 0) return base
+    const wanted = new Set(names.map(name => name.toLowerCase()))
+    const blockedIds = new Set(categories
+        .filter(category => wanted.has(category.category_name.toLowerCase()))
+        .map(category => category.category_id))
+    if (blockedIds.size === 0) return base
+    const start = base ?? new Set(categories.map(category => category.category_id))
+    return new Set([...start].filter(id => !blockedIds.has(id)))
+}
+
 /** Restauração de backup. */
 export async function restoreParental(state: ParentalState): Promise<void> {
     cache = { enabled: state?.enabled === true && isValidPin(state.pin), pin: state?.pin ?? '' }
@@ -85,4 +124,5 @@ export async function restoreParental(state: ParentalState): Promise<void> {
 /** Só pra testes. */
 export function resetParentalCache(): void {
     cache = null
+    blockedCache = null
 }

@@ -5,6 +5,8 @@
  */
 
 /** Primeira URL de mídia de um m3u8 (resolve relativa contra a base). */
+import AsyncStorage from '@react-native-async-storage/async-storage'
+
 export function parseFirstSegment(m3u8: string, baseUrl: string): string {
     for (const raw of m3u8.split(/\r?\n/)) {
         const line = raw.trim()
@@ -32,6 +34,35 @@ export function speedVerdict(mbps: number): SpeedVerdict {
     if (mbps >= 8) return 'hd'
     if (mbps >= 3) return 'sd'
     return 'slow'
+}
+
+export interface SpeedSample {
+    at: number
+    mbps: number
+    verdict: SpeedVerdict
+}
+
+const HISTORY_KEY = 'neostream_speed_history'
+
+/** Mais novo primeiro, teto fixo (PURO). */
+export function pushSpeedSample(list: SpeedSample[], sample: SpeedSample, keep = 10): SpeedSample[] {
+    return [sample, ...list].slice(0, keep)
+}
+
+export async function loadSpeedHistory(): Promise<SpeedSample[]> {
+    try {
+        const raw = await AsyncStorage.getItem(HISTORY_KEY)
+        const parsed = raw ? (JSON.parse(raw) as SpeedSample[]) : []
+        return Array.isArray(parsed) ? parsed : []
+    } catch {
+        return []
+    }
+}
+
+export async function saveSpeedSample(sample: SpeedSample): Promise<void> {
+    try {
+        await AsyncStorage.setItem(HISTORY_KEY, JSON.stringify(pushSpeedSample(await loadSpeedHistory(), sample)))
+    } catch { /* best-effort */ }
 }
 
 const MAX_MS = 6000

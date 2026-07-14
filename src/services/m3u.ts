@@ -11,7 +11,7 @@ import type {
     SeriesItem, UserInfo, VodDetails, VodMovie,
 } from './xtream'
 import { withRetry } from './net'
-import { lookupDaySchedule, lookupNowNext, parseXmltv, type XmltvGuide } from './xmltv'
+import { lookupDaySchedule, lookupNowNext, normalizeChannelName, parseXmltv, type XmltvGuide } from './xmltv'
 
 export interface M3uChannel {
     id: string
@@ -323,6 +323,40 @@ export class M3uClient implements CatalogClient {
     /** Correções manuais (canal → id do XMLTV) vindas das Configurações. */
     applyEpgOverrides(map: Record<string, string>): void {
         this.epgOverrides = map ?? {}
+    }
+
+    /** Quantos canais têm guia casado + os sem match (diagnóstico do EPG). */
+    async epgCoverage(): Promise<{ matched: number; total: number; misses: { id: string; name: string }[] }> {
+        const catalog = await this.load()
+        const guide = await this.loadGuide()
+        const misses: { id: string; name: string }[] = []
+        let matched = 0
+        for (const channel of catalog.live) {
+            const id = this.epgOverrides[channel.id] ?? channel.tvgId ?? ''
+            const hit = !!guide && (
+                (!!id && guide.byChannelId.has(id))
+                || guide.idByName.has(normalizeChannelName(channel.name)))
+            if (hit) matched++
+            else misses.push({ id: channel.id, name: channel.name })
+        }
+        return { matched, total: catalog.live.length, misses }
+    }
+
+    /** Procura um termo em TODA a grade do XMLTV (qualquer canal — não só favoritos). */
+    async searchGuide(term: string, limit = 10): Promise<{ channelId: string; program: EpgProgram }[]> {
+        const catalog = await this.load()
+        const guide = await this.loadGuide()
+        const q = term.trim().toLowerCase()
+        if (!guide || !q) return []
+        const hits: { channelId: string; program: EpgProgram }[] = []
+        for (const channel of catalog.live) {
+            for (const program of lookupDaySchedule(guide, this.epgOverrides[channel.id] ?? channel.tvgId ?? '', channel.name)) {
+                if (!program.title.toLowerCase().includes(q)) continue
+                hits.push({ channelId: channel.id, program })
+                if (hits.length >= limit) return hits
+            }
+        }
+        return hits
     }
 
     /** Canais do guia XMLTV (pra tela de correção manual). */

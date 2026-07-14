@@ -13,13 +13,27 @@
     },
     "android": {
       "package": "com.rakjsu.neostream",
+      "permissions": [
+        "android.permission.REQUEST_INSTALL_PACKAGES"
+      ],
       "adaptiveIcon": {
         "backgroundColor": "#0b0b10",
         "foregroundImage": "./assets/images/android-icon-foreground.png",
         "backgroundImage": "./assets/images/android-icon-background.png",
         "monochromeImage": "./assets/images/android-icon-monochrome.png"
       },
-      "predictiveBackGestureEnabled": false
+      "predictiveBackGestureEnabled": false,
+      "intentFilters": [
+        {
+          "action": "VIEW",
+          "category": ["DEFAULT", "BROWSABLE"],
+          "data": [
+            { "mimeType": "application/x-mpegURL" },
+            { "mimeType": "audio/x-mpegurl" },
+            { "mimeType": "application/vnd.apple.mpegurl" }
+          ]
+        }
+      ]
     },
     "web": {
       "output": "static",
@@ -54,7 +68,8 @@
       "react-native-google-cast",
       "expo-quick-actions",
       "expo-sharing",
-      "./plugins/withAndroidTV.js"
+      "./plugins/withAndroidTV.js",
+      "expo-speech-recognition"
     ],
     "experiments": {
       "typedRoutes": true,

@@ -162,6 +162,39 @@ export function lastDays(map: UsageMap, todayKey: string, n = 7): { day: string;
     return series
 }
 
+/** Minutos desta semana (0–6 dias atrás) e da anterior (7–13) (PURO). */
+export function weekDelta(map: UsageMap, todayKey: string): { current: number; previous: number } {
+    let current = 0
+    let previous = 0
+    for (const [day, kinds] of Object.entries(map)) {
+        if (day > todayKey) continue
+        const age = (Date.parse(todayKey) - Date.parse(day)) / 86_400_000
+        const minutes = (kinds.live ?? 0) + (kinds.movie ?? 0) + (kinds.episode ?? 0)
+        if (age < 7) current += minutes
+        else if (age < 14) previous += minutes
+    }
+    return { current, previous }
+}
+
+/** Dias SEGUIDOS assistindo até hoje (hoje vazio conta a partir de ontem) (PURO). */
+export function currentStreak(map: UsageMap, todayKey: string): number {
+    const minutesOf = (key: string) => {
+        const kinds = map[key] ?? {}
+        return (kinds.live ?? 0) + (kinds.movie ?? 0) + (kinds.episode ?? 0)
+    }
+    const [year, month, day] = todayKey.split('-').map(Number)
+    let streak = 0
+    let offset = minutesOf(todayKey) > 0 ? 0 : 1
+    for (;;) {
+        const date = new Date(Date.UTC(year, month - 1, day - offset))
+        const key = `${date.getUTCFullYear()}-${String(date.getUTCMonth() + 1).padStart(2, '0')}-${String(date.getUTCDate()).padStart(2, '0')}`
+        if (minutesOf(key) <= 0) break
+        streak++
+        offset++
+    }
+    return streak
+}
+
 /** 205 → "3h 25min"; 45 → "45min". */
 export function formatMinutes(minutes: number): string {
     const hours = Math.floor(minutes / 60)
@@ -213,4 +246,41 @@ export async function recordWatchMinute(kind: UsageKind, nowMs = Date.now(), tit
         const months = addMonthMinute(await loadMonthUsage(), monthKey(nowMs), kind)
         await AsyncStorage.setItem(profileKey(MONTHS_KEY), JSON.stringify(months))
     } catch { /* best-effort */ }
+}
+
+// ------------------------------------------------------- meta de tempo --
+
+const GOAL_KEY = 'neostream_usage_goal_min'
+
+/** Meta diária de uso pra adultos em minutos (0 = desligada). */
+export async function getUsageGoal(): Promise<number> {
+    try {
+        const minutes = Number(await AsyncStorage.getItem(GOAL_KEY))
+        return Number.isFinite(minutes) && minutes > 0 ? minutes : 0
+    } catch {
+        return 0
+    }
+}
+
+export async function setUsageGoal(minutes: number): Promise<void> {
+    try {
+        if (minutes > 0) await AsyncStorage.setItem(GOAL_KEY, String(minutes))
+        else await AsyncStorage.removeItem(GOAL_KEY)
+    } catch { /* best-effort */ }
+}
+
+/** Minutos da meta quando ela ACABOU de ser atingida (0 = nada; 1 aviso/dia). */
+export async function usageGoalJustHit(nowMs: number): Promise<number> {
+    const goal = await getUsageGoal()
+    if (goal <= 0) return 0
+    const today = dayKey(nowMs)
+    if (summarize(await loadUsage(), today).totalMinutes < goal) return 0
+    const flag = `neostream_goal_seen_${today}`
+    try {
+        if (await AsyncStorage.getItem(flag)) return 0
+        await AsyncStorage.setItem(flag, '1')
+        return goal
+    } catch {
+        return 0
+    }
 }

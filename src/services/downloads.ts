@@ -19,6 +19,8 @@ export interface DownloadItem {
     fileUri: string
     sizeBytes: number
     downloadedAt: number
+    /** Protegido: faxina e teto de armazenamento não tocam. */
+    locked?: boolean
 }
 
 export interface DownloadRequest {
@@ -48,19 +50,24 @@ export interface DownloadGroup {
  * Agrupa pra tela: episódios pela série (título "Série · Ep"), filmes num
  * grupo próprio no fim (PURO). Grupos na ordem do download mais recente.
  */
-export function groupDownloads(items: DownloadItem[], moviesTitle: string): DownloadGroup[] {
+export function groupDownloads(items: DownloadItem[], moviesTitle: string, recsTitle = '⏺'): DownloadGroup[] {
     const groups = new Map<string, DownloadGroup>()
     for (const item of items) {
-        const isEpisode = item.id.startsWith('episode:')
-        const key = isEpisode ? (item.title.split(' · ')[0] || moviesTitle) : moviesTitle
+        const key = item.id.startsWith('rec:') ? recsTitle
+            : item.id.startsWith('episode:') ? (item.title.split(' · ')[0] || moviesTitle)
+                : moviesTitle
         const group = groups.get(key) ?? { title: key, bytes: 0, data: [] }
         group.bytes += item.sizeBytes
         group.data.push(item)
         groups.set(key, group)
     }
-    // Filmes sempre por último; o resto na ordem de inserção (mais recente 1º).
+    // Gravações primeiro, filmes por último; o resto na ordem de inserção.
     const list = [...groups.values()]
-    return [...list.filter(g => g.title !== moviesTitle), ...list.filter(g => g.title === moviesTitle)]
+    return [
+        ...list.filter(g => g.title === recsTitle),
+        ...list.filter(g => g.title !== moviesTitle && g.title !== recsTitle),
+        ...list.filter(g => g.title === moviesTitle),
+    ]
 }
 
 /**
@@ -85,7 +92,7 @@ export function pickPending(requests: DownloadRequest[], taken: Set<string>): Do
 export function pickEvictions(items: DownloadItem[], watched: Set<string>, limitBytes: number): DownloadItem[] {
     let total = items.reduce((sum, item) => sum + item.sizeBytes, 0)
     if (limitBytes <= 0 || total <= limitBytes) return []
-    const order = [...items].sort((a, b) => {
+    const order = [...items].filter(item => !item.locked).sort((a, b) => {
         const aWatched = watched.has(a.id) ? 0 : 1
         const bWatched = watched.has(b.id) ? 0 : 1
         if (aWatched !== bWatched) return aWatched - bWatched
@@ -196,6 +203,10 @@ interface ActiveEntry {
     task: FileSystem.DownloadResumable
     progress: number
     paused: boolean
+    /** Janela deslizante pro MB/s da barra. */
+    lastBytes?: number
+    lastAt?: number
+    speedBps?: number
     cancelled?: boolean
     /** Acorda o loop do startDownload quando retomar/cancelar. */
     wake?: () => void
@@ -246,8 +257,10 @@ export function activeProgress(id: string): number | null {
     return active.get(id)?.progress ?? null
 }
 
-export function listActiveDownloads(): { id: string; progress: number; paused: boolean }[] {
-    return [...active.entries()].map(([id, entry]) => ({ id, progress: entry.progress, paused: entry.paused }))
+export function listActiveDownloads(): { id: string; progress: number; paused: boolean; speedBps: number }[] {
+    return [...active.entries()].map(([id, entry]) => ({
+        id, progress: entry.progress, paused: entry.paused, speedBps: entry.speedBps ?? 0,
+    }))
 }
 
 /**
@@ -327,6 +340,9 @@ export async function startDownload(request: DownloadRequest): Promise<void> {
     await writePending(pending)
 
     await waitForAllowedNetwork()
+    // Disco quase cheio: melhor falhar o download do que travar o aparelho.
+    const freeBytes = await FileSystem.getFreeDiskStorageAsync().catch(() => Number.POSITIVE_INFINITY)
+    if (freeBytes < 200 * 1024 * 1024) throw new Error('Sem espaço livre no aparelho.')
     await FileSystem.makeDirectoryAsync(DIR, { intermediates: true }).catch(() => undefined)
     const fileUri = DIR + safeFileName(request.id, request.container)
     // URL adiada de portal resolve agora (create_link é de uso único).
@@ -336,6 +352,15 @@ export async function startDownload(request: DownloadRequest): Promise<void> {
         const entry = active.get(request.id)
         if (entry && progress.totalBytesExpectedToWrite > 0) {
             entry.progress = progress.totalBytesWritten / progress.totalBytesExpectedToWrite
+            const at = Date.now()
+            if (entry.lastAt && at - entry.lastAt >= 1000) {
+                entry.speedBps = ((progress.totalBytesWritten - (entry.lastBytes ?? 0)) / (at - entry.lastAt)) * 1000
+                entry.lastBytes = progress.totalBytesWritten
+                entry.lastAt = at
+            } else if (!entry.lastAt) {
+                entry.lastBytes = progress.totalBytesWritten
+                entry.lastAt = at
+            }
             notify()
         }
     }, request.resumeData)
@@ -437,6 +462,42 @@ export async function cancelDownload(id: string): Promise<void> {
     await entry.task.cancelAsync().catch(() => undefined)
     entry.wake?.() // download pausado precisa acordar pra morrer
     active.delete(id)
+    notify()
+}
+
+/** Liberável: já visto OU gravação com 14+ dias — protegido NUNCA (PURO). */
+export function isFreeable(item: DownloadItem, watched: Set<string>, nowMs: number): boolean {
+    if (item.locked) return false
+    if (watched.has(item.id)) return true
+    return item.id.startsWith('rec:') && nowMs - item.downloadedAt > 14 * 24 * 3600_000
+}
+
+/** Candidatos do botão "liberar espaço". */
+export async function listFreeable(): Promise<DownloadItem[]> {
+    const watched = await loadWatched().catch(() => new Set<string>())
+    return (await listDownloads()).filter(item => isFreeable(item, watched, Date.now()))
+}
+
+/** Liga/desliga a proteção contra a faxina automática. */
+export async function toggleLockDownload(id: string): Promise<void> {
+    const map = await loadRegistry()
+    const item = map[id]
+    if (!item) return
+    map[id] = { ...item, locked: !item.locked }
+    registry = map
+    await persistRegistry()
+    notify()
+}
+
+/** Renomeia um item (gravações: "rec_..." vira "Final do campeonato"). */
+export async function renameDownload(id: string, title: string): Promise<void> {
+    const map = await loadRegistry()
+    const item = map[id]
+    const clean = title.trim()
+    if (!item || !clean) return
+    map[id] = { ...item, title: clean }
+    registry = map
+    await persistRegistry()
     notify()
 }
 

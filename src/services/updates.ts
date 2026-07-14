@@ -32,12 +32,15 @@ export function isNewerVersion(current: string, latest: string): boolean {
 export interface UpdateInfo {
     version: string
     url: string
+    /** URL direta do .apk da release (habilita o update in-app). */
+    apkUrl?: string
 }
 
 interface CachedCheck {
     at: number
     version: string
     url: string
+    apkUrl?: string
 }
 
 /**
@@ -53,19 +56,26 @@ export async function checkForUpdate(currentVersion: string, now = Date.now(), f
 
     let version = cached?.version ?? ''
     let url = cached?.url ?? ''
+    let apkUrl = cached?.apkUrl ?? ''
     if (force || !cached || now - cached.at >= CHECK_INTERVAL_MS) {
         try {
             const response = await fetch(LATEST_URL, { headers: { Accept: 'application/vnd.github+json' } })
             if (!response.ok) throw new Error(`HTTP ${response.status}`)
-            const data = (await response.json()) as { tag_name?: string; html_url?: string }
+            const data = (await response.json()) as {
+                tag_name?: string; html_url?: string
+                assets?: { name?: string; browser_download_url?: string }[]
+            }
             version = typeof data.tag_name === 'string' ? data.tag_name : ''
             url = typeof data.html_url === 'string' ? data.html_url : ''
-            await AsyncStorage.setItem(CACHE_KEY, JSON.stringify({ at: now, version, url } satisfies CachedCheck))
+            apkUrl = data.assets?.find(asset => asset.name?.endsWith('.apk'))?.browser_download_url ?? ''
+            await AsyncStorage.setItem(CACHE_KEY, JSON.stringify({ at: now, version, url, apkUrl } satisfies CachedCheck))
         } catch {
             // Sem rede/limite da API: usa o cache velho se houver, senão silencia.
             if (!cached) return null
         }
     }
 
-    return version && url && isNewerVersion(currentVersion, version) ? { version, url } : null
+    return version && url && isNewerVersion(currentVersion, version)
+        ? { version, url, apkUrl: apkUrl || undefined }
+        : null
 }

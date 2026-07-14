@@ -4,7 +4,7 @@
  * O filtro de categorias em si é do parental; aqui vive só o interruptor.
  */
 import AsyncStorage from '@react-native-async-storage/async-storage'
-import { allowedCategoryIds } from './parental'
+import { allowedCategoryIds, listBlockedCategories, loadParental, withoutBlocked } from './parental'
 import type { Category } from './xtream'
 
 const STORAGE_KEY = 'neostream_kids_mode'
@@ -56,7 +56,11 @@ export async function toggleKidsCategory(name: string): Promise<string[]> {
  * infantil (quando ligado e configurada). Fora do modo infantil = só parental.
  */
 export async function guardedCategoryIds(categories: Category[], parentalEnabled: boolean): Promise<Set<string> | null> {
-    const base = allowedCategoryIds(categories, parentalEnabled)
+    let base = allowedCategoryIds(categories, parentalEnabled)
+    // Bloqueios manuais valem sempre que o parental está ligado.
+    if ((await loadParental()).enabled) {
+        base = withoutBlocked(base, categories, await listBlockedCategories())
+    }
     if (!(await isKidsMode())) return base
     return intersectAllowed(base, whitelistCategoryIds(categories, await listKidsCategories()))
 }
@@ -83,4 +87,26 @@ export async function setKidsMode(on: boolean): Promise<void> {
 export function resetKidsCache(): void {
     cache = null
     catsCache = null
+}
+
+// ------------------------------------------------------ limite de tempo --
+
+const LIMIT_KEY = 'neostream_kids_limit_min'
+
+/** Limite diário do modo infantil em minutos (0 = desligado). */
+export async function getKidsTimeLimit(): Promise<number> {
+    try {
+        const raw = await AsyncStorage.getItem(LIMIT_KEY)
+        const minutes = Number(raw)
+        return Number.isFinite(minutes) && minutes > 0 ? minutes : 0
+    } catch {
+        return 0
+    }
+}
+
+export async function setKidsTimeLimit(minutes: number): Promise<void> {
+    try {
+        if (minutes > 0) await AsyncStorage.setItem(LIMIT_KEY, String(minutes))
+        else await AsyncStorage.removeItem(LIMIT_KEY)
+    } catch { /* best-effort */ }
 }

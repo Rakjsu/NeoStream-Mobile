@@ -36,3 +36,9 @@ export function sortCatalog<T extends { name: string; rating?: string | number }
     if (mode === 'az') return copy.sort((a, b) => a.name.localeCompare(b.name, 'pt'))
     return copy.sort((a, b) => toNumber(b.rating) - toNumber(a.rating))
 }
+
+/** Entrou no catálogo há menos de `days` dias? (`added`/`last_modified` em epoch s.) */
+export function isRecentlyAdded(added: string | undefined, nowMs: number, days = 7): boolean {
+    const sec = Number(added)
+    return Number.isFinite(sec) && sec > 0 && nowMs / 1000 - sec < days * 86_400
+}

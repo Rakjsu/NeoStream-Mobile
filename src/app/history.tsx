@@ -2,10 +2,10 @@ import { Ionicons } from '@expo/vector-icons'
 import { Image } from 'expo-image'
 import { Stack, router, useFocusEffect } from 'expo-router'
 import { useCallback, useState } from 'react'
-import { FlatList, StyleSheet, Text, TouchableOpacity, View } from 'react-native'
-import { isFinished, loadProgress, progressPct, removeEntry, type ProgressEntry } from '../services/progress'
+import { Alert, FlatList, StyleSheet, Text, TouchableOpacity, View } from 'react-native'
+import { clearHistory, isFinished, loadProgress, progressPct, removeEntry, type ProgressEntry } from '../services/progress'
 import { getClient, resolvePlayableUrl } from '../services/session'
-import { EmptyState } from '../ui/components'
+import { EmptyState, SearchBar } from '../ui/components'
 import { colors, spacing } from '../ui/theme'
 import { t } from '../i18n/strings'
 
@@ -22,6 +22,7 @@ function formatWhen(ms: number): string {
 /** Tudo que passou pelo player, do mais recente pro mais antigo. */
 export default function History() {
     const [entries, setEntries] = useState<ProgressEntry[]>([])
+    const [query, setQuery] = useState('')
 
     useFocusEffect(useCallback(() => {
         queueMicrotask(() => {
@@ -54,14 +55,41 @@ export default function History() {
             loadProgress().then(map => setEntries(Object.values(map).sort((a, b) => b.updatedAt - a.updatedAt))))
     }
 
+    const filtered = query.trim()
+        ? entries.filter(entry => entry.title.toLowerCase().includes(query.trim().toLowerCase()))
+        : entries
+
     return (
         <View style={styles.root}>
             <Stack.Screen options={{ title: t('historyTitle') }} />
+            <View style={styles.topRow}>
+                <View style={{ flex: 1 }}>
+                    <SearchBar value={query} onChange={setQuery} placeholder={t('historySearchPh')} />
+                </View>
+                {entries.length > 0 ? (
+                    <TouchableOpacity
+                        style={styles.clearBtn}
+                        accessibilityLabel={t('historyClearBtn')}
+                        onPress={() => {
+                            Alert.alert(t('historyClearBtn'), t('historyClearMsg'), [
+                                { text: t('cancel'), style: 'cancel' },
+                                {
+                                    text: t('remove'),
+                                    style: 'destructive',
+                                    onPress: () => { void clearHistory().then(() => setEntries([])) },
+                                },
+                            ])
+                        }}
+                    >
+                        <Ionicons name="trash-bin-outline" size={20} color={colors.danger} />
+                    </TouchableOpacity>
+                ) : null}
+            </View>
             <FlatList
-                data={entries}
+                data={filtered}
                 keyExtractor={entry => entry.id}
-                ListEmptyComponent={<EmptyState icon="time-outline" label={t('historyEmpty')} />}
-                contentContainerStyle={entries.length === 0 ? { flexGrow: 1 } : undefined}
+                ListEmptyComponent={<EmptyState icon="time-outline" label={query.trim() ? t('searchNothing') : t('historyEmpty')} />}
+                contentContainerStyle={filtered.length === 0 ? { flexGrow: 1 } : undefined}
                 renderItem={({ item }) => {
                     const done = isFinished(item.position, item.duration)
                     const pct = progressPct(item.position, item.duration)
@@ -102,6 +130,8 @@ export default function History() {
 
 const styles = StyleSheet.create({
     root: { flex: 1, backgroundColor: colors.bg },
+    topRow: { flexDirection: 'row', alignItems: 'center', paddingRight: spacing.md, paddingTop: spacing.sm, gap: spacing.sm },
+    clearBtn: { padding: spacing.sm },
     row: {
         flexDirection: 'row',
         alignItems: 'center',

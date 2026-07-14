@@ -8,6 +8,7 @@ import { loadParental } from '../services/parental'
 import { guardedCategoryIds } from '../services/kids'
 import { listRecentChannels, recordRecentChannel } from '../services/recents'
 import { notifyAt } from '../services/notify'
+import { addRecurring } from '../services/recurring'
 import { enqueueDownloads } from '../services/downloads'
 import { cachedFetch, getClient, resolvePlayableUrl } from '../services/session'
 import { hasCatchup } from '../services/xtream'
@@ -172,8 +173,26 @@ export default function Guide() {
     }
 
     const remind = (channel: LiveChannel, program: EpgProgram) => {
-        void notifyAt(tf('remindNotif', { title: program.title }), channel.name, '/guide', program.startMs)
-            .then(ok => { if (ok) Alert.alert(t('remindSet')) })
+        Alert.alert(program.title, channel.name, [
+            { text: t('cancel'), style: 'cancel' },
+            {
+                text: t('remindWeekly'),
+                onPress: () => {
+                    void addRecurring({
+                        title: program.title,
+                        channelId: String(channel.stream_id),
+                        channelName: channel.name,
+                    }).then(() => Alert.alert(t('remindWeeklySet')))
+                },
+            },
+            {
+                text: t('remindBtn'),
+                onPress: () => {
+                    void notifyAt(tf('remindNotif', { title: program.title }), channel.name, '/guide', program.startMs)
+                        .then(ok => { if (ok) Alert.alert(t('remindSet')) })
+                },
+            },
+        ])
     }
 
     const pressProgram = (channel: LiveChannel, program: EpgProgram) => {

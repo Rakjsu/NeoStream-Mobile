@@ -282,10 +282,13 @@ export function resetTraktCache(): void {
 
 export interface TraktPlayback {
     kind: 'movie' | 'episode'
+    /** Nos episódios, é o nome da SÉRIE (season/episode dizem qual capítulo). */
     title: string
     /** 0–100 — o player converte pra segundos quando souber a duração. */
     progress: number
     pausedAtMs: number
+    season?: number
+    episode?: number
 }
 
 /** Reproduções pausadas no Trakt (Kodi/PC) — o Início casa filmes por nome. */
@@ -299,14 +302,23 @@ export async function fetchTraktPlayback(): Promise<TraktPlayback[]> {
             progress?: number
             paused_at?: string
             movie?: TraktHit
+            show?: TraktHit
+            episode?: { season?: number; number?: number }
         }[]
-        return rows.flatMap(row => {
+        return rows.flatMap((row): TraktPlayback[] => {
             const progress = Number(row.progress)
             if (!Number.isFinite(progress) || progress <= 0 || progress >= 95) return []
-            // Episódios exigiriam resolver o id do episódio no provedor — só filmes.
-            if (row.type !== 'movie' || !row.movie?.title) return []
             const pausedAtMs = Date.parse(row.paused_at ?? '') || Date.now()
-            return [{ kind: 'movie' as const, title: row.movie.title, progress, pausedAtMs }]
+            if (row.type === 'movie' && row.movie?.title) {
+                return [{ kind: 'movie' as const, title: row.movie.title, progress, pausedAtMs }]
+            }
+            if (row.type === 'episode' && row.show?.title && row.episode) {
+                const season = Number(row.episode.season)
+                const episode = Number(row.episode.number)
+                if (!Number.isFinite(season) || !Number.isFinite(episode)) return []
+                return [{ kind: 'episode' as const, title: row.show.title, progress, pausedAtMs, season, episode }]
+            }
+            return []
         })
     } catch {
         return []

@@ -73,3 +73,22 @@ describe('fetchTraktPlayback', () => {
         expect(spy).not.toHaveBeenCalled()
     })
 })
+
+describe('fetchTraktPlayback conectado', () => {
+    it('converte filmes e episódios, ignora >=95%', async () => {
+        const { setTraktCreds, pollDeviceToken, fetchTraktPlayback, disconnectTrakt } = await import('./trakt')
+        await setTraktCreds({ clientId: 'cid', clientSecret: 'sec' })
+        vi.stubGlobal('fetch', vi.fn(async () => ({ status: 200, ok: true, json: async () => ({ access_token: 'tok' }) })))
+        expect(await pollDeviceToken('dev')).toBe('ok')
+        vi.stubGlobal('fetch', vi.fn(async () => ({ ok: true, status: 200, json: async () => ([
+            { type: 'movie', progress: 40, paused_at: '2026-07-01T00:00:00Z', movie: { title: 'Duna' } },
+            { type: 'episode', progress: 60, episode: { season: 1, number: 3 }, show: { title: 'Dark' } },
+            { type: 'movie', progress: 97, movie: { title: 'Quase visto' } },
+        ]) })))
+        const list = await fetchTraktPlayback()
+        expect(list).toHaveLength(2)
+        expect(list[0]).toMatchObject({ kind: 'movie', title: 'Duna', progress: 40 })
+        expect(list[1]).toMatchObject({ kind: 'episode', title: 'Dark', season: 1, episode: 3 })
+        await disconnectTrakt()
+    })
+})

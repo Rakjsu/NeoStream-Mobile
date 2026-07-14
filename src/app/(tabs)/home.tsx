@@ -17,7 +17,7 @@ import { guardedCategoryIds } from '../../services/kids'
 import { getEntry, listContinue, loadProgress, removeEntry, saveSample, type ProgressEntry } from '../../services/progress'
 import { becauseYouWatched, type RecCandidate } from '../../services/recommend'
 import { loadWatchlist } from '../../services/watchlist'
-import { accountLabel, cachedFetch, catalogFetchedAt, getClient, loadAccount } from '../../services/session'
+import { accountLabel, cachedFetch, catalogFetchedAt, getClient, loadAccount, resolvePlayableUrl } from '../../services/session'
 import { daysUntil, parseExpiry } from '../../services/xtream'
 import type { Category, SeriesItem, VodMovie } from '../../services/xtream'
 import { updateContinueShortcut } from '../../services/shortcuts'
@@ -26,6 +26,7 @@ import { dayKey, formatMinutes, loadTitleUsage, topTitles } from '../../services
 import { checkForUpdate, type UpdateInfo } from '../../services/updates'
 import { downloadAndInstall } from '../../services/updater'
 import { checkWhatsNew } from '../../services/whatsnew'
+import { probeAll } from '../../services/probe'
 import { fetchTraktPlayback, fetchTraktWatchlist } from '../../services/trakt'
 import { getCloudBackupDir } from '../../services/autoBackup'
 import { ChannelRail, ContinueRail, EmptyState, Loading, PosterRail, type RailItem } from '../../ui/components'
@@ -139,29 +140,75 @@ export default function HomeTab() {
                 let added = false
                 for (const item of paused) {
                     const wanted = item.title.toLowerCase()
-                    const movie = visibleVod.find(m => m.name.toLowerCase().includes(wanted))
-                    if (!movie) continue
-                    const progressId = `movie:${movie.stream_id}`
-                    if (await getEntry(progressId)) continue // progresso local vence
-                    await saveSample({
-                        id: progressId,
-                        kind: 'movie',
-                        streamId: String(movie.stream_id),
-                        container: movie.container_extension || 'mp4',
-                        title: movie.name,
-                        cover: movie.stream_icon || '',
-                        position: item.progress,
-                        duration: 100,
-                        updatedAt: item.pausedAtMs,
-                        fromTraktPct: true,
-                    })
-                    added = true
+                    if (item.kind === 'movie') {
+                        const movie = visibleVod.find(m => m.name.toLowerCase().includes(wanted))
+                        if (!movie) continue
+                        const progressId = `movie:${movie.stream_id}`
+                        if (await getEntry(progressId)) continue // progresso local vence
+                        await saveSample({
+                            id: progressId,
+                            kind: 'movie',
+                            streamId: String(movie.stream_id),
+                            container: movie.container_extension || 'mp4',
+                            title: movie.name,
+                            cover: movie.stream_icon || '',
+                            position: item.progress,
+                            duration: 100,
+                            updatedAt: item.pausedAtMs,
+                            fromTraktPct: true,
+                        })
+                        added = true
+                        continue
+                    }
+                    // Episódio: casa a série por nome e resolve o id na ficha.
+                    const show = visibleShows.find(s => s.name.toLowerCase().includes(wanted))
+                    if (!show || !item.season || !item.episode) continue
+                    try {
+                        const info = await client.getSeriesInfo(String(show.series_id))
+                        const episodes = info.episodes?.[String(item.season)] ?? []
+                        const found = episodes.find(ep => Number(ep.episode_num) === item.episode)
+                        if (!found) continue
+                        const progressId = `episode:${found.id}`
+                        if (await getEntry(progressId)) continue
+                        const pad = (n: number) => String(n).padStart(2, '0')
+                        await saveSample({
+                            id: progressId,
+                            kind: 'episode',
+                            streamId: String(found.id),
+                            container: found.container_extension || 'mp4',
+                            title: `${show.name} · S${pad(item.season)}E${pad(item.episode)}`,
+                            cover: show.cover || '',
+                            position: item.progress,
+                            duration: 100,
+                            updatedAt: item.pausedAtMs,
+                            fromTraktPct: true,
+                        })
+                        added = true
+                    } catch { /* ficha indisponível — fica pra próxima */ }
                 }
                 if (added) {
                     const map = await loadProgress()
                     setContinueList(listContinue(map).slice(0, RAIL_MAX))
                 }
             }).catch(() => undefined)
+
+            // 🩺 1×/semana: sonda os favoritos e avisa se houver canal morto.
+            void (async () => {
+                const CHECK_KEY = 'neostream_favcheck_at'
+                const last = Number(await AsyncStorage.getItem(CHECK_KEY)) || 0
+                if (Date.now() - last < 7 * 24 * 3600_000 || favorites.live.length === 0) return
+                await AsyncStorage.setItem(CHECK_KEY, String(Date.now()))
+                const targets = live.filter(c => favorites.live.includes(String(c.stream_id))).slice(0, 30)
+                const withUrls = await Promise.all(targets.map(async channel => ({
+                    channel,
+                    streamUrl: await resolvePlayableUrl(client.liveStreamUrl(String(channel.stream_id))).catch(() => ''),
+                })))
+                const results = await probeAll(withUrls, entry => entry.streamUrl)
+                const deadCount = results.filter(r => r.item.streamUrl.startsWith('http') && !r.alive).length
+                if (deadCount > 0) {
+                    void notifyNow(tf('favCheckNotif', { n: deadCount }), '', '/(tabs)/settings')
+                }
+            })().catch(() => undefined)
 
             setFavPosters([
                 ...visibleVod.filter(m => favorites.movie.includes(String(m.stream_id))).map(movieRail),

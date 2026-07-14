@@ -36,7 +36,7 @@ import {
     accountLabel, cachedFetch, clearCatalogCache, getClient, listAccounts, loadAccount, removeAccount, renameAccount, resolvePlayableUrl, switchAccount,
     type StoredAccount,
 } from '../../services/session'
-import { currentStreak, dayKey, formatMinutes, lastDays, lastMonths, loadMonthUsage, loadTitleUsage, loadUsage, monthKey, summarize, topTitles, usageCsv, weekDelta, type TopTitle, type UsageSummary } from '../../services/usage'
+import { currentStreak, dayKey, formatMinutes, getUsageGoal, lastDays, lastMonths, loadMonthUsage, loadTitleUsage, loadUsage, monthKey, setUsageGoal, summarize, topTitles, usageCsv, weekDelta, type TopTitle, type UsageSummary } from '../../services/usage'
 import { heatmapCells, loadHabits } from '../../services/habit'
 import { parseExpiry } from '../../services/xtream'
 import { TvTouchable } from '../../ui/components'
@@ -167,6 +167,7 @@ export default function SettingsTab() {
     const [bioOk, setBioOk] = useState(false)
     const [kidsLimit, setKidsLimit] = useState(0)
     const [habitGrid, setHabitGrid] = useState<number[][]>([])
+    const [usageGoal, setUsageGoalState] = useState(0)
     const [traktCid, setTraktCid] = useState('')
     const [traktCsec, setTraktCsec] = useState('')
     const [traktOn, setTraktOn] = useState(false)
@@ -243,6 +244,7 @@ export default function SettingsTab() {
         void loadRailPrefs().then(setRailPrefs)
         void getKidsTimeLimit().then(setKidsLimit)
         void loadHabits().then(map => setHabitGrid(heatmapCells(map)))
+        void getUsageGoal().then(setUsageGoalState)
         void getTraktCreds().then(creds => { setTraktCid(creds.clientId); setTraktCsec(creds.clientSecret) })
         void isTraktConnected().then(setTraktOn)
         void AsyncStorage.getItem('neostream_boot_tab').then(v => setBootLive(v === 'live')).catch(() => undefined)
@@ -827,6 +829,20 @@ export default function SettingsTab() {
                     </Text>
                 ) : null}
                 {habitGrid.length > 0 ? <HabitHeatmap cells={habitGrid} /> : null}
+                <TvTouchable
+                    style={styles.kidsRow}
+                    onPress={() => {
+                        // Off → 2h → 3h → 4h → 5h → 6h → off.
+                        const next = usageGoal === 0 ? 120 : usageGoal >= 360 ? 0 : usageGoal + 60
+                        setUsageGoalState(next)
+                        void setUsageGoal(next)
+                    }}
+                >
+                    <Ionicons name="alarm-outline" size={18} color={usageGoal > 0 ? colors.accent : colors.textDim} />
+                    <Text style={[styles.kidsText, usageGoal > 0 && { color: colors.accent }]}>
+                        {usageGoal > 0 ? tf('usageGoalLabel', { time: formatMinutes(usageGoal) }) : t('usageGoalOff')}
+                    </Text>
+                </TvTouchable>
                 <Text style={styles.parentalHint}>{t('usageMonths')}</Text>
                 <View style={styles.usageBars}>
                     {usageMonths.map(entry => {

@@ -247,3 +247,40 @@ export async function recordWatchMinute(kind: UsageKind, nowMs = Date.now(), tit
         await AsyncStorage.setItem(profileKey(MONTHS_KEY), JSON.stringify(months))
     } catch { /* best-effort */ }
 }
+
+// ------------------------------------------------------- meta de tempo --
+
+const GOAL_KEY = 'neostream_usage_goal_min'
+
+/** Meta diária de uso pra adultos em minutos (0 = desligada). */
+export async function getUsageGoal(): Promise<number> {
+    try {
+        const minutes = Number(await AsyncStorage.getItem(GOAL_KEY))
+        return Number.isFinite(minutes) && minutes > 0 ? minutes : 0
+    } catch {
+        return 0
+    }
+}
+
+export async function setUsageGoal(minutes: number): Promise<void> {
+    try {
+        if (minutes > 0) await AsyncStorage.setItem(GOAL_KEY, String(minutes))
+        else await AsyncStorage.removeItem(GOAL_KEY)
+    } catch { /* best-effort */ }
+}
+
+/** Minutos da meta quando ela ACABOU de ser atingida (0 = nada; 1 aviso/dia). */
+export async function usageGoalJustHit(nowMs: number): Promise<number> {
+    const goal = await getUsageGoal()
+    if (goal <= 0) return 0
+    const today = dayKey(nowMs)
+    if (summarize(await loadUsage(), today).totalMinutes < goal) return 0
+    const flag = `neostream_goal_seen_${today}`
+    try {
+        if (await AsyncStorage.getItem(flag)) return 0
+        await AsyncStorage.setItem(flag, '1')
+        return goal
+    } catch {
+        return 0
+    }
+}

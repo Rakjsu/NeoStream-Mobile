@@ -19,7 +19,7 @@ import { cachedFetch, getClient, resolvePlayableUrl } from '../services/session'
 import { tapLight } from '../services/haptics'
 import { alternateLiveUrl } from '../services/xtream'
 import { getAspect, nextAspect, setAspect, type AspectMode } from '../services/aspect'
-import { dayKey, loadUsage, recordWatchMinute, summarize } from '../services/usage'
+import { dayKey, formatMinutes, loadUsage, recordWatchMinute, summarize, usageGoalJustHit } from '../services/usage'
 import { getKidsTimeLimit, isKidsMode } from '../services/kids'
 import { traktScrobble } from '../services/trakt'
 import { loadParental } from '../services/parental'
@@ -813,6 +813,10 @@ export default function Player() {
                         try { player.pause() } catch { /* player já liberado */ }
                     }
                 })()
+                // Meta de tempo (adulto): estourou → UM aviso gentil por dia.
+                void usageGoalJustHit(Date.now()).then(goalMin => {
+                    if (goalMin > 0) showTrackToast(tf('usageGoalHit', { time: formatMinutes(goalMin) }))
+                })
             }
         }, 60_000)
         return () => clearInterval(timer)

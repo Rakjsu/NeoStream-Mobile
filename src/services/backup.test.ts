@@ -65,14 +65,14 @@ describe('backup v2 (retrocompatível)', () => {
         expect(v3.kidsMode).toBe(true)
     })
 
-    it('aceita v4 com perfis; rejeita v5', () => {
+    it('aceita v4 com perfis; rejeita v6', () => {
         const v4 = parseBackup(JSON.stringify({
             app: 'neostream-mobile', version: 4, accounts: [],
             profilesList: [{ id: 'p1', name: 'Sala', color: '#123' }],
             profilesData: { p1: { neostream_favorites: '{}' } },
         }))
         expect(v4.profilesList?.[0].name).toBe('Sala')
-        expect(() => parseBackup(JSON.stringify({ app: 'neostream-mobile', version: 5, accounts: [] })))
+        expect(() => parseBackup(JSON.stringify({ app: 'neostream-mobile', version: 6, accounts: [] })))
             .toThrow(/não suportada/)
     })
 })
@@ -88,5 +88,12 @@ describe('backup com senha (AES)', () => {
         expect(decryptBackup(sealed, 'errada')).toBeNull()
         expect(protectBackup(json, '  ')).toBe(json)
         expect(isEncryptedBackup(json)).toBe(false)
+    })
+})
+
+describe('backup v5', () => {
+    it('parse aceita a versão 5', async () => {
+        const { parseBackup } = await import('./backup')
+        expect(parseBackup(JSON.stringify({ app: 'neostream-mobile', version: 5, accounts: [] })).version).toBe(5)
     })
 })

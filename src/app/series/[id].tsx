@@ -323,23 +323,34 @@ export default function SeriesDetail() {
                     ListHeaderComponent={header}
                     ListEmptyComponent={<EmptyState icon="albums-outline" label={error || t('noEpisodes')} />}
                     contentContainerStyle={seasons.length === 0 ? { flexGrow: 1 } : undefined}
-                    renderSectionHeader={({ section }) => (
-                        <View style={styles.seasonRow}>
-                            <Text
-                                style={styles.season}
-                                onLongPress={() => toggleSeasonSeen(section)}
-                            >
-                                {section.title}
-                            </Text>
-                            <TouchableOpacity
-                                style={styles.seasonDl}
-                                accessibilityLabel={t('a11yDlSeason')}
-                                onPress={() => downloadSeason(section)}
-                            >
-                                <Ionicons name="cloud-download-outline" size={16} color={colors.accent} />
-                            </TouchableOpacity>
-                        </View>
-                    )}
+                    renderSectionHeader={({ section }) => {
+                        const seenCount = section.data.filter(ep => watched.has(buildProgressId('episode', ep.id))).length
+                        return (
+                            <View>
+                                <View style={styles.seasonRow}>
+                                    <Text
+                                        style={styles.season}
+                                        onLongPress={() => toggleSeasonSeen(section)}
+                                    >
+                                        {section.title}
+                                    </Text>
+                                    <Text style={styles.seasonCount}>{seenCount}/{section.data.length}</Text>
+                                    <TouchableOpacity
+                                        style={styles.seasonDl}
+                                        accessibilityLabel={t('a11yDlSeason')}
+                                        onPress={() => downloadSeason(section)}
+                                    >
+                                        <Ionicons name="cloud-download-outline" size={16} color={colors.accent} />
+                                    </TouchableOpacity>
+                                </View>
+                                {seenCount > 0 ? (
+                                    <View style={styles.seasonBarTrack}>
+                                        <View style={[styles.seasonBarFill, { width: `${Math.round((seenCount / Math.max(1, section.data.length)) * 100)}%` }]} />
+                                    </View>
+                                ) : null}
+                            </View>
+                        )
+                    }}
                     renderItem={({ item, section }) => {
                         const pid = buildProgressId('episode', item.id)
                         const seen = watched.has(pid)
@@ -464,6 +475,9 @@ const styles = StyleSheet.create({
         paddingVertical: 12,
     },
     nextText: { color: '#fff', fontSize: 15, fontWeight: '600' },
+    seasonCount: { color: colors.textDim, fontSize: 12, fontWeight: '700' },
+    seasonBarTrack: { height: 3, marginHorizontal: 16, borderRadius: 2, backgroundColor: colors.card, overflow: 'hidden' },
+    seasonBarFill: { height: 3, borderRadius: 2, backgroundColor: colors.accent },
     season: {
         flex: 1,
         color: colors.textDim,

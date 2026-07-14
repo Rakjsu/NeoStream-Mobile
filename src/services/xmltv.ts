@@ -45,6 +45,7 @@ interface Candidate {
     title: string
     startMs: number
     endMs: number
+    desc?: string
 }
 
 /** Desescapa as entidades básicas e numéricas que aparecem em títulos. */
@@ -104,13 +105,16 @@ export function parseXmltv(xml: string, nowMs: number): XmltvGuide {
             scheduleByChannelId.set(channel, schedule)
         }
         if (endMs <= nowMs) continue // já encerrou: só vale pra grade (replay)
+        // Sinopse SÓ no agora/a seguir (cópia própria — a grade continua leve).
+        const desc = unescapeXml(/<desc[^>]*>([^<]*)<\/desc>/.exec(match[2])?.[1]?.trim() ?? '').slice(0, 240)
+        const enriched: Candidate = desc ? { ...candidate, desc } : candidate
         if (startMs <= nowMs) {
             // Passando agora — em caso de sobreposição, ganha o que começou depois.
             const current = nowBy.get(channel)
-            if (!current || startMs > current.startMs) nowBy.set(channel, candidate)
+            if (!current || startMs > current.startMs) nowBy.set(channel, enriched)
         } else {
             const upcoming = nextBy.get(channel)
-            if (!upcoming || startMs < upcoming.startMs) nextBy.set(channel, candidate)
+            if (!upcoming || startMs < upcoming.startMs) nextBy.set(channel, enriched)
         }
     }
 

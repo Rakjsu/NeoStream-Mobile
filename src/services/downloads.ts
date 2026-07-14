@@ -526,3 +526,39 @@ export function resetDownloadsCache(): void {
     registry = null
     active.clear()
 }
+
+// ------------------------------------------------ faxina de gravações --
+
+const REC_MAXAGE_KEY = 'neostream_rec_maxage_days'
+
+/** Idade máxima das gravações em dias (0 = auto-faxina desligada). */
+export async function getRecMaxAgeDays(): Promise<number> {
+    try {
+        const days = Number(await AsyncStorage.getItem(REC_MAXAGE_KEY))
+        return Number.isFinite(days) && days > 0 ? days : 0
+    } catch {
+        return 0
+    }
+}
+
+export async function setRecMaxAgeDays(days: number): Promise<void> {
+    try {
+        if (days > 0) await AsyncStorage.setItem(REC_MAXAGE_KEY, String(days))
+        else await AsyncStorage.removeItem(REC_MAXAGE_KEY)
+    } catch { /* best-effort */ }
+}
+
+/** Gravações vencidas (PURO): só rec:, não-protegidas e mais velhas que N dias. */
+export function pickExpiredRecordings(items: DownloadItem[], days: number, nowMs: number): DownloadItem[] {
+    if (days <= 0) return []
+    const cutoff = nowMs - days * 86_400_000
+    return items.filter(item => item.id.startsWith('rec:') && !item.locked && item.downloadedAt < cutoff)
+}
+
+/** Auto-faxina (1× por abertura, no layout das abas); devolve quantas saíram. */
+export async function sweepOldRecordings(nowMs: number): Promise<number> {
+    const days = await getRecMaxAgeDays()
+    const expired = pickExpiredRecordings(await listDownloads(), days, nowMs)
+    for (const item of expired) await removeDownload(item.id)
+    return expired.length
+}

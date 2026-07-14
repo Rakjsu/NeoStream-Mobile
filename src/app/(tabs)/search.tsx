@@ -5,7 +5,7 @@ import { router } from 'expo-router'
 import { useCallback, useEffect, useMemo, useState } from 'react'
 import { Alert, ScrollView, StyleSheet, Text, TouchableOpacity, View } from 'react-native'
 import { loadFavorites } from '../../services/favorites'
-import { enqueueDownloads } from '../../services/downloads'
+import { enqueueDownloads, listDownloads, type DownloadItem } from '../../services/downloads'
 import { M3uClient } from '../../services/m3u'
 import { notifyAt } from '../../services/notify'
 import { hasCatchup } from '../../services/xtream'
@@ -36,6 +36,7 @@ export default function SearchTab() {
     const [history, setHistory] = useState<string[]>([])
     const [watchlist, setWatchlist] = useState<WatchItem[]>([])
     const [favLive, setFavLive] = useState<string[]>([])
+    const [localItems, setLocalItems] = useState<DownloadItem[]>([])
     const [guideHits, setGuideHits] = useState<{ channel: LiveChannel; program: EpgProgram }[]>([])
     // Relógio congelado por render (regra react-hooks/purity).
     const [nowMs, setNowMs] = useState(() => Date.now())
@@ -87,6 +88,7 @@ export default function SearchTab() {
             setSeries(shows)
             setWatchlist(await loadWatchlist())
             setFavLive((await loadFavorites()).live)
+            setLocalItems(await listDownloads())
             setAllowed({
                 live: await guardedCategoryIds(liveCats, parental.enabled),
                 vod: await guardedCategoryIds(vodCats, parental.enabled),
@@ -172,7 +174,7 @@ export default function SearchTab() {
             .then(ok => { if (ok) Alert.alert(t('remindSet')) })
     }
     const results = useMemo(() => {
-        if (!q || !channels) return { channels: [], movies: [], series: [], watchlist: [] as WatchItem[] }
+        if (!q || !channels) return { channels: [], movies: [], series: [], watchlist: [] as WatchItem[], local: [] as DownloadItem[] }
         const inSet = (set: Set<string> | null, categoryId?: string) =>
             !set || !categoryId || set.has(categoryId)
         return {
@@ -183,6 +185,9 @@ export default function SearchTab() {
                 .filter(item => item.name.toLowerCase().includes(q)
                     && ((item.kind === 'movie' && kinds.movies) || (item.kind === 'series' && kinds.series)))
                 .slice(0, MAX_PER_SECTION),
+            local: localItems
+                .filter(item => item.title.toLowerCase().includes(q))
+                .slice(0, MAX_PER_SECTION),
             movies: !kinds.movies ? [] : movies
                 .filter(m => m.name.toLowerCase().includes(q) && inSet(allowed.vod, m.category_id))
                 .slice(0, MAX_PER_SECTION),
@@ -190,7 +195,7 @@ export default function SearchTab() {
                 .filter(s => s.name.toLowerCase().includes(q) && inSet(allowed.series, s.category_id))
                 .slice(0, MAX_PER_SECTION),
         }
-    }, [q, channels, movies, series, allowed, kinds, watchlist])
+    }, [q, channels, movies, series, allowed, kinds, watchlist, localItems])
 
     const remember = () => {
         void recordSearchTerm(query).then(listSearchTerms).then(setHistory)
@@ -211,7 +216,7 @@ export default function SearchTab() {
     if (channels === null) return <Loading label={t('loadingCatalog')} />
 
     const total = results.channels.length + results.movies.length + results.series.length
-        + results.watchlist.length + guideHits.length
+        + results.watchlist.length + results.local.length + guideHits.length
 
     return (
         <View style={styles.root}>
@@ -307,6 +312,30 @@ export default function SearchTab() {
                                 <Ionicons name="bookmark" size={16} color={colors.accent} />
                                 <Text style={styles.name} numberOfLines={1}>{item.name}</Text>
                                 <Ionicons name="chevron-forward" size={16} color={colors.textDim} />
+                            </TouchableOpacity>
+                        ))}
+
+                        {results.local.length > 0 ? <Text style={styles.section}>{t('secLocal')}</Text> : null}
+                        {results.local.map(item => (
+                            <TouchableOpacity
+                                key={`dl${item.id}`}
+                                style={styles.row}
+                                onPress={() => {
+                                    remember()
+                                    const rawKind = item.id.split(':')[0]
+                                    router.push({
+                                        pathname: '/player',
+                                        params: {
+                                            url: item.fileUri, title: item.title, pid: item.id,
+                                            kind: rawKind === 'rec' ? 'movie' : rawKind,
+                                            sid: item.id.split(':')[1] ?? '', container: item.container, cover: item.cover,
+                                        },
+                                    })
+                                }}
+                            >
+                                <Ionicons name="download-outline" size={16} color={colors.accent} />
+                                <Text style={styles.name} numberOfLines={1}>{item.title}</Text>
+                                <Ionicons name="play" size={16} color={colors.accent} />
                             </TouchableOpacity>
                         ))}
 

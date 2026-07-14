@@ -14,7 +14,7 @@ import { castAvailable, castToCurrentSession, onCastSessionStarted, showCastPick
 import { nextEpisodeAfter, type QueuedEpisode } from '../services/episodeQueue'
 import { getEntry, resumePosition, saveSample, type ProgressKind } from '../services/progress'
 import { listRecentChannels, recordRecentChannel } from '../services/recents'
-import { loadFavorites } from '../services/favorites'
+import { loadFavorites, persistToggle } from '../services/favorites'
 import { cachedFetch, getClient, resolvePlayableUrl } from '../services/session'
 import { tapLight } from '../services/haptics'
 import { alternateLiveUrl } from '../services/xtream'
@@ -809,6 +809,36 @@ export default function Player() {
         // eslint-disable-next-line react-hooks/exhaustive-deps
     }, [status])
 
+    // ⏭ Próximo episódio sem esperar o autoplay do fim.
+    const [hasNextEp, setHasNextEp] = useState(false)
+    useEffect(() => {
+        queueMicrotask(() => setHasNextEp(kind === 'episode' && !!nextEpisodeAfter(String(pid))))
+    }, [kind, pid])
+    const skipToNext = () => {
+        const next = nextEpisodeAfter(String(pid))
+        if (next) playNext(next)
+    }
+
+    // ❤️ Favoritar o canal atual sem sair do player (re-checa a cada zap).
+    const [channelFav, setChannelFav] = useState(false)
+    useEffect(() => {
+        if (live !== '1') return
+        queueMicrotask(() => {
+            const channel = currentZapChannel()
+            if (!channel) return
+            void loadFavorites().then(favorites => setChannelFav(favorites.live.includes(channel.id)))
+        })
+    }, [live, liveTitle])
+    const toggleChannelFav = () => {
+        const channel = currentZapChannel()
+        if (!channel) return
+        void persistToggle('live', channel.id).then(favorites => {
+            const on = favorites.live.includes(channel.id)
+            setChannelFav(on)
+            showTrackToast(on ? '❤️' : '🤍')
+        })
+    }
+
     // Tempo assistido: 1 minuto contabilizado por minuto tocando (local ou TV).
     useEffect(() => {
         const usageKind = live === '1' ? 'live' : kind === 'episode' ? 'episode' : 'movie'
@@ -933,6 +963,11 @@ export default function Player() {
                 </View>
                 <Text style={styles.clock}>{videoRes > 0 ? `${videoRes}p · ` : ''}{clock}</Text>
                 {live === '1' ? (
+                    <TvTouchable style={styles.trackBtn} accessibilityLabel={t('a11yFavChannel')} onPress={toggleChannelFav}>
+                        <Ionicons name={channelFav ? 'heart' : 'heart-outline'} size={20} color={channelFav ? colors.danger : colors.text} />
+                    </TvTouchable>
+                ) : null}
+                {live === '1' ? (
                     <TvTouchable
                         style={styles.trackBtn}
                         accessibilityLabel={t('a11yRec')}
@@ -980,6 +1015,11 @@ export default function Player() {
                 >
                     <Ionicons name="lock-open-outline" size={20} color={colors.text} />
                 </TvTouchable>
+                {hasNextEp ? (
+                    <TvTouchable style={styles.trackBtn} accessibilityLabel={t('a11yNextEp')} onPress={skipToNext}>
+                        <Ionicons name="play-skip-forward" size={20} color={colors.text} />
+                    </TvTouchable>
+                ) : null}
                 <TvTouchable
                     style={styles.trackBtn}
                     accessibilityLabel={t('a11yRotation')}

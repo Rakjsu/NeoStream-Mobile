@@ -40,7 +40,7 @@ import { currentStreak, dayKey, formatMinutes, getUsageGoal, lastDays, lastMonth
 import { heatmapCells, loadHabits } from '../../services/habit'
 import { parseExpiry } from '../../services/xtream'
 import { TvTouchable } from '../../ui/components'
-import { colors, setThemeVariant, spacing, themeVariant } from '../../ui/theme'
+import { ACCENT_PRESETS, colors, currentAccent, setAccent, setThemeVariant, spacing, themeVariant, type AccentName } from '../../ui/theme'
 import { t, tf } from '../../i18n/strings'
 
 
@@ -95,6 +95,7 @@ function HabitHeatmap({ cells }: { cells: number[][] }) {
 function railLabel(key: RailKey): string {
     switch (key) {
         case 'watchlist': return t('watchlistRail')
+        case 'downloads': return t('downloadsRail')
         case 'freshEpisodes': return t('newEpisodesRail')
         case 'favPosters': return t('favRail')
         case 'because': return tf('becauseRail', { title: '…' })
@@ -207,6 +208,7 @@ export default function SettingsTab() {
     const [kidsCatCount, setKidsCatCount] = useState(0)
     const [blockedCount, setBlockedCount] = useState(0)
     const [amoled, setAmoled] = useState(themeVariant() === 'amoled')
+    const [accent, setAccentState] = useState<AccentName>(currentAccent())
 
     const refreshStorage = useCallback(() => {
         void listDownloads().then(items => setDlBytes(items.reduce((sum, item) => sum + item.sizeBytes, 0)))
@@ -966,6 +968,20 @@ export default function SettingsTab() {
                     <Text style={[styles.kidsText, amoled && { color: colors.accent }]}>{t('themeAmoled')}</Text>
                 </TvTouchable>
                 {amoled ? <Text style={styles.parentalHint}>{t('themeHint')}</Text> : null}
+                <View style={styles.accentRow}>
+                    {(Object.keys(ACCENT_PRESETS) as AccentName[]).map(name => (
+                        <TouchableOpacity
+                            key={name}
+                            accessibilityLabel={name}
+                            style={[styles.accentDot, { backgroundColor: ACCENT_PRESETS[name].accent }, accent === name && styles.accentDotOn]}
+                            onPress={() => {
+                                setAccentState(name)
+                                void setAccent(name)
+                            }}
+                        />
+                    ))}
+                </View>
+                {accent !== 'indigo' ? <Text style={styles.parentalHint}>{t('themeHint')}</Text> : null}
                 <TvTouchable
                     style={styles.kidsRow}
                     onPress={() => {
@@ -1423,6 +1439,9 @@ const styles = StyleSheet.create({
     heatCell: { flex: 1, height: 16, borderRadius: 3, backgroundColor: colors.accent },
     profileBarTrack: { flex: 1, height: 8, borderRadius: 4, backgroundColor: colors.card, overflow: 'hidden' },
     profileBarFill: { height: 8, borderRadius: 4, backgroundColor: colors.accent },
+    accentRow: { flexDirection: 'row', gap: spacing.md, alignItems: 'center' },
+    accentDot: { width: 26, height: 26, borderRadius: 13 },
+    accentDotOn: { borderWidth: 3, borderColor: colors.text },
     root: { flex: 1, backgroundColor: colors.bg },
     section: { color: colors.textDim, fontSize: 13, textTransform: 'uppercase', marginBottom: spacing.sm, marginTop: spacing.md },
     card: {

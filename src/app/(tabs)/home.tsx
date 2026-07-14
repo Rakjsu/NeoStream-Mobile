@@ -6,6 +6,7 @@ import { Alert, Linking, RefreshControl, ScrollView, StyleSheet, Text, Touchable
 import { loadFavorites } from '../../services/favorites'
 import AsyncStorage from '@react-native-async-storage/async-storage'
 import { checkNewEpisodes } from '../../services/newEpisodes'
+import { listDownloads, type DownloadItem } from '../../services/downloads'
 import { notifyNow } from '../../services/notify'
 import { listRecentChannels, recordRecentChannel } from '../../services/recents'
 import { checkRecurringReminders } from '../../services/recurring'
@@ -64,6 +65,8 @@ export default function HomeTab() {
     const [praAgora, setPraAgora] = useState<{ id: string; name: string; logo: string }[]>([])
     const [expiryDays, setExpiryDays] = useState<number | null>(null)
     const [greeting, setGreeting] = useState('')
+    const [dlItems, setDlItems] = useState<DownloadItem[]>([])
+    const [dlRail, setDlRail] = useState<RailItem[]>([])
     const [railPrefs, setRailPrefs] = useState<RailPrefs>(defaultRailPrefs())
 
     const load = useCallback(async (force = false) => {
@@ -100,6 +103,14 @@ export default function HomeTab() {
                 kind: latest.kind, streamId: latest.streamId, title: latest.title,
                 container: latest.container, cover: latest.cover,
             } : null)
+
+            // 📥 Baixados: rail offline-first (gravações + filmes/eps locais).
+            const dl = await listDownloads()
+            setDlItems(dl)
+            setDlRail(dl.slice(0, RAIL_MAX).map(item => ({
+                key: `dl${item.id}`, kind: 'movie' as const, id: item.id,
+                name: item.title, cover: item.cover, container: item.container,
+            })))
 
             const watchlist = await loadWatchlist()
             setWatchRail(watchlist.slice(0, RAIL_MAX).map(item => ({
@@ -381,6 +392,25 @@ export default function HomeTab() {
         }
     }
 
+    // Toca o arquivo local direto (mesmos params da tela de Downloads).
+    const openDownload = (railItem: RailItem) => {
+        const item = dlItems.find(entry => `dl${entry.id}` === railItem.key)
+        if (!item) return
+        const rawKind = item.id.split(':')[0]
+        router.push({
+            pathname: '/player',
+            params: {
+                url: item.fileUri,
+                title: item.title,
+                pid: item.id,
+                kind: rawKind === 'rec' ? 'movie' : rawKind,
+                sid: item.id.split(':')[1] ?? '',
+                container: item.container,
+                cover: item.cover,
+            },
+        })
+    }
+
     const resume = async (entry: ProgressEntry) => {
         const client = await getClient()
         if (!client) return
@@ -501,6 +531,9 @@ export default function HomeTab() {
                             case 'praAgora': return <ChannelRail key={key} title={t('praAgoraRail')} items={praAgora} onPress={item => void playChannel(item, praAgora)} />
                             case 'recentChannels': return <ChannelRail key={key} title={t('recentChannelsRail')} items={recentChannels} onPress={item => void playChannel(item, recentChannels)} />
                             case 'favChannels': return <ChannelRail key={key} title={t('favChannelsRail')} items={favChannels} onPress={item => void playChannel(item, favChannels)} />
+                            case 'downloads': return dlRail.length > 0
+                                ? <PosterRail key={key} title={t('downloadsRail')} items={dlRail} onPress={openDownload} />
+                                : null
                             case 'newMovies': return <PosterRail key={key} title={t('newMoviesRail')} items={newMovies} onPress={openRailItem} />
                             case 'newSeries': return <PosterRail key={key} title={t('newSeriesRail')} items={newSeries} onPress={openRailItem} />
                         }

@@ -11,6 +11,17 @@ import AsyncStorage from '@react-native-async-storage/async-storage'
 export type ThemeVariant = 'dark' | 'amoled'
 
 const THEME_KEY = 'neostream_theme'
+const ACCENT_KEY = 'neostream_accent'
+
+/** Presets de cor de destaque — accent + o "soft" derivado (PURO). */
+export const ACCENT_PRESETS = {
+    indigo: { accent: '#6366f1', accentSoft: 'rgba(99,102,241,0.18)' },
+    blue: { accent: '#3b82f6', accentSoft: 'rgba(59,130,246,0.18)' },
+    green: { accent: '#22c55e', accentSoft: 'rgba(34,197,94,0.18)' },
+    orange: { accent: '#f97316', accentSoft: 'rgba(249,115,22,0.18)' },
+    pink: { accent: '#ec4899', accentSoft: 'rgba(236,72,153,0.18)' },
+} as const
+export type AccentName = keyof typeof ACCENT_PRESETS
 
 /** Só as superfícies mudam por variante (PURO). */
 export function paletteFor(variant: ThemeVariant): { bg: string; card: string; border: string } {
@@ -31,9 +42,19 @@ export const colors = {
 }
 
 let variant: ThemeVariant = 'dark'
+let accent: AccentName = 'indigo'
 
 export function themeVariant(): ThemeVariant {
     return variant
+}
+
+export function currentAccent(): AccentName {
+    return accent
+}
+
+function applyAccent(next: AccentName): void {
+    accent = next
+    Object.assign(colors, ACCENT_PRESETS[next] ?? ACCENT_PRESETS.indigo)
 }
 
 function applyVariant(next: ThemeVariant): void {
@@ -46,7 +67,17 @@ export async function initTheme(): Promise<void> {
     try {
         const saved = await AsyncStorage.getItem(THEME_KEY)
         if (saved === 'amoled') applyVariant('amoled')
+        const savedAccent = await AsyncStorage.getItem(ACCENT_KEY)
+        if (savedAccent && savedAccent in ACCENT_PRESETS) applyAccent(savedAccent as AccentName)
     } catch { /* fica no escuro padrão */ }
+}
+
+/** Mesma pegada do tema: muda na hora nos estilos novos; 100% ao reabrir. */
+export async function setAccent(next: AccentName): Promise<void> {
+    applyAccent(next)
+    try {
+        await AsyncStorage.setItem(ACCENT_KEY, next)
+    } catch { /* best-effort */ }
 }
 
 export async function setThemeVariant(next: ThemeVariant): Promise<void> {
@@ -59,6 +90,7 @@ export async function setThemeVariant(next: ThemeVariant): Promise<void> {
 /** Só pra testes. */
 export function resetThemeCache(): void {
     applyVariant('dark')
+    applyAccent('indigo')
 }
 
 export const spacing = { xs: 4, sm: 8, md: 12, lg: 16, xl: 24 }

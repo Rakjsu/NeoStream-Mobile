@@ -231,6 +231,11 @@ export default function LiveTab() {
                         </TvTouchable>
                         {expandedId === String(item.stream_id) ? (
                             <View style={styles.miniGuide}>
+                                {epgMap[String(item.stream_id)]?.now?.desc ? (
+                                    <Text style={styles.miniDesc} numberOfLines={3}>
+                                        {epgMap[String(item.stream_id)]?.now?.desc}
+                                    </Text>
+                                ) : null}
                                 {(daySchedules[String(item.stream_id)] ?? []).filter(p => p.endMs > Date.now()).slice(0, 6).map(program => {
                                     const time = new Date(program.startMs)
                                     const hhmm = `${String(time.getHours()).padStart(2, '0')}:${String(time.getMinutes()).padStart(2, '0')}`
@@ -288,6 +293,7 @@ const styles = StyleSheet.create({
     miniRow: { flexDirection: 'row', gap: spacing.md },
     miniTime: { color: colors.textDim, fontSize: 12, width: 42 },
     miniTitle: { flex: 1, color: colors.text, fontSize: 13 },
+    miniDesc: { color: colors.textDim, fontSize: 12, fontStyle: 'italic', marginBottom: 4 },
     logoFallback: { alignItems: 'center', justifyContent: 'center' },
     nameBlock: { flex: 1, gap: 1 },
     name: { color: colors.text, fontSize: 15 },

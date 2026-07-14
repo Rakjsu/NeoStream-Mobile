@@ -103,3 +103,19 @@ describe('isFreeable (liberar espaço)', () => {
         expect(isFreeable(item('movie:2', now - 30 * DAY), new Set(), now)).toBe(false)
     })
 })
+
+describe('auto-faxina de gravações (pickExpiredRecordings)', () => {
+    it('pega só rec: não-protegidas mais velhas que N dias; 0 desliga', async () => {
+        const { pickExpiredRecordings } = await import('./downloads')
+        const now = 1_800_000_000_000
+        const day = 86_400_000
+        const items = [
+            { id: 'rec:1', title: 'Velha', cover: '', container: 'ts', fileUri: '', sizeBytes: 1, downloadedAt: now - 10 * day },
+            { id: 'rec:2', title: 'Protegida', cover: '', container: 'ts', fileUri: '', sizeBytes: 1, downloadedAt: now - 10 * day, locked: true },
+            { id: 'rec:3', title: 'Nova', cover: '', container: 'ts', fileUri: '', sizeBytes: 1, downloadedAt: now - 2 * day },
+            { id: 'movie:9', title: 'Filme', cover: '', container: 'mp4', fileUri: '', sizeBytes: 1, downloadedAt: now - 30 * day },
+        ]
+        expect(pickExpiredRecordings(items, 7, now).map(item => item.id)).toEqual(['rec:1'])
+        expect(pickExpiredRecordings(items, 0, now)).toEqual([])
+    })
+})

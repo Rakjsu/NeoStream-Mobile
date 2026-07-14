@@ -86,3 +86,25 @@ describe('lookupDaySchedule (grade do dia M3U)', () => {
         expect(nowNext.next?.title).toBe('Futuro')
     })
 })
+
+describe('sinopse (desc) no agora/a seguir', () => {
+    it('carrega a desc só no now/next, com teto de 240 chars', async () => {
+        const { parseXmltv } = await import('./xmltv')
+        const now = 1_800_000_000_000
+        const stamp = (ms: number) => {
+            const d = new Date(ms)
+            const p = (n: number) => String(n).padStart(2, '0')
+            return `${d.getUTCFullYear()}${p(d.getUTCMonth() + 1)}${p(d.getUTCDate())}${p(d.getUTCHours())}${p(d.getUTCMinutes())}00 +0000`
+        }
+        const longDesc = 'x'.repeat(500)
+        const xml = '<tv><channel id="g"><display-name>Globo</display-name></channel>'
+            + `<programme start="${stamp(now - 600_000)}" stop="${stamp(now + 600_000)}" channel="g"><title>Jornal</title><desc>${longDesc}</desc></programme>`
+            + `<programme start="${stamp(now + 600_000)}" stop="${stamp(now + 1200_000)}" channel="g"><title>Novela</title><desc>Cap. 12</desc></programme></tv>`
+        const guide = parseXmltv(xml, now)
+        const nowNext = guide.byChannelId.get('g')
+        expect(nowNext?.now?.desc).toHaveLength(240)
+        expect(nowNext?.next?.desc).toBe('Cap. 12')
+        // A grade continua sem desc (memória).
+        expect(guide.scheduleByChannelId.get('g')?.every(p => p.desc === undefined)).toBe(true)
+    })
+})

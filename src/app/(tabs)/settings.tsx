@@ -10,7 +10,7 @@ import * as FileSystem from 'expo-file-system/legacy'
 import { disableAppLock, enableAppLock, loadAppLock } from '../../services/appLock'
 import { applyCapturePolicy } from '../../services/privacy'
 import { isDataSaverEnabled, setDataSaver } from '../../services/dataSaver'
-import { getDownloadLimitGb, isSmartDownloads, isWifiOnly, listDownloads, setDownloadLimitGb, setSmartDownloads, setWifiOnly , listFreeable, removeDownload as removeDl } from '../../services/downloads'
+import { getDownloadLimitGb, getRecMaxAgeDays, isSmartDownloads, isWifiOnly, listDownloads, setDownloadLimitGb, setRecMaxAgeDays, setSmartDownloads, setWifiOnly , listFreeable, removeDownload as removeDl } from '../../services/downloads'
 import { captureRef } from 'react-native-view-shot'
 import * as Sharing from 'expo-sharing'
 import { chooseCloudBackupDir, clearCloudBackupDir, getCloudBackupDir, listAutoBackups, readAutoBackup, type AutoBackupFile } from '../../services/autoBackup'
@@ -40,7 +40,7 @@ import { currentStreak, dayKey, formatMinutes, getUsageGoal, lastDays, lastMonth
 import { heatmapCells, loadHabits } from '../../services/habit'
 import { parseExpiry } from '../../services/xtream'
 import { TvTouchable } from '../../ui/components'
-import { colors, setThemeVariant, spacing, themeVariant } from '../../ui/theme'
+import { ACCENT_PRESETS, colors, currentAccent, setAccent, setThemeVariant, spacing, themeVariant, type AccentName } from '../../ui/theme'
 import { t, tf } from '../../i18n/strings'
 
 
@@ -95,6 +95,7 @@ function HabitHeatmap({ cells }: { cells: number[][] }) {
 function railLabel(key: RailKey): string {
     switch (key) {
         case 'watchlist': return t('watchlistRail')
+        case 'downloads': return t('downloadsRail')
         case 'freshEpisodes': return t('newEpisodesRail')
         case 'favPosters': return t('favRail')
         case 'because': return tf('becauseRail', { title: '…' })
@@ -207,6 +208,9 @@ export default function SettingsTab() {
     const [kidsCatCount, setKidsCatCount] = useState(0)
     const [blockedCount, setBlockedCount] = useState(0)
     const [amoled, setAmoled] = useState(themeVariant() === 'amoled')
+    const [accent, setAccentState] = useState<AccentName>(currentAccent())
+    const [recMaxAge, setRecMaxAge] = useState(0)
+    const [seekStep, setSeekStepState] = useState(10)
 
     const refreshStorage = useCallback(() => {
         void listDownloads().then(items => setDlBytes(items.reduce((sum, item) => sum + item.sizeBytes, 0)))
@@ -247,6 +251,8 @@ export default function SettingsTab() {
         void loadHabits().then(map => setHabitGrid(heatmapCells(map)))
         void getUsageGoal().then(setUsageGoalState)
         void usageByProfile(Date.now()).then(setProfileUsage)
+        void getRecMaxAgeDays().then(setRecMaxAge)
+        void AsyncStorage.getItem('neostream_seek_step').then(raw => setSeekStepState(Number(raw) || 10)).catch(() => undefined)
         void getTraktCreds().then(creds => { setTraktCid(creds.clientId); setTraktCsec(creds.clientSecret) })
         void isTraktConnected().then(setTraktOn)
         void AsyncStorage.getItem('neostream_boot_tab').then(v => setBootLive(v === 'live')).catch(() => undefined)
@@ -966,6 +972,20 @@ export default function SettingsTab() {
                     <Text style={[styles.kidsText, amoled && { color: colors.accent }]}>{t('themeAmoled')}</Text>
                 </TvTouchable>
                 {amoled ? <Text style={styles.parentalHint}>{t('themeHint')}</Text> : null}
+                <View style={styles.accentRow}>
+                    {(Object.keys(ACCENT_PRESETS) as AccentName[]).map(name => (
+                        <TouchableOpacity
+                            key={name}
+                            accessibilityLabel={name}
+                            style={[styles.accentDot, { backgroundColor: ACCENT_PRESETS[name].accent }, accent === name && styles.accentDotOn]}
+                            onPress={() => {
+                                setAccentState(name)
+                                void setAccent(name)
+                            }}
+                        />
+                    ))}
+                </View>
+                {accent !== 'indigo' ? <Text style={styles.parentalHint}>{t('themeHint')}</Text> : null}
                 <TvTouchable
                     style={styles.kidsRow}
                     onPress={() => {
@@ -1020,6 +1040,31 @@ export default function SettingsTab() {
                 >
                     <Ionicons name="trash-bin-outline" size={18} color={colors.textDim} />
                     <Text style={styles.kidsText}>{freeMsg || tf('freeSpaceBtn', { n: '?', mb: '?' })}</Text>
+                </TvTouchable>
+                <TvTouchable
+                    style={styles.kidsRow}
+                    onPress={() => {
+                        // Off → 7 → 14 → 30 dias → off.
+                        const next = recMaxAge === 0 ? 7 : recMaxAge === 7 ? 14 : recMaxAge === 14 ? 30 : 0
+                        setRecMaxAge(next)
+                        void setRecMaxAgeDays(next)
+                    }}
+                >
+                    <Ionicons name="timer-outline" size={18} color={recMaxAge > 0 ? colors.accent : colors.textDim} />
+                    <Text style={[styles.kidsText, recMaxAge > 0 && { color: colors.accent }]}>
+                        {recMaxAge > 0 ? tf('recSweepLabel', { n: recMaxAge }) : t('recSweepOff')}
+                    </Text>
+                </TvTouchable>
+                <TvTouchable
+                    style={styles.kidsRow}
+                    onPress={() => {
+                        const next = seekStep === 10 ? 30 : seekStep === 30 ? 60 : 10
+                        setSeekStepState(next)
+                        void AsyncStorage.setItem('neostream_seek_step', String(next)).catch(() => undefined)
+                    }}
+                >
+                    <Ionicons name="play-forward-outline" size={18} color={seekStep !== 10 ? colors.accent : colors.textDim} />
+                    <Text style={[styles.kidsText, seekStep !== 10 && { color: colors.accent }]}>{tf('seekStepLabel', { n: seekStep })}</Text>
                 </TvTouchable>
                 <TvTouchable
                     style={styles.saverRow}
@@ -1423,6 +1468,9 @@ const styles = StyleSheet.create({
     heatCell: { flex: 1, height: 16, borderRadius: 3, backgroundColor: colors.accent },
     profileBarTrack: { flex: 1, height: 8, borderRadius: 4, backgroundColor: colors.card, overflow: 'hidden' },
     profileBarFill: { height: 8, borderRadius: 4, backgroundColor: colors.accent },
+    accentRow: { flexDirection: 'row', gap: spacing.md, alignItems: 'center' },
+    accentDot: { width: 26, height: 26, borderRadius: 13 },
+    accentDotOn: { borderWidth: 3, borderColor: colors.text },
     root: { flex: 1, backgroundColor: colors.bg },
     section: { color: colors.textDim, fontSize: 13, textTransform: 'uppercase', marginBottom: spacing.sm, marginTop: spacing.md },
     card: {

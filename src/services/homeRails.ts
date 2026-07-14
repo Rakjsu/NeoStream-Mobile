@@ -6,7 +6,7 @@
 import AsyncStorage from '@react-native-async-storage/async-storage'
 
 export const RAIL_KEYS = [
-    'watchlist', 'freshEpisodes', 'favPosters', 'because', 'praAgora',
+    'watchlist', 'downloads', 'freshEpisodes', 'favPosters', 'because', 'praAgora',
     'recentChannels', 'favChannels', 'newMovies', 'newSeries',
 ] as const
 export type RailKey = typeof RAIL_KEYS[number]

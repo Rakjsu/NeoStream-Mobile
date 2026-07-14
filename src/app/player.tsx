@@ -14,10 +14,11 @@ import { castAvailable, castToCurrentSession, onCastSessionStarted, showCastPick
 import { nextEpisodeAfter, type QueuedEpisode } from '../services/episodeQueue'
 import { getEntry, resumePosition, saveSample, type ProgressKind } from '../services/progress'
 import { listRecentChannels, recordRecentChannel } from '../services/recents'
-import { loadFavorites } from '../services/favorites'
+import { loadFavorites, persistToggle } from '../services/favorites'
 import { cachedFetch, getClient, resolvePlayableUrl } from '../services/session'
 import { tapLight } from '../services/haptics'
 import { alternateLiveUrl } from '../services/xtream'
+import AsyncStorage from '@react-native-async-storage/async-storage'
 import { getAspect, nextAspect, setAspect, type AspectMode } from '../services/aspect'
 import { dayKey, formatMinutes, loadUsage, recordWatchMinute, summarize, usageGoalJustHit } from '../services/usage'
 import { getKidsTimeLimit, isKidsMode } from '../services/kids'
@@ -83,6 +84,8 @@ interface GestureRefs {
     toast: React.MutableRefObject<(text: string) => void>
     pinch: React.MutableRefObject<{ dist: number }>
     aspect: React.MutableRefObject<(cover: boolean) => void>
+    /** Segundos do pulo do toque duplo (configurável nos Ajustes). */
+    seekStep: React.MutableRefObject<number>
 }
 
 // Pinça: a distância entre 2 dedos cresce/encolhe além do limiar → zoom.
@@ -149,8 +152,9 @@ function createGesturePan(side: 'left' | 'right', refs: GestureRefs) {
             const doubleTap = now - lastTapAt < 300
             lastTapAt = doubleTap ? 0 : now
             if (!doubleTap || refs.live.current) return
-            try { applySeek(refs.player.current, side === 'left' ? -10 : 10) } catch { return }
-            refs.toast.current(side === 'left' ? '⏪ -10s' : '⏩ +10s')
+            const step = refs.seekStep.current
+            try { applySeek(refs.player.current, side === 'left' ? -step : step) } catch { return }
+            refs.toast.current(side === 'left' ? `⏪ -${step}s` : `⏩ +${step}s`)
         },
     })
 }
@@ -392,6 +396,7 @@ export default function Player() {
     const gestureLiveRef = useRef(live === '1')
     const gestureToastRef = useRef<(text: string) => void>(() => undefined)
     const gesturePinchRef = useRef({ dist: 0 })
+    const gestureSeekRef = useRef(10)
     const gestureAspectRef = useRef<(cover: boolean) => void>(() => undefined)
     useEffect(() => {
         gesturePlayerRef.current = player
@@ -407,9 +412,18 @@ export default function Player() {
     // A fábrica só GUARDA as refs — nenhum .current é lido aqui no render.
     // eslint-disable-next-line react-hooks/refs
     const [pans] = useState(() => ({
-        left: createGesturePan('left', { player: gesturePlayerRef, live: gestureLiveRef, toast: gestureToastRef, pinch: gesturePinchRef, aspect: gestureAspectRef }),
-        right: createGesturePan('right', { player: gesturePlayerRef, live: gestureLiveRef, toast: gestureToastRef, pinch: gesturePinchRef, aspect: gestureAspectRef }),
+        left: createGesturePan('left', { player: gesturePlayerRef, live: gestureLiveRef, toast: gestureToastRef, pinch: gesturePinchRef, aspect: gestureAspectRef, seekStep: gestureSeekRef }),
+        right: createGesturePan('right', { player: gesturePlayerRef, live: gestureLiveRef, toast: gestureToastRef, pinch: gesturePinchRef, aspect: gestureAspectRef, seekStep: gestureSeekRef }),
     }))
+
+    // ⏩ Pulo do toque duplo configurável (10/30/60s nos Ajustes).
+    useEffect(() => {
+        queueMicrotask(() => {
+            void AsyncStorage.getItem('neostream_seek_step')
+                .then(raw => { gestureSeekRef.current = Number(raw) || 10 })
+                .catch(() => undefined)
+        })
+    }, [])
 
     // 🔄 Travar rotação: fixa a orientação ATUAL; sair do player libera.
     const [orientationLocked, setOrientationLocked] = useState(false)
@@ -487,6 +501,7 @@ export default function Player() {
     // do EPG aparece embaixo. O contexto vem da tela que abriu o player.
     const [liveTitle, setLiveTitle] = useState(title ?? '')
     const [liveEpg, setLiveEpg] = useState('')
+    const [liveDesc, setLiveDesc] = useState('')
     const zappable = live === '1' && hasZapContext()
 
     // "Ainda está assistindo?": 4h de live sem trocar de canal → pausa + overlay.
@@ -509,7 +524,10 @@ export default function Player() {
             if (!client) return
             const nowNext = await cachedFetch(`epg:${channelId}`, () => client.getShortEpg(channelId))
                 .catch(() => null)
-            if (nowNext?.now) setLiveEpg(nowNext.now.title)
+            if (nowNext?.now) {
+                setLiveEpg(nowNext.now.title)
+                setLiveDesc(nowNext.now.desc ?? '')
+            }
         })()
     }
 
@@ -521,6 +539,7 @@ export default function Player() {
             player.play()
             setLiveTitle(channel.name)
             setLiveEpg('')
+            setLiveDesc('')
             void recordRecentChannel({ id: channel.id, name: channel.name, logo: '' })
             showEpg(channel.id)
         })()
@@ -809,6 +828,36 @@ export default function Player() {
         // eslint-disable-next-line react-hooks/exhaustive-deps
     }, [status])
 
+    // ⏭ Próximo episódio sem esperar o autoplay do fim.
+    const [hasNextEp, setHasNextEp] = useState(false)
+    useEffect(() => {
+        queueMicrotask(() => setHasNextEp(kind === 'episode' && !!nextEpisodeAfter(String(pid))))
+    }, [kind, pid])
+    const skipToNext = () => {
+        const next = nextEpisodeAfter(String(pid))
+        if (next) playNext(next)
+    }
+
+    // ❤️ Favoritar o canal atual sem sair do player (re-checa a cada zap).
+    const [channelFav, setChannelFav] = useState(false)
+    useEffect(() => {
+        if (live !== '1') return
+        queueMicrotask(() => {
+            const channel = currentZapChannel()
+            if (!channel) return
+            void loadFavorites().then(favorites => setChannelFav(favorites.live.includes(channel.id)))
+        })
+    }, [live, liveTitle])
+    const toggleChannelFav = () => {
+        const channel = currentZapChannel()
+        if (!channel) return
+        void persistToggle('live', channel.id).then(favorites => {
+            const on = favorites.live.includes(channel.id)
+            setChannelFav(on)
+            showTrackToast(on ? '❤️' : '🤍')
+        })
+    }
+
     // Tempo assistido: 1 minuto contabilizado por minuto tocando (local ou TV).
     useEffect(() => {
         const usageKind = live === '1' ? 'live' : kind === 'episode' ? 'episode' : 'movie'
@@ -930,8 +979,16 @@ export default function Player() {
                     {live === '1' && liveEpg ? (
                         <Text style={styles.epg} numberOfLines={1}>{liveEpg}</Text>
                     ) : null}
+                    {live === '1' && liveDesc ? (
+                        <Text style={styles.epg} numberOfLines={2}>{liveDesc}</Text>
+                    ) : null}
                 </View>
                 <Text style={styles.clock}>{videoRes > 0 ? `${videoRes}p · ` : ''}{clock}</Text>
+                {live === '1' ? (
+                    <TvTouchable style={styles.trackBtn} accessibilityLabel={t('a11yFavChannel')} onPress={toggleChannelFav}>
+                        <Ionicons name={channelFav ? 'heart' : 'heart-outline'} size={20} color={channelFav ? colors.danger : colors.text} />
+                    </TvTouchable>
+                ) : null}
                 {live === '1' ? (
                     <TvTouchable
                         style={styles.trackBtn}
@@ -980,6 +1037,11 @@ export default function Player() {
                 >
                     <Ionicons name="lock-open-outline" size={20} color={colors.text} />
                 </TvTouchable>
+                {hasNextEp ? (
+                    <TvTouchable style={styles.trackBtn} accessibilityLabel={t('a11yNextEp')} onPress={skipToNext}>
+                        <Ionicons name="play-skip-forward" size={20} color={colors.text} />
+                    </TvTouchable>
+                ) : null}
                 <TvTouchable
                     style={styles.trackBtn}
                     accessibilityLabel={t('a11yRotation')}

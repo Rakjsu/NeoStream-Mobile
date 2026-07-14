@@ -130,6 +130,8 @@ export interface EpgProgram {
     title: string
     startMs: number
     endMs: number
+    /** Sinopse curta (só no agora/a seguir — a grade fica leve). */
+    desc?: string
     /** id do programa no portal (Stalker) — habilita o replay por create_link. */
     id?: string
 }
@@ -195,6 +197,7 @@ export function parseShortEpg(data: unknown, nowMs: number): NowNext {
                 title: decodeBase64Utf8(String(it.title ?? '')).trim(),
                 startMs: Number(it.start_timestamp) * 1000,
                 endMs: Number(it.stop_timestamp) * 1000,
+                desc: decodeBase64Utf8(String(it.description ?? '')).trim().slice(0, 240) || undefined,
             }
         })
         .filter(p => p.title !== '' && Number.isFinite(p.startMs) && Number.isFinite(p.endMs) && p.endMs > p.startMs)

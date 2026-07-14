@@ -3,6 +3,7 @@ import { router, Tabs } from 'expo-router'
 import { TouchableOpacity, View } from 'react-native'
 import { useEffect } from 'react'
 import { checkScheduledRecordings } from '../../services/schedRec'
+import { sweepOldRecordings } from '../../services/downloads'
 import { onRecStopAction } from '../../services/notify'
 import { stopRecording } from '../../services/recorder'
 import { OfflineBanner } from '../../ui/components'
@@ -14,6 +15,8 @@ export default function TabsLayout() {
     useEffect(() => {
         const run = () => { void checkScheduledRecordings() }
         queueMicrotask(run)
+        // Auto-faxina de gravações vencidas — uma vez por abertura basta.
+        queueMicrotask(() => { void sweepOldRecordings(Date.now()) })
         const timer = setInterval(run, 60_000)
         return () => clearInterval(timer)
     }, [])

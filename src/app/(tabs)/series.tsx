@@ -210,7 +210,19 @@ export default function SeriesTab() {
                                 params: { id, name: item.name, cover: item.cover || '' },
                             })
                         }}
-                        onLongPress={() => setSelection(current => current ?? new Set([String(item.series_id)]))}
+                        onLongPress={() => {
+                            // Na TV o OK longo abre o menu de contexto (padrão leanback).
+                            if (isTV) {
+                                const id = String(item.series_id)
+                                Alert.alert(item.name, '', [
+                                    { text: t('cancel'), style: 'cancel' },
+                                    { text: t('ctxOpen'), onPress: () => router.push({ pathname: '/series/[id]', params: { id, name: item.name, cover: item.cover || '' } }) },
+                                    { text: t('selFav'), onPress: () => { void persistToggle('series', id).then(setFavorites) } },
+                                ])
+                                return
+                            }
+                            setSelection(current => current ?? new Set([String(item.series_id)]))
+                        }}
                         delayLongPress={350}
                     >
                         <PosterCard

@@ -8,6 +8,7 @@ import {
     markProfilePicked, removeProfile, switchProfile, updateProfile, type Profile,
 } from '../services/profiles'
 import { TvTouchable } from '../ui/components'
+import { loadParental } from '../services/parental'
 import { colors, spacing } from '../ui/theme'
 import { tvSize } from '../ui/tv'
 import { t, tf } from '../i18n/strings'
@@ -27,6 +28,8 @@ export default function Profiles() {
     // Perfil com PIN: guarda o alvo até o PIN certo liberar.
     const [pinFor, setPinFor] = useState<Profile | null>(null)
     const [pinTry, setPinTry] = useState('')
+    // 'profile' pede o PIN do perfil; 'parental' aceita o do responsável (esqueci).
+    const [pinMode, setPinMode] = useState<'profile' | 'parental'>('profile')
     const [editing, setEditing] = useState<Profile | null>(null)
     const [iconDraft, setIconDraft] = useState('')
     const [colorDraft, setColorDraft] = useState('')
@@ -59,7 +62,7 @@ export default function Profiles() {
     }
 
     const pick = (profile: Profile) => {
-        if (profile.pin) { setPinTry(''); setPinFor(profile); return }
+        if (profile.pin) { setPinTry(''); setPinMode('profile'); setPinFor(profile); return }
         enter(profile)
     }
 
@@ -213,10 +216,23 @@ export default function Profiles() {
                         onChangeText={text => {
                             const digits = text.replace(/[^0-9]/g, '')
                             setPinTry(digits)
-                            if (digits.length === 4) {
+                            if (digits.length !== 4) return
+                            if (pinMode === 'profile') {
                                 if (digits === pinFor.pin) { setPinFor(null); enter(pinFor) }
                                 else setPinTry('')
+                                return
                             }
+                            // PIN do responsável destrava E REMOVE o PIN esquecido.
+                            void loadParental().then(state => {
+                                if (state.pin && digits === state.pin) {
+                                    void updateProfile(pinFor.id, { pin: '' }).then(() => {
+                                        setPinFor(null)
+                                        enter(pinFor)
+                                    })
+                                } else {
+                                    setPinTry('')
+                                }
+                            })
                         }}
                         placeholder="••••"
                         placeholderTextColor={colors.textDim}
@@ -225,6 +241,21 @@ export default function Profiles() {
                         maxLength={4}
                         autoFocus
                     />
+                    {pinMode === 'profile' ? (
+                        <TvTouchable
+                            style={styles.addBtn}
+                            accessibilityLabel={t('pinForgot')}
+                            onPress={() => {
+                                void loadParental().then(state => {
+                                    if (!state.pin) { Alert.alert(t('pinParentalMissing')); return }
+                                    setPinTry('')
+                                    setPinMode('parental')
+                                })
+                            }}
+                        >
+                            <Ionicons name="help" size={20} color="#fff" />
+                        </TvTouchable>
+                    ) : null}
                     {bioOk ? (
                         <TvTouchable
                             style={styles.addBtn}

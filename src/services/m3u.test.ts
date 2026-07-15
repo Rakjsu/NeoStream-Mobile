@@ -95,3 +95,19 @@ describe('parseTvgUrl', () => {
         expect(parseTvgUrl('#EXTM3U\n')).toBe('')
     })
 })
+
+describe('buildM3u (exportar favoritos)', () => {
+    it('gera EXTM3U com logo e grupo; campos vazios ficam de fora', async () => {
+        const { buildM3u } = await import('./m3u')
+        const out = buildM3u([
+            { name: 'Globo', logo: 'http://logo/g.png', group: 'Abertos', url: 'http://srv/1.ts' },
+            { name: 'Sem Extras', url: 'http://srv/2.ts' },
+        ])
+        const lines = out.split('\n')
+        expect(lines[0]).toBe('#EXTM3U')
+        expect(lines[1]).toBe('#EXTINF:-1 tvg-logo="http://logo/g.png" group-title="Abertos",Globo')
+        expect(lines[2]).toBe('http://srv/1.ts')
+        expect(lines[3]).toBe('#EXTINF:-1,Sem Extras')
+        expect(lines[4]).toBe('http://srv/2.ts')
+    })
+})

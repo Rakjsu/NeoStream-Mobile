@@ -20,6 +20,7 @@ import { setZapContext } from '../../services/zap'
 import { EmptyState, Loading, SearchBar } from '../../ui/components'
 import { colors, spacing } from '../../ui/theme'
 import { currentLang, t, tf } from '../../i18n/strings'
+import { tvSize } from '../../ui/tv'
 
 const MAX_PER_SECTION = 10
 
@@ -446,8 +447,8 @@ const styles = StyleSheet.create({
     thumb: { width: 36, height: 36, borderRadius: 6, backgroundColor: colors.card },
     poster: { width: 30, height: 45, borderRadius: 4, backgroundColor: colors.card },
     thumbFallback: { alignItems: 'center', justifyContent: 'center' },
-    name: { flex: 1, color: colors.text, fontSize: 14 },
-    guideMeta: { color: colors.textDim, fontSize: 12 },
+    name: { flex: 1, color: colors.text, fontSize: tvSize(14) },
+    guideMeta: { color: colors.textDim, fontSize: tvSize(12) },
     historyBox: { paddingBottom: spacing.lg },
     kindRow: { flexDirection: 'row', gap: spacing.sm, paddingHorizontal: spacing.lg, paddingBottom: spacing.sm },
     searchRow: { flexDirection: 'row', alignItems: 'center', paddingRight: spacing.lg, gap: spacing.sm },
@@ -470,7 +471,7 @@ const styles = StyleSheet.create({
         paddingVertical: 5,
     },
     kindChipOn: { backgroundColor: colors.accentSoft, borderColor: colors.accent },
-    kindText: { color: colors.textDim, fontSize: 12, fontWeight: '600' },
+    kindText: { color: colors.textDim, fontSize: tvSize(12), fontWeight: '600' },
     kindTextOn: { color: colors.accent },
     historyHeader: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', paddingRight: spacing.md },
     historyClear: { padding: spacing.sm },
@@ -488,5 +489,5 @@ const styles = StyleSheet.create({
         paddingHorizontal: spacing.md,
         paddingVertical: 6,
     },
-    historyChipText: { color: colors.text, fontSize: 13 },
+    historyChipText: { color: colors.text, fontSize: tvSize(13) },
 })

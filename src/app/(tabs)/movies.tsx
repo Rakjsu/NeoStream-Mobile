@@ -53,6 +53,20 @@ export default function MoviesTab() {
         setSelection(null)
     }
 
+    // Baixar UM filme (menu de contexto da TV) — mesmo request da seleção.
+    const downloadOne = async (movie: VodMovie) => {
+        const client = await getClient()
+        if (!client) return
+        const container = movie.container_extension || 'mp4'
+        await enqueueDownloads([{
+            id: buildProgressId('movie', String(movie.stream_id)),
+            url: await resolvePlayableUrl(client.vodStreamUrl(String(movie.stream_id), container)),
+            title: movie.name,
+            cover: movie.stream_icon || '',
+            container,
+        }])
+    }
+
     const downloadSelection = async () => {
         if (!selection || !movies) return
         const client = await getClient()
@@ -242,7 +256,20 @@ export default function MoviesTab() {
                             style={{ flex: 1 / columns }}
                             hasTVPreferredFocus={index === 0}
                             onPress={() => (selection ? toggleSelected(id) : openDetails(item))}
-                            onLongPress={() => setSelection(current => current ?? new Set([id]))}
+                            onLongPress={() => {
+                                // Na TV o OK longo abre o menu de contexto (padrão leanback);
+                                // no touch continua entrando na seleção em lote.
+                                if (isTV) {
+                                    Alert.alert(item.name, '', [
+                                        { text: t('cancel'), style: 'cancel' },
+                                        { text: t('ctxOpen'), onPress: () => openDetails(item) },
+                                        { text: t('selFav'), onPress: () => { void persistToggle('movie', id).then(setFavorites) } },
+                                        { text: t('selDownload'), onPress: () => { void downloadOne(item) } },
+                                    ])
+                                    return
+                                }
+                                setSelection(current => current ?? new Set([id]))
+                            }}
                             delayLongPress={350}
                         >
                             <PosterCard

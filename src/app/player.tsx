@@ -4,7 +4,7 @@ import { useKeepAwake } from 'expo-keep-awake'
 import { router, useLocalSearchParams } from 'expo-router'
 import { useVideoPlayer, VideoView, type AudioTrack, type SubtitleTrack } from 'expo-video'
 import { useCallback, useEffect, useRef, useState } from 'react'
-import { Alert, FlatList, PanResponder, Platform, StyleSheet, Text, TextInput, View, type ViewToken } from 'react-native'
+import { Alert, BackHandler, FlatList, PanResponder, Platform, StyleSheet, Text, TextInput, View, type ViewToken } from 'react-native'
 import { useSafeAreaInsets } from 'react-native-safe-area-context'
 import { StatusBar } from 'expo-status-bar'
 import * as Brightness from 'expo-brightness'
@@ -449,6 +449,19 @@ export default function Player() {
         })()
     }
     useEffect(() => () => { void ScreenOrientation.unlockAsync().catch(() => undefined) }, [])
+
+    // 📺 BACK na TV confirma antes de sair (o botão do controle escapa fácil).
+    useEffect(() => {
+        if (!isTV) return
+        const sub = BackHandler.addEventListener('hardwareBackPress', () => {
+            Alert.alert(t('exitPlayerTitle'), '', [
+                { text: t('cancel'), style: 'cancel' },
+                { text: t('kidsTimeUpExit'), style: 'destructive', onPress: () => router.back() },
+            ])
+            return true // segura o back até o usuário confirmar
+        })
+        return () => sub.remove()
+    }, [])
 
     // 🕐 Relógio + resolução do stream (aparecem junto com os controles).
     const [clock, setClock] = useState('')

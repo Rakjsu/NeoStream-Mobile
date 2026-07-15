@@ -207,6 +207,8 @@ interface ActiveEntry {
     lastBytes?: number
     lastAt?: number
     speedBps?: number
+    /** Total esperado (bytes) — alimenta o ETA. */
+    totalBytes?: number
     cancelled?: boolean
     /** Acorda o loop do startDownload quando retomar/cancelar. */
     wake?: () => void
@@ -257,9 +259,9 @@ export function activeProgress(id: string): number | null {
     return active.get(id)?.progress ?? null
 }
 
-export function listActiveDownloads(): { id: string; progress: number; paused: boolean; speedBps: number }[] {
+export function listActiveDownloads(): { id: string; progress: number; paused: boolean; speedBps: number; totalBytes: number }[] {
     return [...active.entries()].map(([id, entry]) => ({
-        id, progress: entry.progress, paused: entry.paused, speedBps: entry.speedBps ?? 0,
+        id, progress: entry.progress, paused: entry.paused, speedBps: entry.speedBps ?? 0, totalBytes: entry.totalBytes ?? 0,
     }))
 }
 
@@ -352,6 +354,7 @@ export async function startDownload(request: DownloadRequest): Promise<void> {
         const entry = active.get(request.id)
         if (entry && progress.totalBytesExpectedToWrite > 0) {
             entry.progress = progress.totalBytesWritten / progress.totalBytesExpectedToWrite
+            entry.totalBytes = progress.totalBytesExpectedToWrite
             const at = Date.now()
             if (entry.lastAt && at - entry.lastAt >= 1000) {
                 entry.speedBps = ((progress.totalBytesWritten - (entry.lastBytes ?? 0)) / (at - entry.lastAt)) * 1000

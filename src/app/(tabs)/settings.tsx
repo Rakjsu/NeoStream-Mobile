@@ -28,7 +28,7 @@ import { getKidsTimeLimit, isKidsMode, listKidsCategories, setKidsMode, setKidsT
 import { disconnectTrakt, getTraktCreds, isTraktConnected, pollDeviceToken, setTraktCreds, startDeviceAuth } from '../../services/trakt'
 import { getExtEpgUrl, setExtEpgUrl } from '../../services/extEpg'
 import { defaultRailPrefs, loadRailPrefs, moveRail, railOrderAll, saveRailPrefs, toggleRail, type RailKey, type RailPrefs } from '../../services/homeRails'
-import { M3uClient } from '../../services/m3u'
+import { M3uClient, buildM3u } from '../../services/m3u'
 import { loadSpeedHistory, runSpeedTest, saveSpeedSample, type SpeedSample, type SpeedVerdict } from '../../services/speedtest'
 import { clearHistory } from '../../services/progress'
 import { checkForUpdate } from '../../services/updates'
@@ -1212,6 +1212,34 @@ export default function SettingsTab() {
                 >
                     <Ionicons name="share-outline" size={16} color="#fff" />
                     <Text style={styles.backupBtnText}>{t('exportBtn')}</Text>
+                </TvTouchable>
+                <TvTouchable
+                    style={styles.backupBtn}
+                    onPress={() => {
+                        void (async () => {
+                            const client = await getClient()
+                            if (!client) return
+                            const [live, cats, favorites] = await Promise.all([
+                                cachedFetch('live', () => client.getLiveChannels()),
+                                cachedFetch('live-cats', () => client.getLiveCategories()).catch(() => []),
+                                loadFavorites(),
+                            ])
+                            const catName = new Map(cats.map(cat => [cat.category_id, cat.category_name]))
+                            const favChannels = live
+                                .filter(channel => favorites.live.includes(String(channel.stream_id)))
+                                .map(channel => ({
+                                    name: channel.name,
+                                    logo: channel.stream_icon || '',
+                                    group: channel.category_id ? catName.get(channel.category_id) ?? '' : '',
+                                    url: client.liveStreamUrl(String(channel.stream_id)),
+                                }))
+                            if (favChannels.length === 0) { Alert.alert(t('exportFavsNone')); return }
+                            await Share.share({ message: buildM3u(favChannels) }).catch(() => undefined)
+                        })()
+                    }}
+                >
+                    <Ionicons name="list-outline" size={16} color="#fff" />
+                    <Text style={styles.backupBtnText}>{t('exportFavsBtn')}</Text>
                 </TvTouchable>
                 <TvTouchable
                     style={styles.ghRow}

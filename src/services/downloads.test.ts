@@ -1,5 +1,5 @@
 import { describe, it, expect, vi } from 'vitest'
-import { groupDownloads, isFreeable, pickEvictions, pickPending, safeFileName , networkAllows } from './downloads'
+import { groupDownloads, isFreeable, isNightHour, pickEvictions, pickPending, safeFileName , networkAllows } from './downloads'
 
 // Hoisted pelo vitest — evita os imports reais (que puxam react-native).
 vi.mock('@react-native-async-storage/async-storage', () => ({
@@ -117,5 +117,15 @@ describe('auto-faxina de gravações (pickExpiredRecordings)', () => {
         ]
         expect(pickExpiredRecordings(items, 7, now).map(item => item.id)).toEqual(['rec:1'])
         expect(pickExpiredRecordings(items, 0, now)).toEqual([])
+    })
+})
+
+describe('isNightHour (janela da madrugada)', () => {
+    it('00h às 05h59 é madrugada; 6h em diante não', () => {
+        expect(isNightHour(0)).toBe(true)
+        expect(isNightHour(5)).toBe(true)
+        expect(isNightHour(6)).toBe(false)
+        expect(isNightHour(14)).toBe(false)
+        expect(isNightHour(23)).toBe(false)
     })
 })

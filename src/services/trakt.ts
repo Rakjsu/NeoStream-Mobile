@@ -275,6 +275,53 @@ export async function syncTraktWatched(kind: 'movie' | 'episode', title: string)
     }
 }
 
+/** Filmes marcados como vistos no Trakt (títulos) — pro importador dos Ajustes. */
+export async function fetchTraktWatchedMovies(): Promise<string[]> {
+    const token = await getToken()
+    const { clientId } = await getTraktCreds()
+    if (!token || !clientId) return []
+    try {
+        const rows = await traktGet('/sync/watched/movies', clientId, token.access) as { movie?: TraktHit }[]
+        return rows.flatMap(row => (row.movie?.title ? [row.movie.title] : []))
+    } catch {
+        return []
+    }
+}
+
+/** Nota 1–10 no Trakt: filme direto; episódio avalia a SÉRIE (mais útil). */
+export async function traktRate(kind: 'movie' | 'episode', title: string, rating: number): Promise<boolean> {
+    const token = await getToken()
+    const { clientId } = await getTraktCreds()
+    if (!token || !clientId) return false
+    try {
+        const piece = await resolvePayload(kind, title, clientId, token.access)
+        if (piece?.movie) {
+            await traktPost('/sync/ratings', { movies: [{ ...(piece.movie as Record<string, unknown>), rating }] }, clientId, token.access)
+            return true
+        }
+        if (piece?.show) {
+            await traktPost('/sync/ratings', { shows: [{ ...(piece.show as Record<string, unknown>), rating }] }, clientId, token.access)
+            return true
+        }
+        return false
+    } catch {
+        return false
+    }
+}
+
+/** Username da conta conectada (GET /users/me) — '' se desconectado/erro. */
+export async function fetchTraktProfile(): Promise<string> {
+    const token = await getToken()
+    const { clientId } = await getTraktCreds()
+    if (!token || !clientId) return ''
+    try {
+        const data = await traktGet('/users/me', clientId, token.access) as { username?: string }
+        return typeof data.username === 'string' ? data.username : ''
+    } catch {
+        return ''
+    }
+}
+
 /** Só pra testes. */
 export function resetTraktCache(): void {
     payloadCache.clear()

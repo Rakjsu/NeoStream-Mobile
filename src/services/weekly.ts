@@ -4,8 +4,8 @@
  * por semana. O cálculo do próximo domingo é PURO (testável).
  */
 import AsyncStorage from '@react-native-async-storage/async-storage'
-import { notifyAt } from './notify'
-import { dayKey, formatMinutes, loadTitleUsage, loadUsage, summarize, topTitles } from './usage'
+import { notifyAt, notifyNow } from './notify'
+import { dayKey, formatMinutes, loadMonthUsage, loadTitleUsage, loadUsage, monthKey, summarize, topTitleOfMonth, topTitles } from './usage'
 import { tf, t } from '../i18n/strings'
 
 /** Próximo domingo 20:00 DEPOIS de nowMs (PURO). */
@@ -35,5 +35,31 @@ export async function scheduleWeeklySummary(nowMs = Date.now()): Promise<void> {
         })
         const ok = await notifyAt(t('weeklyTitle'), body, '/(tabs)/settings', at)
         if (ok) await AsyncStorage.setItem(flag, '1')
+    } catch { /* best-effort */ }
+}
+
+/** 📆 Virou o mês: UMA notificação com o total e o top do mês que fechou. */
+export async function maybeMonthlySummary(nowMs = Date.now()): Promise<void> {
+    try {
+        const now = new Date(nowMs)
+        const previous = new Date(now.getFullYear(), now.getMonth() - 1, 1)
+        const previousMonth = monthKey(previous.getTime())
+        const flag = `neostream_monthly_${previousMonth}`
+        if (await AsyncStorage.getItem(flag)) return
+        const kinds = (await loadMonthUsage())[previousMonth] ?? {}
+        const minutes = (kinds.live ?? 0) + (kinds.movie ?? 0) + (kinds.episode ?? 0)
+        // Mês morto não vira notificação — mas marca pra não re-checar sempre.
+        if (minutes < 60) {
+            await AsyncStorage.setItem(flag, '1')
+            return
+        }
+        const top = topTitleOfMonth(await loadTitleUsage(), previousMonth)
+        const monthLabel = previous.toLocaleDateString(undefined, { month: 'long' })
+        await notifyNow(t('monthlyTitle'), tf('monthlyBody', {
+            month: monthLabel,
+            time: formatMinutes(minutes),
+            top: top?.title ?? '—',
+        }), '/(tabs)/settings')
+        await AsyncStorage.setItem(flag, '1')
     } catch { /* best-effort */ }
 }

@@ -11,6 +11,7 @@ import * as Brightness from 'expo-brightness'
 import * as NavigationBar from 'expo-navigation-bar'
 import { enqueueDownloads, getDownload, isSmartDownloads, removeDownload } from '../services/downloads'
 import { castAvailable, castToCurrentSession, onCastSessionStarted, showCastPicker, type CastControls } from '../services/cast'
+import { fetchChapters, findIntroChapter, type IntroChapter } from '../services/chapters'
 import { nextEpisodeAfter, type QueuedEpisode } from '../services/episodeQueue'
 import { getEntry, resumePosition, saveSample, type ProgressKind } from '../services/progress'
 import { listRecentChannels, recordRecentChannel } from '../services/recents'
@@ -21,10 +22,11 @@ import { alternateLiveUrl, hasCatchup } from '../services/xtream'
 import AsyncStorage from '@react-native-async-storage/async-storage'
 import { getAspect, nextAspect, setAspect, type AspectMode } from '../services/aspect'
 import { dayKey, formatMinutes, loadUsage, recordWatchMinute, summarize, usageGoalJustHit } from '../services/usage'
-import { getKidsTimeLimit, isKidsMode } from '../services/kids'
-import { traktScrobble } from '../services/trakt'
+import { getKidsTimeLimit, getKidsWindow, isKidsMode, isOutsideKidsWindow } from '../services/kids'
+import { traktRate, traktScrobble } from '../services/trakt'
 import * as ScreenOrientation from 'expo-screen-orientation'
 import { loadParental } from '../services/parental'
+import { recordPinAttempt } from '../services/parentalLog'
 import { recordHabitMinute } from '../services/habit'
 import { canRecordUrl, recordingTitle, startRecording, stopRecording } from '../services/recorder'
 import { currentZapChannel, hasZapContext, peekZap, rankChannels, zapBy, zapList, zapTo, zapToNumber, type ZapChannel } from '../services/zap'
@@ -72,6 +74,8 @@ function applySeekTo(target: { currentTime: number }, seconds: number) {
 }
 
 const clamp01 = (value: number) => Math.min(1, Math.max(0, value))
+
+const hhmm = (ms: number) => new Date(ms).toTimeString().slice(0, 5)
 
 // Destravar exige toque duplo — Date.now fora do componente (regra purity).
 function isUnlockDoubleTap(ref: { current: number }): boolean {
@@ -537,6 +541,15 @@ export default function Player() {
     // ⏮ Programa atual com replay (canal tv_archive + início conhecido pelo EPG).
     const [restart, setRestart] = useState<{ channelId: string; startMs: number; endMs: number; programId?: string } | null>(null)
 
+    // ℹ️ Banner informativo do canal (nome + agora/a seguir + progresso) —
+    // aparece ao abrir o canal e a cada zap, some sozinho em 6s.
+    const [liveBanner, setLiveBanner] = useState<{ nowTitle: string; nowRange: string; nextTitle: string; pct: number } | null>(null)
+    useEffect(() => {
+        if (!liveBanner) return
+        const timer = setTimeout(() => setLiveBanner(null), 6000)
+        return () => clearTimeout(timer)
+    }, [liveBanner])
+
     const showEpg = (channelId: string) => {
         void (async () => {
             const client = await getClient()
@@ -547,6 +560,15 @@ export default function Player() {
                 setLiveEpg(nowNext.now.title)
                 setLiveDesc(nowNext.now.desc ?? '')
             }
+            const now = nowNext?.now ?? null
+            setLiveBanner({
+                nowTitle: now?.title ?? '',
+                nowRange: now ? `${hhmm(now.startMs)}–${hhmm(now.endMs)}` : '',
+                nextTitle: nowNext?.next?.title ?? '',
+                pct: now
+                    ? Math.min(100, Math.max(0, Math.round(((Date.now() - now.startMs) / Math.max(1, now.endMs - now.startMs)) * 100)))
+                    : 0,
+            })
             if (nowNext?.now?.startMs && client.catchupUrl) {
                 const channels = await cachedFetch('live', () => client.getLiveChannels()).catch(() => [])
                 const channel = channels.find(c => String(c.stream_id) === channelId)
@@ -570,6 +592,70 @@ export default function Player() {
             if (!raw) return
             router.push({ pathname: '/player', params: { url: await resolvePlayableUrl(raw), title: `⏪ ${liveEpg || liveTitle}` } })
         })()
+    }
+
+    // Abriu um canal ao vivo: ja busca o agora/a seguir (banner + botao ⏮).
+    useEffect(() => {
+        if (live !== '1') return
+        queueMicrotask(() => {
+            const channel = currentZapChannel()
+            if (channel) showEpg(channel.id)
+        })
+    }, [live])
+
+    // ⏭ Pular abertura: capitulos DO ARQUIVO (MP4 chpl / MKV) via HTTP Range.
+    // Achou um capitulo curto no comeco → botao pula pro fim exato dele.
+    const [intro, setIntro] = useState<IntroChapter | null>(null)
+    const [introVisible, setIntroVisible] = useState(false)
+    useEffect(() => {
+        queueMicrotask(() => {
+            setIntro(null)
+            setIntroVisible(false)
+        })
+        if (live === '1' || !source) return
+        let cancelled = false
+        void fetchChapters(source)
+            .then(chapters => {
+                if (!cancelled && chapters.length > 1) setIntro(findIntroChapter(chapters))
+            })
+            .catch(() => undefined)
+        return () => { cancelled = true }
+    }, [source, live])
+
+    useEffect(() => {
+        if (!intro) return
+        const timer = setInterval(() => {
+            let at = -1
+            try { at = player.currentTime } catch { return } // player ja liberado
+            if (at < 0) return
+            setIntroVisible(at >= intro.startSec && at < intro.endSec - 1)
+        }, 1000)
+        return () => clearInterval(timer)
+        // eslint-disable-next-line react-hooks/exhaustive-deps
+    }, [intro])
+
+    const skipIntro = () => {
+        const target = intro
+        if (!target) return
+        try { applySeekTo(player, target.endSec) } catch { return }
+        setIntroVisible(false)
+        showTrackToast(t('skipIntro'))
+    }
+
+    // ★ Nota no Trakt sem sair do player: filme direto, episódio avalia a série.
+    const askTraktRating = () => {
+        const rateKind = kind === 'episode' ? 'episode' as const : 'movie' as const
+        const rateTitle = String(title ?? '')
+        Alert.alert(t('traktRateTitle'), rateTitle, [
+            { text: t('cancel'), style: 'cancel' },
+            ...[10, 8, 6, 4, 2].map(score => ({
+                text: '★'.repeat(score / 2) + '☆'.repeat(5 - score / 2),
+                onPress: () => {
+                    void traktRate(rateKind, rateTitle, score)
+                        .then(ok => showTrackToast(ok ? t('traktRateOk') : t('traktRateFail')))
+                },
+            })),
+        ])
     }
 
     const switchChannel = (channel: ZapChannel) => {
@@ -610,6 +696,25 @@ export default function Player() {
     // 🔒 Cadeado: trava todos os toques (anti-pause de bolso/orelha).
     const [touchLocked, setTouchLocked] = useState(false)
     const unlockTapRef = useRef(0)
+
+    // 📻 Modo rádio: o áudio segue e a tela vira breu (rádio/música no live
+    // sem torrar bateria/OLED). Toque em qualquer lugar volta ao normal.
+    const [radioMode, setRadioMode] = useState(false)
+    const radioPrevBrightness = useRef(-1)
+    const enterRadioMode = () => {
+        void Brightness.getBrightnessAsync()
+            .then(value => { radioPrevBrightness.current = value })
+            .catch(() => { radioPrevBrightness.current = -1 })
+        void Brightness.setBrightnessAsync(0.01).catch(() => undefined)
+        setRadioMode(true)
+        setChrome(false)
+    }
+    const exitRadioMode = () => {
+        if (radioPrevBrightness.current >= 0) {
+            void Brightness.setBrightnessAsync(radioPrevBrightness.current).catch(() => undefined)
+        }
+        setRadioMode(false)
+    }
 
     // Zap por número: teclado na tela; commit após 1,5s parado (ou no ✓).
     const [numPadOpen, setNumPadOpen] = useState(false)
@@ -936,6 +1041,12 @@ export default function Player() {
                 void (async () => {
                     if (limitOverrideRef.current) return
                     if (!(await isKidsMode())) return
+                    // 🕗 Janela de horário: fora dela trava já no primeiro minuto.
+                    if (isOutsideKidsWindow(new Date().getHours(), await getKidsWindow())) {
+                        setTimeUp(true)
+                        try { player.pause() } catch { /* player já liberado */ }
+                        return
+                    }
                     const limit = await getKidsTimeLimit()
                     if (limit <= 0) return
                     const todayMinutes = summarize(await loadUsage(), dayKey(Date.now())).totalMinutes
@@ -1065,6 +1176,11 @@ export default function Player() {
                     </TvTouchable>
                 ) : null}
                 {live === '1' ? (
+                    <TvTouchable style={styles.trackBtn} accessibilityLabel={t('a11yRadio')} onPress={enterRadioMode}>
+                        <Ionicons name="radio-outline" size={20} color={colors.text} />
+                    </TvTouchable>
+                ) : null}
+                {live === '1' ? (
                     <TvTouchable
                         style={styles.trackBtn}
                         accessibilityLabel={t('a11yRec')}
@@ -1103,6 +1219,11 @@ export default function Player() {
                 {live !== '1' ? (
                     <TvTouchable style={styles.trackBtn} accessibilityLabel={t('a11yRate')} onPress={cycleRate}>
                         <Text style={styles.rateText}>{rate}x</Text>
+                    </TvTouchable>
+                ) : null}
+                {trackable ? (
+                    <TvTouchable style={styles.trackBtn} accessibilityLabel={t('traktRateTitle')} onPress={askTraktRating}>
+                        <Ionicons name="star-outline" size={20} color={colors.text} />
                     </TvTouchable>
                 ) : null}
                 <TvTouchable
@@ -1158,6 +1279,30 @@ export default function Player() {
                 <View style={styles.trackToast}>
                     <Text style={styles.trackToastText}>{trackToast}</Text>
                 </View>
+            ) : null}
+
+            {live === '1' && liveBanner ? (
+                <View style={styles.liveBanner} pointerEvents="none">
+                    <Text style={styles.liveBannerName} numberOfLines={1}>🔴 {liveTitle}</Text>
+                    {liveBanner.nowTitle ? (
+                        <Text style={styles.liveBannerNow} numberOfLines={1}>{liveBanner.nowRange}  {liveBanner.nowTitle}</Text>
+                    ) : null}
+                    {liveBanner.nowTitle ? (
+                        <View style={styles.liveBannerBar}>
+                            <View style={[styles.liveBannerFill, { width: `${liveBanner.pct}%` }]} />
+                        </View>
+                    ) : null}
+                    {liveBanner.nextTitle ? (
+                        <Text style={styles.liveBannerNext} numberOfLines={1}>{t('upNextTitle')}: {liveBanner.nextTitle}</Text>
+                    ) : null}
+                </View>
+            ) : null}
+
+            {introVisible && intro ? (
+                <TvTouchable style={styles.skipIntro} accessibilityLabel={t('skipIntro')} onPress={skipIntro}>
+                    <Ionicons name="play-skip-forward" size={16} color={colors.text} />
+                    <Text style={styles.skipIntroText}>{t('skipIntro')}</Text>
+                </TvTouchable>
             ) : null}
 
             {chrome && zappable ? (
@@ -1315,6 +1460,17 @@ export default function Player() {
                 </View>
             ) : null}
 
+            {radioMode ? (
+                <View
+                    style={styles.radioOverlay}
+                    onStartShouldSetResponder={() => true}
+                    onResponderRelease={exitRadioMode}
+                >
+                    <Ionicons name="radio-outline" size={40} color="rgba(244,244,248,0.25)" />
+                    <Text style={styles.radioHint}>{t('radioOn')}</Text>
+                </View>
+            ) : null}
+
             {touchLocked ? (
                 <View
                     style={styles.lockOverlay}
@@ -1348,6 +1504,7 @@ export default function Player() {
                                         try { player.play() } catch { /* player já liberado */ }
                                     } else {
                                         setTimeUpPin('')
+                                        void recordPinAttempt()
                                     }
                                 })
                             }
@@ -1422,6 +1579,16 @@ const styles = StyleSheet.create({
         left: 0,
         right: 0,
     },
+    radioOverlay: {
+        position: 'absolute',
+        top: 0, left: 0, right: 0, bottom: 0,
+        zIndex: 35,
+        backgroundColor: '#000',
+        alignItems: 'center',
+        justifyContent: 'center',
+        gap: spacing.md,
+    },
+    radioHint: { color: 'rgba(244,244,248,0.3)', fontSize: tvSize(13) },
     lockOverlay: {
         position: 'absolute',
         top: 0, left: 0, right: 0, bottom: 0,
@@ -1536,6 +1703,38 @@ const styles = StyleSheet.create({
     drawerName: { color: colors.text, fontSize: tvSize(14) },
     drawerEpg: { color: colors.textDim, fontSize: tvSize(11) },
     drawerNameOn: { color: colors.accent, fontWeight: '700' },
+    liveBanner: {
+        position: 'absolute',
+        left: spacing.lg,
+        right: spacing.lg,
+        bottom: spacing.xl,
+        backgroundColor: 'rgba(11,11,16,0.9)',
+        borderColor: colors.border,
+        borderWidth: 1,
+        borderRadius: 12,
+        padding: spacing.md,
+        gap: 4,
+    },
+    liveBannerName: { color: colors.text, fontSize: tvSize(15), fontWeight: '800' },
+    liveBannerNow: { color: colors.text, fontSize: tvSize(13) },
+    liveBannerBar: { height: 3, borderRadius: 2, backgroundColor: colors.border, overflow: 'hidden' },
+    liveBannerFill: { height: 3, backgroundColor: colors.accent },
+    liveBannerNext: { color: colors.textDim, fontSize: tvSize(12) },
+    skipIntro: {
+        position: 'absolute',
+        left: spacing.lg,
+        bottom: 96,
+        flexDirection: 'row',
+        alignItems: 'center',
+        gap: 6,
+        backgroundColor: 'rgba(22,22,31,0.95)',
+        borderColor: colors.border,
+        borderWidth: 1,
+        borderRadius: 8,
+        paddingHorizontal: spacing.md,
+        paddingVertical: 8,
+    },
+    skipIntroText: { color: colors.text, fontSize: tvSize(14), fontWeight: '700' },
     castBar: {
         position: 'absolute',
         bottom: 32,

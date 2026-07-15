@@ -195,19 +195,20 @@ describe('expiração e resgate ao vivo', () => {
 })
 
 describe('grade do dia e catch-up', () => {
-    it('parseDaySchedule: janela de 12h atrás a 24h à frente, ordenada, títulos base64', () => {
+    it('parseDaySchedule: janela de 12h atrás a 48h à frente, ordenada, títulos base64', () => {
         const now = Date.UTC(2026, 6, 12, 12, 0)
         const h = 3600_000
         const sec = (ms: number) => String(ms / 1000)
         const row = (title: string, startMs: number, endMs: number) =>
             ({ title: b64(title), start_timestamp: sec(startMs), stop_timestamp: sec(endMs) })
         const programs = parseDaySchedule({ epg_listings: [
-            row('Futuro demais', now + 25 * h, now + 26 * h),
+            row('Futuro demais', now + 49 * h, now + 50 * h),
+            row('Amanhã', now + 25 * h, now + 26 * h),
             row('Agora', now - h, now + h),
             row('Replay', now - 3 * h, now - 2 * h),
             row('Velho demais', now - 15 * h, now - 14 * h),
         ] }, now)
-        expect(programs.map(p => p.title)).toEqual(['Replay', 'Agora'])
+        expect(programs.map(p => p.title)).toEqual(['Replay', 'Agora', 'Amanhã'])
     })
 
     it('parseDaySchedule tolera lixo', () => {

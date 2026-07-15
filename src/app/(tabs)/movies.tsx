@@ -17,6 +17,12 @@ import { colors, spacing } from '../../ui/theme'
 import { SORT_KEY, t, tf } from '../../i18n/strings'
 import { isTV } from '../../ui/tv'
 
+/** Ano no fim do nome — "Filme (2026)" → 2026 (PURO, null sem ano). */
+const yearOf = (name: string) => {
+    const match = /\((19|20)\d{2}\)/.exec(name)
+    return match ? Number(match[0].slice(1, -1)) : null
+}
+
 export default function MoviesTab() {
     const [movies, setMovies] = useState<VodMovie[] | null>(null)
     const [categories, setCategories] = useState<Category[]>([])
@@ -24,6 +30,9 @@ export default function MoviesTab() {
     const [favorites, setFavorites] = useState<Favorites>(emptyFavorites())
     const [continueList, setContinueList] = useState<ProgressEntry[]>([])
     const [query, setQuery] = useState('')
+    const [minRating, setMinRating] = useState(false)
+    const [yearFilter, setYearFilter] = useState(0)
+    const [thisYear] = useState(() => new Date().getFullYear())
     const [refreshing, setRefreshing] = useState(false)
     const [error, setError] = useState('')
     const [allowed, setAllowed] = useState<Set<string> | null>(null)
@@ -143,8 +152,11 @@ export default function MoviesTab() {
         else if (category !== 'all') list = list.filter(m => m.category_id === category)
         if (allowed) list = list.filter(item => !item.category_id || allowed.has(item.category_id))
         if (q) list = list.filter(m => m.name.toLowerCase().includes(q))
+        // Filtros rápidos: nota do provedor ≥ 7 e ano no nome "(2026)".
+        if (minRating) list = list.filter(m => Number(m.rating) >= 7)
+        if (yearFilter > 0) list = list.filter(m => yearOf(m.name) === yearFilter)
         return sortCatalog(list, sort, m => m.added)
-    }, [movies, query, category, favorites, allowed, sort])
+    }, [movies, query, category, favorites, allowed, sort, minRating, yearFilter])
 
     // Tocar abre a FICHA (sinopse + play); o rail continua indo direto pro player.
     const openDetails = (movie: VodMovie) => {
@@ -199,6 +211,23 @@ export default function MoviesTab() {
             <View style={styles.filterRow}>
                 <View style={{ flex: 1 }}>
                     <CategoryChips categories={allowed ? categories.filter(c => allowed.has(c.category_id)) : categories} selected={category} onSelect={setCategory} />
+                    <View style={styles.qfRow}>
+                        <TouchableOpacity
+                            style={[styles.qfChip, minRating && styles.qfChipOn]}
+                            onPress={() => setMinRating(current => !current)}
+                        >
+                            <Text style={[styles.qfText, minRating && styles.qfTextOn]}>⭐ 7+</Text>
+                        </TouchableOpacity>
+                        {[thisYear, thisYear - 1].map(year => (
+                            <TouchableOpacity
+                                key={year}
+                                style={[styles.qfChip, yearFilter === year && styles.qfChipOn]}
+                                onPress={() => setYearFilter(current => (current === year ? 0 : year))}
+                            >
+                                <Text style={[styles.qfText, yearFilter === year && styles.qfTextOn]}>{year}</Text>
+                            </TouchableOpacity>
+                        ))}
+                    </View>
                 </View>
                 <TouchableOpacity style={styles.sortBtn} onPress={() => setSort(nextSortMode(sort))}>
                     <Ionicons name="swap-vertical" size={14} color={sort === 'default' ? colors.textDim : colors.accent} />
@@ -288,6 +317,17 @@ export default function MoviesTab() {
 }
 
 const styles = StyleSheet.create({
+    qfRow: { flexDirection: 'row', gap: spacing.sm, paddingHorizontal: spacing.md, paddingBottom: spacing.xs },
+    qfChip: {
+        borderColor: colors.border,
+        borderWidth: 1,
+        borderRadius: 14,
+        paddingHorizontal: spacing.md,
+        paddingVertical: 5,
+    },
+    qfChipOn: { borderColor: colors.accent, backgroundColor: colors.accentSoft },
+    qfText: { color: colors.textDim, fontSize: 12, fontWeight: '600' },
+    qfTextOn: { color: colors.accent },
     selBar: {
         flexDirection: 'row',
         alignItems: 'center',

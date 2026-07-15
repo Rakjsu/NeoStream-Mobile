@@ -46,3 +46,41 @@ export async function clearSearchTerms(): Promise<void> {
         await AsyncStorage.removeItem(STORAGE_KEY)
     } catch { /* best-effort */ }
 }
+
+/** Tamanho do prefixo comum (pra ranquear sugestões) (PURO). */
+function commonPrefixLen(a: string, b: string): number {
+    let i = 0
+    while (i < a.length && i < b.length && a[i] === b[i]) i++
+    return i
+}
+
+/**
+ * "Você quis dizer": busca seca sugere títulos do catálogo que começam
+ * parecido (no texto inteiro ou em alguma palavra) (PURO).
+ */
+export function suggestTitles(query: string, names: string[], max = 5): string[] {
+    const q = query.trim().toLowerCase()
+    if (q.length < 3) return []
+    const prefix = q.slice(0, 3)
+    const seen = new Set<string>()
+    const scored: { name: string; score: number }[] = []
+    for (const name of names) {
+        const lower = name.toLowerCase()
+        if (seen.has(lower)) continue
+        let score = 0
+        if (lower.startsWith(prefix)) score = commonPrefixLen(lower, q)
+        else {
+            for (const word of lower.split(/\s+/)) {
+                if (word.startsWith(prefix)) score = Math.max(score, commonPrefixLen(word, q))
+            }
+        }
+        if (score >= 3) {
+            seen.add(lower)
+            scored.push({ name, score })
+        }
+    }
+    return scored
+        .sort((a, b) => b.score - a.score || a.name.length - b.name.length)
+        .slice(0, max)
+        .map(entry => entry.name)
+}

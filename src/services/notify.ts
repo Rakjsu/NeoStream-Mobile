@@ -3,6 +3,7 @@
  * sobre o expo-notifications — tudo best-effort: falhar em notificar nunca
  * pode derrubar o fluxo que notificaria.
  */
+import AsyncStorage from '@react-native-async-storage/async-storage'
 import * as Notifications from 'expo-notifications'
 import { t, tf } from '../i18n/strings'
 
@@ -34,9 +35,30 @@ export async function ensureNotifyPermission(): Promise<boolean> {
     }
 }
 
+// 🔕 Snooze: avisos automáticos silenciados até o horário salvo (lembretes
+// agendados pelo usuário passam direto — foram pedidos explicitamente).
+const SNOOZE_KEY = 'neostream_notify_snooze_until'
+
+export async function getNotifySnoozeUntil(): Promise<number> {
+    try {
+        const until = Number(await AsyncStorage.getItem(SNOOZE_KEY))
+        return Number.isFinite(until) ? until : 0
+    } catch {
+        return 0
+    }
+}
+
+export async function setNotifySnooze(untilMs: number): Promise<void> {
+    try {
+        if (untilMs > 0) await AsyncStorage.setItem(SNOOZE_KEY, String(untilMs))
+        else await AsyncStorage.removeItem(SNOOZE_KEY)
+    } catch { /* best-effort */ }
+}
+
 /** Notificação imediata com um marcador de rota no payload (o _layout roteia o clique). */
 export async function notifyNow(title: string, body: string, route: string): Promise<void> {
     try {
+        if (Date.now() < (await getNotifySnoozeUntil())) return
         if (!(await ensureNotifyPermission())) return
         await Notifications.scheduleNotificationAsync({
             content: { title, body, data: { route } },
@@ -106,6 +128,24 @@ export function onNotificationRoute(handler: (route: string) => void): () => voi
 /** "Download concluído" com clique levando pra tela de Downloads. */
 export async function notifyDownloadDone(title: string): Promise<void> {
     await notifyNow(t('dlNotifTitle'), tf('dlNotifBody', { title }), '/downloads')
+}
+
+/** Progresso do download na barra de status (mesmo id → substitui, sem spam). */
+export async function notifyDownloadProgress(id: string, title: string, pct: number): Promise<void> {
+    try {
+        if (!(await ensureNotifyPermission())) return
+        await Notifications.scheduleNotificationAsync({
+            identifier: `dl-${id}`,
+            content: { title: tf('dlProgressNotif', { pct }), body: title, data: { route: '/downloads' } },
+            trigger: null,
+        })
+    } catch { /* best-effort */ }
+}
+
+export async function dismissDownloadProgress(id: string): Promise<void> {
+    try {
+        await Notifications.dismissNotificationAsync(`dl-${id}`)
+    } catch { /* best-effort */ }
 }
 
 // ------------------------------------------------------ gravação com ⏹ --

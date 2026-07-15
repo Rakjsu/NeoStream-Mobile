@@ -45,3 +45,12 @@ describe('tema por variante', () => {
         expect(colors.accent).toBe(accent)
     })
 })
+
+describe('paletteFor: alto contraste', () => {
+    it('bordas claras e fundo preto', async () => {
+        const { paletteFor } = await import('./theme')
+        const palette = paletteFor('contrast')
+        expect(palette.bg).toBe('#000000')
+        expect(palette.border).toBe('#6b6b7e')
+    })
+})

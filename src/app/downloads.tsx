@@ -4,8 +4,8 @@ import { Stack, router } from 'expo-router'
 import { useCallback, useEffect, useState } from 'react'
 import { Alert, SectionList, StyleSheet, Text, TextInput, TouchableOpacity, View } from 'react-native'
 import {
-    cancelDownload, discardInterrupted, groupDownloads, listActiveDownloads,
-    listDownloads, listInterrupted, pauseDownload, removeDownload, renameDownload, resumeDownload, toggleLockDownload,
+    cancelDownload, dequeueDownload, discardInterrupted, groupDownloads, isNightOnly, listActiveDownloads,
+    listDownloads, listInterrupted, listQueued, pauseDownload, promoteDownload, removeDownload, renameDownload, resumeDownload, toggleLockDownload,
     startDownload, subscribeDownloads, type DownloadItem, type DownloadRequest,
 } from '../services/downloads'
 import * as Sharing from 'expo-sharing'
@@ -28,6 +28,8 @@ export default function Downloads() {
     const [renameDraft, setRenameDraft] = useState('')
     const [schedRecs, setSchedRecs] = useState<ScheduledRec[]>([])
     const [recActive, setRecActive] = useState<string | null>(null)
+    const [queued, setQueued] = useState<{ id: string; title: string }[]>([])
+    const [nightOnly, setNightOnlyState] = useState(false)
 
     const refresh = useCallback(() => {
         void listDownloads().then(setItems)
@@ -35,6 +37,8 @@ export default function Downloads() {
         void listInterrupted().then(setInterrupted)
         void listScheduledRecs().then(setSchedRecs)
         setRecActive(recordingTitle())
+        setQueued(listQueued())
+        void isNightOnly().then(setNightOnlyState)
     }, [])
 
     useEffect(() => {
@@ -123,6 +127,20 @@ export default function Downloads() {
                         <Ionicons name={activeItem.paused ? 'play-circle-outline' : 'pause-circle-outline'} size={20} color={colors.accent} />
                     </TouchableOpacity>
                     <TouchableOpacity accessibilityLabel={t('cancel')} onPress={() => void cancelDownload(activeItem.id)} style={styles.iconBtn}>
+                        <Ionicons name="close-circle" size={20} color={colors.danger} />
+                    </TouchableOpacity>
+                </View>
+            ))}
+            {queued.map((entry, index) => (
+                <View key={`q${entry.id}`} style={styles.activeRow}>
+                    <Ionicons name={nightOnly ? 'moon-outline' : 'time-outline'} size={18} color={colors.textDim} />
+                    <Text style={[styles.activeText, { flex: 1 }]} numberOfLines={1}>{entry.title}</Text>
+                    {index > 0 ? (
+                        <TouchableOpacity style={styles.iconBtn} accessibilityLabel={t('dlPromote')} onPress={() => promoteDownload(entry.id)}>
+                            <Ionicons name="arrow-up-circle-outline" size={20} color={colors.accent} />
+                        </TouchableOpacity>
+                    ) : null}
+                    <TouchableOpacity style={styles.iconBtn} accessibilityLabel={t('cancel')} onPress={() => dequeueDownload(entry.id)}>
                         <Ionicons name="close-circle" size={20} color={colors.danger} />
                     </TouchableOpacity>
                 </View>

@@ -8,6 +8,7 @@ import { activeProgress, enqueueDownloads, listActiveDownloads, listDownloads, l
 import { tapLight } from '../../services/haptics'
 import { setEpisodeQueue } from '../../services/episodeQueue'
 import { emptyFavorites, isFavorite, loadFavorites, persistToggle, type Favorites } from '../../services/favorites'
+import { listCollections, toggleInCollection } from '../../services/collections'
 import {
     buildProgressId, loadProgress, loadWatched, markWatched, pickNextEpisode,
     progressPct, removeEntry, unmarkWatched, type ProgressEntry,
@@ -212,6 +213,24 @@ export default function SeriesDetail() {
     const next = pickNextEpisode(flat, watched, progress)
 
     const fav = isFavorite(favorites, 'series', String(id))
+
+    // 📁 Entra/sai de uma pasta (as pastas nascem em Ajustes → Início).
+    const addToCollection = () => {
+        void listCollections().then(collections => {
+            if (collections.length === 0) { Alert.alert(t('colNone')); return }
+            Alert.alert(t('colPickTitle'), '', [
+                { text: t('cancel'), style: 'cancel' },
+                ...collections.map(collection => ({
+                    text: `📁 ${collection.name}`,
+                    onPress: () => {
+                        void toggleInCollection(collection.id, {
+                            kind: 'series', id: String(id), name: name ?? '', cover: String(cover ?? ''),
+                        }).then(added => Alert.alert(added ? tf('colAdded', { name: collection.name }) : tf('colRemoved', { name: collection.name })))
+                    },
+                })),
+            ])
+        })
+    }
     const headerCover = infoCover || cover || ''
 
     const header = (
@@ -234,6 +253,13 @@ export default function SeriesDetail() {
                         >
                             <Ionicons name={fav ? 'heart' : 'heart-outline'} size={16} color={fav ? '#fff' : colors.danger} />
                             <Text style={[styles.favText, fav && styles.favTextOn]}>{fav ? t('favOn') : t('favBtn')}</Text>
+                        </TouchableOpacity>
+                        <TouchableOpacity
+                            style={styles.seenBtn}
+                            accessibilityLabel={t('colPickTitle')}
+                            onPress={addToCollection}
+                        >
+                            <Ionicons name="folder-outline" size={16} color={colors.textDim} />
                         </TouchableOpacity>
                         <TouchableOpacity
                             style={styles.seenBtn}

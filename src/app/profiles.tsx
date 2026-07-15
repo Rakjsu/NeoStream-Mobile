@@ -1,3 +1,4 @@
+import AsyncStorage from '@react-native-async-storage/async-storage'
 import { Ionicons } from '@expo/vector-icons'
 import * as LocalAuthentication from 'expo-local-authentication'
 import { Stack, router } from 'expo-router'
@@ -9,6 +10,8 @@ import {
 } from '../services/profiles'
 import { TvTouchable } from '../ui/components'
 import { loadParental } from '../services/parental'
+import { recordPinAttempt } from '../services/parentalLog'
+import { setKidsMode } from '../services/kids'
 import { colors, spacing } from '../ui/theme'
 import { tvSize } from '../ui/tv'
 import { t, tf } from '../i18n/strings'
@@ -33,6 +36,7 @@ export default function Profiles() {
     const [editing, setEditing] = useState<Profile | null>(null)
     const [iconDraft, setIconDraft] = useState('')
     const [colorDraft, setColorDraft] = useState('')
+    const [kidsDraft, setKidsDraft] = useState(false)
     const [bioOk, setBioOk] = useState(false)
     const [activeId, setActiveId] = useState(DEFAULT_PROFILE_ID)
 
@@ -55,10 +59,20 @@ export default function Profiles() {
     }, [])
 
     const enter = (profile: Profile) => {
-        void switchProfile(profile.id).then(() => {
+        void (async () => {
+            await switchProfile(profile.id)
+            // 🧒 Perfil infantil liga o modo kids sozinho; sair dele desliga SÓ
+            // se foi um perfil que ligou (o interruptor manual fica em paz).
+            if (profile.kids) {
+                await setKidsMode(true)
+                await AsyncStorage.setItem('neostream_kids_by_profile', '1').catch(() => undefined)
+            } else if (await AsyncStorage.getItem('neostream_kids_by_profile').catch(() => null)) {
+                await setKidsMode(false)
+                await AsyncStorage.removeItem('neostream_kids_by_profile').catch(() => undefined)
+            }
             markProfilePicked()
             router.replace('/(tabs)/home')
-        })
+        })()
     }
 
     const pick = (profile: Profile) => {
@@ -77,6 +91,7 @@ export default function Profiles() {
                     setPinDraft(profile.pin ?? '')
                     setIconDraft(profile.icon ?? '')
                     setColorDraft(profile.color)
+                    setKidsDraft(!!profile.kids)
                     setEditing(profile)
                     setAdding(false)
                 },
@@ -117,7 +132,7 @@ export default function Profiles() {
                                 </View>
                             ) : null}
                         </View>
-                        <Text style={styles.name} numberOfLines={1}>{displayName(profile)}</Text>
+                        <Text style={styles.name} numberOfLines={1}>{displayName(profile)}{profile.kids ? ' 🧒' : ''}</Text>
                     </TvTouchable>
                 ))}
                 <TvTouchable style={styles.cell} onPress={() => setAdding(true)}>
@@ -150,15 +165,23 @@ export default function Profiles() {
                         maxLength={4}
                     />
                     <TvTouchable
+                        style={[styles.kidsChip, kidsDraft && styles.kidsChipOn]}
+                        accessibilityLabel={t('profileKidsLabel')}
+                        onPress={() => setKidsDraft(current => !current)}
+                    >
+                        <Text style={styles.kidsChipText}>🧒</Text>
+                    </TvTouchable>
+                    <TvTouchable
                         style={styles.addBtn}
                         onPress={() => {
                             if (editing) {
-                                void updateProfile(editing.id, { name: nameDraft, pin: pinDraft, icon: iconDraft, color: colorDraft }).then(() => {
+                                void updateProfile(editing.id, { name: nameDraft, pin: pinDraft, icon: iconDraft, color: colorDraft, kids: kidsDraft }).then(() => {
                                     setEditing(null)
                                     setNameDraft('')
                                     setPinDraft('')
                                     setIconDraft('')
                                     setColorDraft('')
+                                    setKidsDraft(false)
                                     refresh()
                                 })
                                 return
@@ -166,11 +189,12 @@ export default function Profiles() {
                             void addProfile(nameDraft, pinDraft || undefined).then(created => {
                                 if (!created) return
                                 // Avatar/cor escolhidos já valem pro perfil recém-criado.
-                                if (iconDraft || colorDraft) void updateProfile(created.id, { icon: iconDraft, color: colorDraft }).then(refresh)
+                                if (iconDraft || colorDraft || kidsDraft) void updateProfile(created.id, { icon: iconDraft, color: colorDraft, kids: kidsDraft }).then(refresh)
                                 setNameDraft('')
                                 setPinDraft('')
                                 setIconDraft('')
                                 setColorDraft('')
+                                setKidsDraft(false)
                                 setAdding(false)
                                 refresh()
                                 // Opcional: já nascer com os favoritos/lista do perfil atual.
@@ -219,7 +243,7 @@ export default function Profiles() {
                             if (digits.length !== 4) return
                             if (pinMode === 'profile') {
                                 if (digits === pinFor.pin) { setPinFor(null); enter(pinFor) }
-                                else setPinTry('')
+                                else { setPinTry(''); void recordPinAttempt() }
                                 return
                             }
                             // PIN do responsável destrava E REMOVE o PIN esquecido.
@@ -231,6 +255,7 @@ export default function Profiles() {
                                     })
                                 } else {
                                     setPinTry('')
+                                    void recordPinAttempt()
                                 }
                             })
                         }}
@@ -281,6 +306,17 @@ export default function Profiles() {
 }
 
 const styles = StyleSheet.create({
+    kidsChip: {
+        width: 44,
+        height: 44,
+        alignItems: 'center',
+        justifyContent: 'center',
+        borderRadius: 10,
+        borderWidth: 1,
+        borderColor: colors.border,
+    },
+    kidsChipOn: { borderColor: colors.accent, backgroundColor: colors.accentSoft },
+    kidsChipText: { fontSize: 20 },
     root: { flex: 1, backgroundColor: colors.bg, alignItems: 'center', justifyContent: 'center', padding: spacing.xl, gap: spacing.lg },
     title: { color: colors.text, fontSize: tvSize(22), fontWeight: '700' },
     grid: { flexDirection: 'row', flexWrap: 'wrap', justifyContent: 'center', gap: spacing.xl },

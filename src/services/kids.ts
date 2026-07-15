@@ -110,3 +110,39 @@ export async function setKidsTimeLimit(minutes: number): Promise<void> {
         else await AsyncStorage.removeItem(LIMIT_KEY)
     } catch { /* best-effort */ }
 }
+
+// --------------------------------------------------- janela de horário --
+
+const WINDOW_KEY = 'neostream_kids_window'
+
+export interface KidsWindow {
+    startHour: number
+    endHour: number
+}
+
+/** Janela de horário do modo infantil (null = sem janela, vale o dia todo). */
+export async function getKidsWindow(): Promise<KidsWindow | null> {
+    try {
+        const raw = await AsyncStorage.getItem(WINDOW_KEY)
+        const parsed = raw ? (JSON.parse(raw) as Partial<KidsWindow>) : null
+        return parsed && Number.isFinite(parsed.startHour) && Number.isFinite(parsed.endHour)
+            ? { startHour: Number(parsed.startHour), endHour: Number(parsed.endHour) }
+            : null
+    } catch {
+        return null
+    }
+}
+
+export async function setKidsWindow(window: KidsWindow | null): Promise<void> {
+    try {
+        if (window) await AsyncStorage.setItem(WINDOW_KEY, JSON.stringify(window))
+        else await AsyncStorage.removeItem(WINDOW_KEY)
+    } catch { /* best-effort */ }
+}
+
+/** Fora da janela? (PURO) — [start,end) e janela cruzando a meia-noite valem. */
+export function isOutsideKidsWindow(hour: number, window: KidsWindow | null): boolean {
+    if (!window || window.startHour === window.endHour) return false
+    if (window.startHour < window.endHour) return hour < window.startHour || hour >= window.endHour
+    return hour >= window.endHour && hour < window.startHour
+}

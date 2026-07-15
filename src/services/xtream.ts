@@ -235,7 +235,7 @@ export function parseDaySchedule(data: unknown, nowMs: number): EpgProgram[] {
     const obj = (data ?? {}) as { epg_listings?: unknown[] }
     const rows = Array.isArray(obj.epg_listings) ? obj.epg_listings : []
     const pastLimit = nowMs - 12 * 3600_000
-    const horizon = nowMs + 24 * 3600_000
+    const horizon = nowMs + 48 * 3600_000 // guia por dia mostra ate amanha inteiro
     return rows.flatMap(row => {
         const item = row as { title?: unknown; start_timestamp?: unknown; stop_timestamp?: unknown }
         const startMs = Number(item?.start_timestamp) * 1000

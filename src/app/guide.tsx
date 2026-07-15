@@ -58,6 +58,7 @@ export default function Guide() {
     const [categories, setCategories] = useState<Category[]>([])
     const [category, setCategory] = useState('all')
     const [favSet, setFavSet] = useState<Set<string>>(new Set())
+    const [dayOffset, setDayOffset] = useState(0)
     const [scheduleMap, setScheduleMap] = useState<Record<string, EpgProgram[]>>({})
     const inFlight = useRef(new Set<string>())
     const scrollRef = useRef<ScrollView | null>(null)
@@ -69,7 +70,10 @@ export default function Guide() {
         const timer = setInterval(() => setNowMs(Date.now()), 60_000)
         return () => clearInterval(timer)
     }, [])
-    const baseMs = guideBaseMs(nowMs)
+    // Dia selecionado: 0 = janela ancorada no agora; 1 = amanhã à meia-noite.
+    const midnight = new Date(nowMs)
+    midnight.setHours(0, 0, 0, 0)
+    const baseMs = dayOffset === 0 ? guideBaseMs(nowMs) : midnight.getTime() + dayOffset * 86_400_000
     const nowX = ((nowMs - baseMs) / 60_000) * PX_PER_MIN
 
     useEffect(() => {
@@ -216,8 +220,9 @@ export default function Guide() {
     }
 
     // Alvos de salto: agora + horários cheios dentro da janela de 24h.
-    const jumps: { label: string; ms: number }[] = [{ label: t('guideJumpNow'), ms: nowMs }]
-    for (const hour of [20, 8, 12]) {
+    // Fora do dia de hoje a lista nasce vazia (os chips somem sozinhos).
+    const jumps: { label: string; ms: number }[] = dayOffset === 0 ? [{ label: t('guideJumpNow'), ms: nowMs }] : []
+    for (const hour of dayOffset === 0 ? [20, 8, 12] : []) {
         const target = new Date(nowMs)
         target.setHours(hour, 0, 0, 0)
         let ms = target.getTime()
@@ -267,6 +272,26 @@ export default function Guide() {
                 ))}
             </View>
             <CategoryChips categories={categories} selected={category} onSelect={setCategory} />
+            <View style={styles.dayRow}>
+                {[0, 1].map(offset => (
+                    <TvTouchable
+                        key={offset}
+                        style={[styles.jumpChip, dayOffset === offset && styles.dayChipOn]}
+                        onPress={() => {
+                            setDayOffset(offset)
+                            // Hoje volta pro "agora"; amanhã abre às 08:00.
+                            const targetX = offset === 0
+                                ? ((nowMs - guideBaseMs(nowMs)) / 60_000) * PX_PER_MIN - 80
+                                : 8 * 60 * PX_PER_MIN
+                            scrollRef.current?.scrollTo({ x: Math.max(0, targetX), animated: false })
+                        }}
+                    >
+                        <Text style={[styles.jumpText, dayOffset === offset && styles.dayTextOn]}>
+                            {offset === 0 ? t('guideDayToday') : t('guideDayTomorrow')}
+                        </Text>
+                    </TvTouchable>
+                ))}
+            </View>
             <ScrollView
                 ref={scrollRef}
                 horizontal
@@ -285,7 +310,7 @@ export default function Guide() {
                             </Text>
                         ))}
                     </View>
-                    <View pointerEvents="none" style={[styles.nowLine, { left: NAME_W + nowX }]} />
+                    {dayOffset === 0 ? <View pointerEvents="none" style={[styles.nowLine, { left: NAME_W + nowX }]} /> : null}
                     <FlatList
                         data={visibleChannels}
                         keyExtractor={item => String(item.stream_id)}
@@ -358,6 +383,9 @@ const styles = StyleSheet.create({
         paddingVertical: 6,
     },
     jumpText: { color: colors.text, fontSize: 12, fontWeight: '600' },
+    dayRow: { flexDirection: 'row', gap: spacing.sm, paddingHorizontal: spacing.md, paddingBottom: spacing.xs },
+    dayChipOn: { borderColor: colors.accent, backgroundColor: colors.accentSoft },
+    dayTextOn: { color: colors.accent },
     rulerText: { position: 'absolute', top: 4, color: colors.textDim, fontSize: 11 },
     nowLine: {
         position: 'absolute',

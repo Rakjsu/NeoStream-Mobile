@@ -1,5 +1,5 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest'
-import { guardedCategoryIds, intersectAllowed, isKidsMode, resetKidsCache, setKidsMode, toggleKidsCategory, whitelistCategoryIds } from './kids'
+import { guardedCategoryIds, intersectAllowed, isKidsMode, isOutsideKidsWindow, resetKidsCache, setKidsMode, toggleKidsCategory, whitelistCategoryIds } from './kids'
 // Hoisted pelo vitest.
 import AsyncStorage from '@react-native-async-storage/async-storage'
 
@@ -77,5 +77,30 @@ describe('guardedCategoryIds (integração kids + parental)', () => {
         const guarded = await guardedCategoryIds(cats, true)
         expect([...(guarded ?? [])]).toEqual(['1'])
         resetKidsCache()
+    })
+})
+
+describe('isOutsideKidsWindow (janela de horário)', () => {
+    it('sem janela nunca bloqueia', () => {
+        expect(isOutsideKidsWindow(3, null)).toBe(false)
+    })
+
+    it('janela normal: [start, end)', () => {
+        const window = { startHour: 8, endHour: 20 }
+        expect(isOutsideKidsWindow(7, window)).toBe(true)
+        expect(isOutsideKidsWindow(8, window)).toBe(false)
+        expect(isOutsideKidsWindow(19, window)).toBe(false)
+        expect(isOutsideKidsWindow(20, window)).toBe(true)
+    })
+
+    it('janela cruzando a meia-noite', () => {
+        const window = { startHour: 20, endHour: 6 }
+        expect(isOutsideKidsWindow(22, window)).toBe(false)
+        expect(isOutsideKidsWindow(3, window)).toBe(false)
+        expect(isOutsideKidsWindow(12, window)).toBe(true)
+    })
+
+    it('start igual a end = janela desligada', () => {
+        expect(isOutsideKidsWindow(10, { startHour: 8, endHour: 8 })).toBe(false)
     })
 })

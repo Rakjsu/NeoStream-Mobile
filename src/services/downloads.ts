@@ -6,7 +6,7 @@
  */
 import AsyncStorage from '@react-native-async-storage/async-storage'
 import * as FileSystem from 'expo-file-system/legacy'
-import { notifyDownloadDone } from './notify'
+import { dismissDownloadProgress, notifyDownloadDone, notifyDownloadProgress } from './notify'
 import { loadWatched } from './progress'
 import { resolvePlayableUrl } from './session'
 
@@ -209,6 +209,8 @@ interface ActiveEntry {
     speedBps?: number
     /** Total esperado (bytes) — alimenta o ETA. */
     totalBytes?: number
+    /** Último % avisado na notificação de progresso (passos de 25%). */
+    lastNotifPct?: number
     cancelled?: boolean
     /** Acorda o loop do startDownload quando retomar/cancelar. */
     wake?: () => void
@@ -364,6 +366,12 @@ export async function startDownload(request: DownloadRequest): Promise<void> {
                 entry.lastBytes = progress.totalBytesWritten
                 entry.lastAt = at
             }
+            // 🔔 Progresso na barra de status a cada 25% (mesmo id = substitui).
+            const pct = Math.floor(entry.progress * 100)
+            if (pct >= (entry.lastNotifPct ?? 0) + 25 && pct < 100) {
+                entry.lastNotifPct = pct
+                void notifyDownloadProgress(request.id, request.title, pct)
+            }
             notify()
         }
     }, request.resumeData)
@@ -409,6 +417,7 @@ export async function startDownload(request: DownloadRequest): Promise<void> {
         await FileSystem.deleteAsync(fileUri, { idempotent: true }).catch(() => undefined)
         throw error
     } finally {
+        void dismissDownloadProgress(request.id)
         active.delete(request.id)
         // Terminou (com sucesso OU cancelado de vez) → sai dos pendentes.
         const map = await readPending()
@@ -429,6 +438,54 @@ export function listQueuedIds(): string[] {
     return pendingQueue.map(request => request.id)
 }
 
+/** Fila visível na tela de Downloads (id + título, na ordem de execução). */
+export function listQueued(): { id: string; title: string }[] {
+    return pendingQueue.map(request => ({ id: request.id, title: request.title }))
+}
+
+/** ⬆️ Fura-fila: o item passa pra frente dos ainda não iniciados. */
+export function promoteDownload(id: string): void {
+    const index = pendingQueue.findIndex(request => request.id === id)
+    if (index > 0) {
+        const [request] = pendingQueue.splice(index, 1)
+        pendingQueue.unshift(request)
+        notify()
+    }
+}
+
+// ---------------------------------------------------- madrugada (opt-in) --
+
+const NIGHT_KEY = 'neostream_dl_night'
+
+export async function isNightOnly(): Promise<boolean> {
+    try {
+        return (await AsyncStorage.getItem(NIGHT_KEY)) === '1'
+    } catch {
+        return false
+    }
+}
+
+export async function setNightOnly(on: boolean): Promise<void> {
+    try {
+        if (on) await AsyncStorage.setItem(NIGHT_KEY, '1')
+        else await AsyncStorage.removeItem(NIGHT_KEY)
+    } catch { /* best-effort */ }
+}
+
+/** Dentro da janela da madrugada? (PURO — 00:00 às 05:59). */
+export function isNightHour(hour: number): boolean {
+    return hour >= 0 && hour < 6
+}
+
+// Com o modo madrugada ligado, a fila espera a janela (re-checa a cada 5 min
+// — desligar o modo nos Ajustes solta a fila na hora seguinte do tick).
+async function waitForNightWindow(): Promise<void> {
+    while (await isNightOnly()) {
+        if (isNightHour(new Date().getHours())) return
+        await new Promise<void>(resolve => setTimeout(resolve, 5 * 60_000))
+    }
+}
+
 export async function enqueueDownloads(requests: DownloadRequest[]): Promise<void> {
     const map = await loadRegistry()
     const taken = new Set([...Object.keys(map), ...active.keys(), ...listQueuedIds()])
@@ -438,6 +495,7 @@ export async function enqueueDownloads(requests: DownloadRequest[]): Promise<voi
     queueRunning = true
     try {
         while (pendingQueue.length > 0) {
+            await waitForNightWindow()
             const next = pendingQueue.shift()!
             notify()
             await startDownload(next).catch(() => undefined)

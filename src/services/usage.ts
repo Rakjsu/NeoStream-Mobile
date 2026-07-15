@@ -127,6 +127,42 @@ export function topTitles(map: TitleUsageMap, todayKey: string, kinds: UsageKind
         .slice(0, top)
 }
 
+/** 🏆 Recordes do que está guardado (janela de ~30 dias) (PURO). */
+export function usageRecords(map: UsageMap): { bestDay: { day: string; minutes: number } | null; bestStreak: number; totalMinutes: number } {
+    const days = Object.keys(map).sort() // dayKey é zero-padded — lexicográfico ordena
+    let bestDay: { day: string; minutes: number } | null = null
+    let totalMinutes = 0
+    let bestStreak = 0
+    let run = 0
+    let previous = ''
+    for (const day of days) {
+        const kinds = map[day]
+        const minutes = (kinds.live ?? 0) + (kinds.movie ?? 0) + (kinds.episode ?? 0)
+        if (minutes <= 0) continue
+        totalMinutes += minutes
+        if (!bestDay || minutes > bestDay.minutes) bestDay = { day, minutes }
+        const consecutive = previous !== '' && Date.parse(day) - Date.parse(previous) === 86_400_000
+        run = consecutive ? run + 1 : 1
+        bestStreak = Math.max(bestStreak, run)
+        previous = day
+    }
+    return { bestDay, bestStreak, totalMinutes }
+}
+
+/** Top título de um mês "YYYY-MM" (melhor esforço: só os dias ainda guardados) (PURO). */
+export function topTitleOfMonth(map: TitleUsageMap, month: string): TopTitle | null {
+    const totals = new Map<string, number>()
+    for (const [day, entries] of Object.entries(map)) {
+        if (!day.startsWith(`${month}-`)) continue
+        for (const [key, minutes] of Object.entries(entries)) totals.set(key, (totals.get(key) ?? 0) + minutes)
+    }
+    const best = [...totals.entries()].sort((a, b) => b[1] - a[1])[0]
+    if (!best) return null
+    const separator = best[0].indexOf('|')
+    const title = best[0].slice(separator + 1)
+    return title ? { kind: best[0].slice(0, separator) as UsageKind, title, minutes: best[1] } : null
+}
+
 /** Os últimos `n` meses (antigo → atual), com zero nos vazios (PURO). */
 export function lastMonths(map: MonthUsageMap, currentMonth: string, n = 12): { month: string; minutes: number }[] {
     const [year, month] = currentMonth.split('-').map(Number)
@@ -252,10 +288,10 @@ export async function recordWatchMinute(kind: UsageKind, nowMs = Date.now(), tit
 
 const GOAL_KEY = 'neostream_usage_goal_min'
 
-/** Meta diária de uso pra adultos em minutos (0 = desligada). */
+/** Meta diária de uso pra adultos em minutos (0 = desligada) — POR PERFIL. */
 export async function getUsageGoal(): Promise<number> {
     try {
-        const minutes = Number(await AsyncStorage.getItem(GOAL_KEY))
+        const minutes = Number(await AsyncStorage.getItem(profileKey(GOAL_KEY)))
         return Number.isFinite(minutes) && minutes > 0 ? minutes : 0
     } catch {
         return 0
@@ -264,8 +300,8 @@ export async function getUsageGoal(): Promise<number> {
 
 export async function setUsageGoal(minutes: number): Promise<void> {
     try {
-        if (minutes > 0) await AsyncStorage.setItem(GOAL_KEY, String(minutes))
-        else await AsyncStorage.removeItem(GOAL_KEY)
+        if (minutes > 0) await AsyncStorage.setItem(profileKey(GOAL_KEY), String(minutes))
+        else await AsyncStorage.removeItem(profileKey(GOAL_KEY))
     } catch { /* best-effort */ }
 }
 
@@ -275,7 +311,7 @@ export async function usageGoalJustHit(nowMs: number): Promise<number> {
     if (goal <= 0) return 0
     const today = dayKey(nowMs)
     if (summarize(await loadUsage(), today).totalMinutes < goal) return 0
-    const flag = `neostream_goal_seen_${today}`
+    const flag = profileKey(`neostream_goal_seen_${today}`)
     try {
         if (await AsyncStorage.getItem(flag)) return 0
         await AsyncStorage.setItem(flag, '1')

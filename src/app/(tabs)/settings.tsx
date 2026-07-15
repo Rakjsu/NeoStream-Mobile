@@ -28,6 +28,7 @@ import { getKidsTimeLimit, getKidsWindow, isKidsMode, listKidsCategories, setKid
 import { disconnectTrakt, fetchTraktProfile, fetchTraktWatchedMovies, getTraktCreds, isTraktConnected, pollDeviceToken, setTraktCreds, startDeviceAuth } from '../../services/trakt'
 import { getExtEpgUrl, setExtEpgUrl } from '../../services/extEpg'
 import { defaultRailPrefs, loadRailPrefs, moveRail, railOrderAll, saveRailPrefs, toggleRail, type RailKey, type RailPrefs } from '../../services/homeRails'
+import { createCollection, listCollections, removeCollection, type Collection } from '../../services/collections'
 import { M3uClient, buildM3u } from '../../services/m3u'
 import { loadSpeedHistory, runSpeedTest, saveSpeedSample, type SpeedSample, type SpeedVerdict } from '../../services/speedtest'
 import { clearHistory, loadWatched, markWatched } from '../../services/progress'
@@ -36,7 +37,7 @@ import {
     accountLabel, cachedFetch, clearCatalogCache, getClient, listAccounts, loadAccount, removeAccount, renameAccount, resolvePlayableUrl, switchAccount,
     type StoredAccount,
 } from '../../services/session'
-import { currentStreak, dayKey, formatMinutes, getUsageGoal, lastDays, lastMonths, loadMonthUsage, loadTitleUsage, loadUsage, monthKey, setUsageGoal, summarize, topTitles, usageByProfile, usageCsv, weekDelta, type ProfileUsage, type TopTitle, type UsageSummary } from '../../services/usage'
+import { currentStreak, dayKey, formatMinutes, getUsageGoal, lastDays, lastMonths, loadMonthUsage, loadTitleUsage, loadUsage, monthKey, setUsageGoal, summarize, topTitles, usageByProfile, usageCsv, usageRecords, weekDelta, type ProfileUsage, type TopTitle, type UsageSummary } from '../../services/usage'
 import { heatmapCells, loadHabits } from '../../services/habit'
 import { parseExpiry } from '../../services/xtream'
 import { TvTouchable } from '../../ui/components'
@@ -215,6 +216,9 @@ export default function SettingsTab() {
     const [wifiOnly, setWifiOnlyState] = useState(false)
     const [smartDl, setSmartDlState] = useState(false)
     const [nightOnly, setNightOnlyState] = useState(false)
+    const [collections, setCollections] = useState<Collection[]>([])
+    const [colDraft, setColDraft] = useState('')
+    const [records, setRecords] = useState<ReturnType<typeof usageRecords> | null>(null)
     const [cloudDir, setCloudDir] = useState('')
     const [speedHist, setSpeedHist] = useState<SpeedSample[]>([])
     const [bootTab, setBootTab] = useState('')
@@ -265,6 +269,7 @@ export default function SettingsTab() {
         void getKidsTimeLimit().then(setKidsLimit)
         void getKidsWindow().then(setKidsWindowState)
         void isNightOnly().then(setNightOnlyState)
+        void listCollections().then(setCollections)
         void loadHabits().then(map => setHabitGrid(heatmapCells(map)))
         void getUsageGoal().then(setUsageGoalState)
         void usageByProfile(Date.now()).then(setProfileUsage)
@@ -281,6 +286,7 @@ export default function SettingsTab() {
             setUsage(summarize(map, today))
             setUsageDays(lastDays(map, today))
             setStreak(currentStreak(map, today))
+            setRecords(usageRecords(map))
             const delta = weekDelta(map, today)
             setWeekDiff(delta.previous > 0 || delta.current > 0 ? delta.current - delta.previous : null)
         })
@@ -932,6 +938,15 @@ export default function SettingsTab() {
                     })}
                 </View>
                 {streak >= 2 ? <Text style={[styles.parentalHint, { color: colors.accent }]}>{tf('streakLabel', { n: streak })}</Text> : null}
+                {records && records.totalMinutes > 0 ? (
+                    <Text style={styles.parentalHint}>
+                        {tf('recordsLine', {
+                            best: formatMinutes(records.bestDay?.minutes ?? 0),
+                            streak: records.bestStreak,
+                            total: formatMinutes(records.totalMinutes),
+                        })}
+                    </Text>
+                ) : null}
                 {weekDiff !== null ? (
                     <Text style={styles.parentalHint}>
                         {tf('weekVsLast', { sign: weekDiff >= 0 ? '+' : '−', diff: formatMinutes(Math.abs(weekDiff)) })}
@@ -1145,6 +1160,41 @@ export default function SettingsTab() {
                     </Text>
                 </TvTouchable>
                 <HomeRailsConfig prefs={railPrefs} onChange={next => { setRailPrefs(next); void saveRailPrefs(next) }} />
+                <Text style={styles.parentalHint}>{t('colHint')}</Text>
+                <View style={styles.pinRow}>
+                    <TextInput
+                        style={[styles.pinInput, { flex: 1 }]}
+                        value={colDraft}
+                        onChangeText={setColDraft}
+                        placeholder={t('colNamePh')}
+                        placeholderTextColor={colors.textDim}
+                        maxLength={24}
+                    />
+                    <TvTouchable
+                        style={[styles.parentalBtn, !colDraft.trim() && { opacity: 0.5 }]}
+                        disabled={!colDraft.trim()}
+                        onPress={() => {
+                            void createCollection(colDraft).then(() => listCollections()).then(list => {
+                                setCollections(list)
+                                setColDraft('')
+                            })
+                        }}
+                    >
+                        <Text style={styles.parentalBtnText}>{t('colCreate')}</Text>
+                    </TvTouchable>
+                </View>
+                {collections.map(collection => (
+                    <View key={collection.id} style={styles.kidsRow}>
+                        <Ionicons name="folder-outline" size={18} color={colors.textDim} />
+                        <Text style={[styles.kidsText, { flex: 1 }]} numberOfLines={1}>{collection.name} ({collection.items.length})</Text>
+                        <TvTouchable
+                            accessibilityLabel={t('delete')}
+                            onPress={() => { void removeCollection(collection.id).then(() => listCollections()).then(setCollections) }}
+                        >
+                            <Ionicons name="trash-outline" size={18} color={colors.danger} />
+                        </TvTouchable>
+                    </View>
+                ))}
                 <TvTouchable
                     style={styles.kidsRow}
                     onPress={() => {

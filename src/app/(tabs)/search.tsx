@@ -13,7 +13,7 @@ import { loadWatchlist, type WatchItem } from '../../services/watchlist'
 import { loadParental } from '../../services/parental'
 import { guardedCategoryIds } from '../../services/kids'
 import { recordRecentChannel } from '../../services/recents'
-import { clearSearchTerms, listSearchTerms, recordSearchTerm } from '../../services/searchHistory'
+import { clearSearchTerms, listSearchTerms, recordSearchTerm, suggestTitles } from '../../services/searchHistory'
 import { cachedFetch, getClient, resolvePlayableUrl } from '../../services/session'
 import type { Category, EpgProgram, LiveChannel, SeriesItem, VodMovie } from '../../services/xtream'
 import { setZapContext } from '../../services/zap'
@@ -198,6 +198,18 @@ export default function SearchTab() {
         }
     }, [q, channels, movies, series, allowed, kinds, watchlist, localItems])
 
+    // "Você quis dizer": busca seca sugere títulos parecidos do catálogo.
+    const suggestions = useMemo(() => {
+        const count = results.channels.length + results.movies.length + results.series.length
+            + results.watchlist.length + results.local.length + guideHits.length
+        if (!q || q.length < 3 || count > 0) return []
+        return suggestTitles(q, [
+            ...(channels ?? []).map(channel => channel.name),
+            ...movies.map(movie => movie.name),
+            ...series.map(show => show.name),
+        ])
+    }, [q, results, guideHits, channels, movies, series])
+
     const remember = () => {
         void recordSearchTerm(query).then(listSearchTerms).then(setHistory)
     }
@@ -218,6 +230,7 @@ export default function SearchTab() {
 
     const total = results.channels.length + results.movies.length + results.series.length
         + results.watchlist.length + results.local.length + guideHits.length
+
 
     return (
         <View style={styles.root}>
@@ -275,7 +288,21 @@ export default function SearchTab() {
                         <EmptyState icon="search" label={t('searchPrompt')} />
                     )
                 ) : total === 0 ? (
-                    <EmptyState icon="search" label={t('searchNothing')} />
+                    <View style={{ flexGrow: 1 }}>
+                        <EmptyState icon="search" label={t('searchNothing')} />
+                        {suggestions.length > 0 ? (
+                            <View style={styles.suggestBox}>
+                                <Text style={styles.section}>{t('didYouMean')}</Text>
+                                <View style={styles.historyChips}>
+                                    {suggestions.map(suggestedName => (
+                                        <TouchableOpacity key={suggestedName} style={styles.historyChip} onPress={() => setQuery(suggestedName)}>
+                                            <Text style={styles.historyChipText} numberOfLines={1}>{suggestedName}</Text>
+                                        </TouchableOpacity>
+                                    ))}
+                                </View>
+                            </View>
+                        ) : null}
+                    </View>
                 ) : (
                     <>
                         {results.channels.length > 0 ? <Text style={styles.section}>{t('secChannels')}</Text> : null}
@@ -425,6 +452,7 @@ export default function SearchTab() {
 }
 
 const styles = StyleSheet.create({
+    suggestBox: { paddingHorizontal: spacing.lg, paddingBottom: spacing.xl },
     root: { flex: 1, backgroundColor: colors.bg, paddingTop: spacing.sm },
     error: { color: colors.danger, marginHorizontal: spacing.lg, marginBottom: spacing.sm },
     section: {

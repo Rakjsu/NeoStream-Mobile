@@ -150,3 +150,36 @@ describe('weekDelta', () => {
         expect(weekDelta(map, '2026-07-13')).toEqual({ current: 90, previous: 100 })
     })
 })
+
+describe('usageRecords (recordes)', () => {
+    it('melhor dia, maior sequência e total', async () => {
+        const { usageRecords } = await import('./usage')
+        const records = usageRecords({
+            '2026-07-01': { live: 30 },
+            '2026-07-02': { movie: 90 },
+            '2026-07-03': { episode: 10 },
+            '2026-07-05': { live: 60 },
+        })
+        expect(records.bestDay).toEqual({ day: '2026-07-02', minutes: 90 })
+        expect(records.bestStreak).toBe(3)
+        expect(records.totalMinutes).toBe(190)
+    })
+
+    it('mapa vazio não explode', async () => {
+        const { usageRecords } = await import('./usage')
+        expect(usageRecords({})).toEqual({ bestDay: null, bestStreak: 0, totalMinutes: 0 })
+    })
+})
+
+describe('topTitleOfMonth (wrapped mensal)', () => {
+    it('soma só os dias do mês pedido', async () => {
+        const { topTitleOfMonth } = await import('./usage')
+        const top = topTitleOfMonth({
+            '2026-06-10': { 'live|Globo': 50, 'movie|Filme A': 30 },
+            '2026-06-20': { 'movie|Filme A': 40 },
+            '2026-07-01': { 'movie|Filme B': 500 },
+        }, '2026-06')
+        expect(top).toEqual({ kind: 'movie', title: 'Filme A', minutes: 70 })
+        expect(topTitleOfMonth({}, '2026-06')).toBeNull()
+    })
+})

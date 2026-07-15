@@ -49,3 +49,13 @@ describe('persistência do histórico', () => {
         expect(await listSearchTerms()).toEqual([])
     })
 })
+
+describe('suggestTitles (você quis dizer)', () => {
+    it('sugere por prefixo do nome ou de palavra, sem duplicar', async () => {
+        const { suggestTitles } = await import('./searchHistory')
+        const names = ['Batman Begins', 'O Batalhão', 'Fear the Walking Dead', 'Batman Begins', 'Casa']
+        expect(suggestTitles('batmn', names)).toEqual(['Batman Begins', 'O Batalhão'])
+        expect(suggestTitles('walk', names)).toEqual(['Fear the Walking Dead'])
+        expect(suggestTitles('zz', names)).toEqual([])
+    })
+})

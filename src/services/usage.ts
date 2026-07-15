@@ -127,6 +127,42 @@ export function topTitles(map: TitleUsageMap, todayKey: string, kinds: UsageKind
         .slice(0, top)
 }
 
+/** 🏆 Recordes do que está guardado (janela de ~30 dias) (PURO). */
+export function usageRecords(map: UsageMap): { bestDay: { day: string; minutes: number } | null; bestStreak: number; totalMinutes: number } {
+    const days = Object.keys(map).sort() // dayKey é zero-padded — lexicográfico ordena
+    let bestDay: { day: string; minutes: number } | null = null
+    let totalMinutes = 0
+    let bestStreak = 0
+    let run = 0
+    let previous = ''
+    for (const day of days) {
+        const kinds = map[day]
+        const minutes = (kinds.live ?? 0) + (kinds.movie ?? 0) + (kinds.episode ?? 0)
+        if (minutes <= 0) continue
+        totalMinutes += minutes
+        if (!bestDay || minutes > bestDay.minutes) bestDay = { day, minutes }
+        const consecutive = previous !== '' && Date.parse(day) - Date.parse(previous) === 86_400_000
+        run = consecutive ? run + 1 : 1
+        bestStreak = Math.max(bestStreak, run)
+        previous = day
+    }
+    return { bestDay, bestStreak, totalMinutes }
+}
+
+/** Top título de um mês "YYYY-MM" (melhor esforço: só os dias ainda guardados) (PURO). */
+export function topTitleOfMonth(map: TitleUsageMap, month: string): TopTitle | null {
+    const totals = new Map<string, number>()
+    for (const [day, entries] of Object.entries(map)) {
+        if (!day.startsWith(`${month}-`)) continue
+        for (const [key, minutes] of Object.entries(entries)) totals.set(key, (totals.get(key) ?? 0) + minutes)
+    }
+    const best = [...totals.entries()].sort((a, b) => b[1] - a[1])[0]
+    if (!best) return null
+    const separator = best[0].indexOf('|')
+    const title = best[0].slice(separator + 1)
+    return title ? { kind: best[0].slice(0, separator) as UsageKind, title, minutes: best[1] } : null
+}
+
 /** Os últimos `n` meses (antigo → atual), com zero nos vazios (PURO). */
 export function lastMonths(map: MonthUsageMap, currentMonth: string, n = 12): { month: string; minutes: number }[] {
     const [year, month] = currentMonth.split('-').map(Number)

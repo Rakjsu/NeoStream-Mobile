@@ -16,7 +16,7 @@ import type { Category, LiveChannel } from '../services/xtream'
 import { rankChannels } from '../services/zap'
 import { EmptyState, Loading, SearchBar, TvTouchable } from '../ui/components'
 import { colors, spacing } from '../ui/theme'
-import { t } from '../i18n/strings'
+import { t, tf } from '../i18n/strings'
 import { tvSize } from '../ui/tv'
 
 // Mutação de propriedade do player fora do componente (regra immutability).
@@ -42,7 +42,9 @@ function isDoubleTap(ref: { current: { index: number; at: number } }, index: num
 }
 
 const SAVE_KEY = 'neostream_multiview'
+const PRESETS_KEY = 'neostream_multiview_presets'
 type Layout = '2x2' | '1x2'
+type PresetMap = Record<string, { slots: Slot[]; layout: Layout }>
 
 /**
  * Multi-view 2×2 (tablet/TV): até 4 canais ao vivo lado a lado. Toque num
@@ -54,6 +56,29 @@ export default function MultiView() {
     const [layout, setLayout] = useState<Layout>('2x2')
     const [active, setActive] = useState(0)
     const [picking, setPicking] = useState<number | null>(null)
+
+    // 🅰🅱🅲 Presets de mosaico: tocar carrega; segurar (ou vazio) salva o atual.
+    const [presets, setPresets] = useState<PresetMap>({})
+    const [presetMsg, setPresetMsg] = useState('')
+    useEffect(() => {
+        queueMicrotask(() => {
+            void AsyncStorage.getItem(PRESETS_KEY).then(raw => {
+                if (raw) setPresets(JSON.parse(raw) as PresetMap)
+            }).catch(() => undefined)
+        })
+    }, [])
+    useEffect(() => {
+        if (!presetMsg) return
+        const timer = setTimeout(() => setPresetMsg(''), 2500)
+        return () => clearTimeout(timer)
+    }, [presetMsg])
+    const savePreset = (key: string) => {
+        if (!slots.some(slot => slot.url)) return
+        const next = { ...presets, [key]: { slots, layout } }
+        setPresets(next)
+        void AsyncStorage.setItem(PRESETS_KEY, JSON.stringify(next)).catch(() => undefined)
+        setPresetMsg(tf('mvPresetSaved', { key }))
+    }
 
     // Mosaico lembrado: reabrir o multi-view volta com os mesmos canais.
     useEffect(() => {
@@ -172,6 +197,30 @@ export default function MultiView() {
                     ),
                 }}
             />
+            <View style={styles.presetRow}>
+                {['A', 'B', 'C'].map(key => {
+                    const saved = presets[key]
+                    return (
+                        <TvTouchable
+                            key={key}
+                            style={[styles.presetChip, !!saved && styles.presetChipOn]}
+                            accessibilityLabel={tf('mvPresetA11y', { key })}
+                            onPress={() => {
+                                if (!saved) { savePreset(key); return }
+                                setSlots(saved.slots.slice(0, 4))
+                                setLayout(saved.layout)
+                                persist(saved.slots, saved.layout)
+                                setPresetMsg(tf('mvPresetLoaded', { key }))
+                            }}
+                            onLongPress={() => savePreset(key)}
+                            delayLongPress={400}
+                        >
+                            <Text style={[styles.presetText, !!saved && { color: colors.accent }]}>{key}</Text>
+                        </TvTouchable>
+                    )
+                })}
+                {presetMsg ? <Text style={styles.presetMsg}>{presetMsg}</Text> : null}
+            </View>
             <View style={styles.grid}>
                 {slots.slice(0, layout === '1x2' ? 2 : 4).map((slot, index) => (
                     <TvTouchable
@@ -241,6 +290,25 @@ export default function MultiView() {
 
 const styles = StyleSheet.create({
     root: { flex: 1, backgroundColor: '#000' },
+    presetRow: {
+        flexDirection: 'row',
+        alignItems: 'center',
+        gap: spacing.sm,
+        paddingHorizontal: spacing.md,
+        paddingVertical: 6,
+    },
+    presetChip: {
+        width: 36,
+        height: 28,
+        alignItems: 'center',
+        justifyContent: 'center',
+        borderRadius: 8,
+        borderWidth: 1,
+        borderColor: colors.border,
+    },
+    presetChipOn: { borderColor: colors.accent, backgroundColor: colors.accentSoft },
+    presetText: { color: colors.textDim, fontSize: 13, fontWeight: '800' },
+    presetMsg: { flex: 1, color: colors.textDim, fontSize: 12 },
     grid: { flex: 1, flexDirection: 'row', flexWrap: 'wrap' },
     cell: {
         width: '50%',

@@ -8,6 +8,7 @@ import { castAvailable, castToCurrentSession, onCastSessionStarted, showCastPick
 import { activeProgress, getDownload, removeDownload, startDownload, subscribeDownloads } from '../../services/downloads'
 import { tapLight } from '../../services/haptics'
 import { emptyFavorites, isFavorite, loadFavorites, persistToggle, type Favorites } from '../../services/favorites'
+import { listCollections, toggleInCollection } from '../../services/collections'
 import { buildProgressId, getEntry, progressPct, resumePosition } from '../../services/progress'
 import { getClient, resolvePlayableUrl , cachedFetch } from '../../services/session'
 import type { VodMovie , VodDetails } from '../../services/xtream'
@@ -119,6 +120,25 @@ export default function MovieDetail() {
     }
 
     const fav = isFavorite(favorites, 'movie', String(id))
+
+    // 📁 Entra/sai de uma pasta (as pastas nascem em Ajustes → Início).
+    const addToCollection = () => {
+        void listCollections().then(collections => {
+            if (collections.length === 0) { Alert.alert(t('colNone')); return }
+            Alert.alert(t('colPickTitle'), '', [
+                { text: t('cancel'), style: 'cancel' },
+                ...collections.map(collection => ({
+                    text: `📁 ${collection.name}`,
+                    onPress: () => {
+                        void toggleInCollection(collection.id, {
+                            kind: 'movie', id: String(id), name: name ?? '',
+                            cover: String(cover ?? ''), container: String(container || 'mp4'),
+                        }).then(added => Alert.alert(added ? tf('colAdded', { name: collection.name }) : tf('colRemoved', { name: collection.name })))
+                    },
+                })),
+            ])
+        })
+    }
     const coverUri = details?.cover || cover || ''
     const year = details?.releaseDate ? details.releaseDate.slice(0, 4) : ''
     const meta = [year, details?.genre, details?.duration, details?.rating ? `★ ${details.rating}` : '']
@@ -173,6 +193,13 @@ export default function MovieDetail() {
                     onPress={() => { tapLight(); void persistToggle('movie', String(id)).then(setFavorites) }}
                 >
                     <Ionicons name={fav ? 'heart' : 'heart-outline'} size={20} color={fav ? '#fff' : colors.danger} />
+                </TouchableOpacity>
+                <TouchableOpacity
+                    style={styles.favBtn}
+                    accessibilityLabel={t('colPickTitle')}
+                    onPress={addToCollection}
+                >
+                    <Ionicons name="folder-outline" size={20} color={colors.text} />
                 </TouchableOpacity>
                 <TouchableOpacity
                     style={[styles.listBtn, inList && styles.listBtnOn]}

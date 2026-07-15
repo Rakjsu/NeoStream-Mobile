@@ -11,10 +11,11 @@ import { listDownloads, type DownloadItem } from '../../services/downloads'
 import { notifyNow } from '../../services/notify'
 import { listRecentChannels, recordRecentChannel } from '../../services/recents'
 import { checkRecurringReminders } from '../../services/recurring'
-import { scheduleWeeklySummary } from '../../services/weekly'
+import { maybeMonthlySummary, scheduleWeeklySummary } from '../../services/weekly'
 import { hourBucketOf, loadHabits, topHabitKeys } from '../../services/habit'
 import { GUEST_PROFILE_ID, activeProfileId, listProfiles } from '../../services/profiles'
 import { defaultRailPrefs, loadRailPrefs, orderedRails, type RailPrefs } from '../../services/homeRails'
+import { listCollections, type Collection } from '../../services/collections'
 import { loadParental } from '../../services/parental'
 import { guardedCategoryIds } from '../../services/kids'
 import { getEntry, listContinue, loadProgress, removeEntry, saveSample, type ProgressEntry } from '../../services/progress'
@@ -70,6 +71,7 @@ export default function HomeTab() {
     const [dlItems, setDlItems] = useState<DownloadItem[]>([])
     const [dlRail, setDlRail] = useState<RailItem[]>([])
     const [railPrefs, setRailPrefs] = useState<RailPrefs>(defaultRailPrefs())
+    const [collections, setCollections] = useState<Collection[]>([])
 
     const load = useCallback(async (force = false) => {
         try {
@@ -89,6 +91,7 @@ export default function HomeTab() {
             ])
 
             setRailPrefs(await loadRailPrefs())
+            setCollections(await listCollections())
             const allowedLive = await guardedCategoryIds(liveCats, parental.enabled)
             const allowedVod = await guardedCategoryIds(vodCats, parental.enabled)
             const allowedSeries = await guardedCategoryIds(seriesCats, parental.enabled)
@@ -293,6 +296,7 @@ export default function HomeTab() {
 
             void checkRecurringReminders()
             void scheduleWeeklySummary()
+            void maybeMonthlySummary()
 
             // "Pra agora": canais que você costuma ver NESTE dia/horário.
             const habitNow = new Date()
@@ -570,6 +574,17 @@ export default function HomeTab() {
                             case 'newSeries': return <PosterRail key={key} title={t('newSeriesRail')} items={newSeries} onPress={openRailItem} />
                         }
                     })}
+                    {collections.filter(collection => collection.items.length > 0).map(collection => (
+                        <PosterRail
+                            key={`col${collection.id}`}
+                            title={`📁 ${collection.name}`}
+                            items={collection.items.slice(0, RAIL_MAX).map(item => ({
+                                key: `${item.kind}${item.id}`, kind: item.kind, id: item.id,
+                                name: item.name, cover: item.cover, container: item.container,
+                            }))}
+                            onPress={openRailItem}
+                        />
+                    ))}
                 </View>
             )}
             {cloudNudge ? (

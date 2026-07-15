@@ -22,8 +22,8 @@ import { alternateLiveUrl, hasCatchup } from '../services/xtream'
 import AsyncStorage from '@react-native-async-storage/async-storage'
 import { getAspect, nextAspect, setAspect, type AspectMode } from '../services/aspect'
 import { dayKey, formatMinutes, loadUsage, recordWatchMinute, summarize, usageGoalJustHit } from '../services/usage'
-import { getKidsTimeLimit, isKidsMode } from '../services/kids'
-import { traktScrobble } from '../services/trakt'
+import { getKidsTimeLimit, getKidsWindow, isKidsMode, isOutsideKidsWindow } from '../services/kids'
+import { traktRate, traktScrobble } from '../services/trakt'
 import * as ScreenOrientation from 'expo-screen-orientation'
 import { loadParental } from '../services/parental'
 import { recordHabitMinute } from '../services/habit'
@@ -641,6 +641,22 @@ export default function Player() {
         showTrackToast(t('skipIntro'))
     }
 
+    // ★ Nota no Trakt sem sair do player: filme direto, episódio avalia a série.
+    const askTraktRating = () => {
+        const rateKind = kind === 'episode' ? 'episode' as const : 'movie' as const
+        const rateTitle = String(title ?? '')
+        Alert.alert(t('traktRateTitle'), rateTitle, [
+            { text: t('cancel'), style: 'cancel' },
+            ...[10, 8, 6, 4, 2].map(score => ({
+                text: '★'.repeat(score / 2) + '☆'.repeat(5 - score / 2),
+                onPress: () => {
+                    void traktRate(rateKind, rateTitle, score)
+                        .then(ok => showTrackToast(ok ? t('traktRateOk') : t('traktRateFail')))
+                },
+            })),
+        ])
+    }
+
     const switchChannel = (channel: ZapChannel) => {
         void (async () => {
             const client = await getClient()
@@ -1005,6 +1021,12 @@ export default function Player() {
                 void (async () => {
                     if (limitOverrideRef.current) return
                     if (!(await isKidsMode())) return
+                    // 🕗 Janela de horário: fora dela trava já no primeiro minuto.
+                    if (isOutsideKidsWindow(new Date().getHours(), await getKidsWindow())) {
+                        setTimeUp(true)
+                        try { player.pause() } catch { /* player já liberado */ }
+                        return
+                    }
                     const limit = await getKidsTimeLimit()
                     if (limit <= 0) return
                     const todayMinutes = summarize(await loadUsage(), dayKey(Date.now())).totalMinutes
@@ -1166,6 +1188,11 @@ export default function Player() {
                 {live !== '1' ? (
                     <TvTouchable style={styles.trackBtn} accessibilityLabel={t('a11yRate')} onPress={cycleRate}>
                         <Text style={styles.rateText}>{rate}x</Text>
+                    </TvTouchable>
+                ) : null}
+                {trackable ? (
+                    <TvTouchable style={styles.trackBtn} accessibilityLabel={t('traktRateTitle')} onPress={askTraktRating}>
+                        <Ionicons name="star-outline" size={20} color={colors.text} />
                     </TvTouchable>
                 ) : null}
                 <TvTouchable

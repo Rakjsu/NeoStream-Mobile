@@ -11,11 +11,12 @@ import { groupChannelVariants } from '../../services/channelVariants'
 import AsyncStorage from '@react-native-async-storage/async-storage'
 import { recordRecentChannel } from '../../services/recents'
 import { cachedFetch, getClient } from '../../services/session'
+import { hasCatchup } from '../../services/xtream'
 import type { Category, EpgProgram, LiveChannel, NowNext } from '../../services/xtream'
 import { setZapContext } from '../../services/zap'
 import { CategoryChips, EmptyState, Loading, SearchBar, TvTouchable } from '../../ui/components'
 import { colors, spacing } from '../../ui/theme'
-import { t, tf } from '../../i18n/strings'
+import { t } from '../../i18n/strings'
 import { tvSize } from '../../ui/tv'
 
 const VIEWABILITY = { itemVisiblePercentThreshold: 30 }
@@ -116,6 +117,38 @@ export default function LiveTab() {
         void persistToggle('live', String(channel.stream_id)).then(setFavorites)
     }
 
+    // 📇 Ficha do canal (long-press): número, categoria, agora/a seguir e
+    // replay — com atalhos de ocultar e assistir (o ocultar antigo mora aqui).
+    const showChannelInfo = (channel: LiveChannel) => {
+        void (async () => {
+            const client = await getClient()
+            const catName = categories.find(cat => cat.category_id === channel.category_id)?.category_name ?? ''
+            const nowNext = client
+                ? await cachedFetch(`epg:${channel.stream_id}`, () => client.getShortEpg(String(channel.stream_id))).catch(() => null)
+                : null
+            const lines = [
+                channel.num ? `nº ${channel.num}` : '',
+                catName ? `📂 ${catName}` : '',
+                nowNext?.now ? `▶ ${nowNext.now.title}` : '',
+                nowNext?.next ? `⏭ ${nowNext.next.title}` : '',
+                hasCatchup(channel) ? t('chInfoCatchup') : '',
+            ].filter(Boolean).join('\n')
+            Alert.alert(channel.name, lines || t('scheduleEmpty'), [
+                { text: t('cancel'), style: 'cancel' },
+                {
+                    text: t('hide'),
+                    style: 'destructive',
+                    onPress: () => {
+                        void hideChannel({ id: String(channel.stream_id), name: channel.name })
+                            .then(hiddenIdSet)
+                            .then(setHidden)
+                    },
+                },
+                { text: t('watchNow'), onPress: () => void play(channel) },
+            ])
+        })()
+    }
+
     // Linhas visíveis pedem o "agora/a seguir" (cache por sessão + dedupe).
     // useCallback([]) mantém a referência estável, exigência do FlatList.
     const onViewableItemsChanged = useCallback(({ viewableItems }: { viewableItems: ViewToken[] }) => {
@@ -177,20 +210,7 @@ export default function LiveTab() {
                         <TvTouchable
                             style={styles.row}
                             onPress={() => void play(item)}
-                            onLongPress={() => {
-                                Alert.alert(t('hideChannelTitle'), tf('hideChannelMsg', { name: item.name }), [
-                                    { text: t('cancel'), style: 'cancel' },
-                                    {
-                                        text: t('hide'),
-                                        style: 'destructive',
-                                        onPress: () => {
-                                            void hideChannel({ id: String(item.stream_id), name: item.name })
-                                                .then(hiddenIdSet)
-                                                .then(setHidden)
-                                        },
-                                    },
-                                ])
-                            }}
+                            onLongPress={() => showChannelInfo(item)}
                             delayLongPress={350}
                         >
                             {item.stream_icon ? (

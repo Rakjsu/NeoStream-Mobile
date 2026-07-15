@@ -24,13 +24,13 @@ import { applyBackup, collectBackup, decryptBackup, isEncryptedBackup, parseBack
 import { probeAll } from '../../services/probe'
 import { loadFavorites } from '../../services/favorites'
 import { disableParental, enableParental, isValidPin, listBlockedCategories, loadParental } from '../../services/parental'
-import { getKidsTimeLimit, isKidsMode, listKidsCategories, setKidsMode, setKidsTimeLimit } from '../../services/kids'
-import { disconnectTrakt, fetchTraktProfile, getTraktCreds, isTraktConnected, pollDeviceToken, setTraktCreds, startDeviceAuth } from '../../services/trakt'
+import { getKidsTimeLimit, getKidsWindow, isKidsMode, listKidsCategories, setKidsMode, setKidsTimeLimit, setKidsWindow, type KidsWindow } from '../../services/kids'
+import { disconnectTrakt, fetchTraktProfile, fetchTraktWatchedMovies, getTraktCreds, isTraktConnected, pollDeviceToken, setTraktCreds, startDeviceAuth } from '../../services/trakt'
 import { getExtEpgUrl, setExtEpgUrl } from '../../services/extEpg'
 import { defaultRailPrefs, loadRailPrefs, moveRail, railOrderAll, saveRailPrefs, toggleRail, type RailKey, type RailPrefs } from '../../services/homeRails'
 import { M3uClient, buildM3u } from '../../services/m3u'
 import { loadSpeedHistory, runSpeedTest, saveSpeedSample, type SpeedSample, type SpeedVerdict } from '../../services/speedtest'
-import { clearHistory } from '../../services/progress'
+import { clearHistory, loadWatched, markWatched } from '../../services/progress'
 import { checkForUpdate } from '../../services/updates'
 import {
     accountLabel, cachedFetch, clearCatalogCache, getClient, listAccounts, loadAccount, removeAccount, renameAccount, resolvePlayableUrl, switchAccount,
@@ -41,7 +41,7 @@ import { heatmapCells, loadHabits } from '../../services/habit'
 import { parseExpiry } from '../../services/xtream'
 import { TvTouchable } from '../../ui/components'
 import { ACCENT_PRESETS, colors, currentAccent, setAccent, setThemeVariant, spacing, themeVariant, type AccentName } from '../../ui/theme'
-import { tvSize } from '../../ui/tv'
+import { isTV, tvSize } from '../../ui/tv'
 import { t, tf } from '../../i18n/strings'
 
 
@@ -186,6 +186,17 @@ export default function SettingsTab() {
     // Estado (não ref): indexar ref.current[chave] num handler do map faz o React Compiler pular o arquivo.
     const scrollRef = useRef<ScrollView>(null)
     const [sectionY, setSectionY] = useState<Record<string, number>>({})
+    // 📺 Na TV as seções nascem recolhidas (menos a primeira) — OK abre/fecha.
+    const [openSecs, setOpenSecs] = useState<Set<string>>(new Set(['secAccounts']))
+    const toggleSec = (key: string) => {
+        setOpenSecs(prev => {
+            const next = new Set(prev)
+            if (!next.delete(key)) next.add(key)
+            return next
+        })
+    }
+    const [traktImportMsg, setTraktImportMsg] = useState('')
+    const [kidsWindow, setKidsWindowState] = useState<KidsWindow | null>(null)
     const [aliasDraft, setAliasDraft] = useState('')
     const [importText, setImportText] = useState('')
     const [backupMsg, setBackupMsg] = useState('')
@@ -251,6 +262,7 @@ export default function SettingsTab() {
         void getExtEpgUrl().then(setExtEpgDraft)
         void loadRailPrefs().then(setRailPrefs)
         void getKidsTimeLimit().then(setKidsLimit)
+        void getKidsWindow().then(setKidsWindowState)
         void loadHabits().then(map => setHabitGrid(heatmapCells(map)))
         void getUsageGoal().then(setUsageGoalState)
         void usageByProfile(Date.now()).then(setProfileUsage)
@@ -375,6 +387,33 @@ export default function SettingsTab() {
         }
     }
 
+    // ⬇️ Vistos do Trakt viram vistos locais (filmes, match exato por nome —
+    // melhor esforço: nome do provedor diferente do Trakt fica de fora).
+    const importTraktWatched = async () => {
+        setTraktImportMsg(t('testing'))
+        const titles = await fetchTraktWatchedMovies()
+        const client = await getClient()
+        if (titles.length === 0 || !client) {
+            setTraktImportMsg('')
+            Alert.alert(t('traktImportNone'))
+            return
+        }
+        const wanted = new Set(titles.map(title => title.toLowerCase().trim()))
+        const vod = await cachedFetch('vod', () => client.getVodMovies()).catch(() => [])
+        const watched = await loadWatched()
+        let imported = 0
+        for (const movie of vod) {
+            const clean = movie.name.replace(/\s*\(\d{4}\)\s*/g, ' ').trim().toLowerCase()
+            if (!wanted.has(clean) && !wanted.has(movie.name.toLowerCase().trim())) continue
+            const id = `movie:${movie.stream_id}`
+            if (watched.has(id)) continue
+            await markWatched(id)
+            imported++
+        }
+        setTraktImportMsg('')
+        Alert.alert(tf('traktImportDone', { n: imported }))
+    }
+
     // Trakt: salva as credenciais, mostra o código e fica perguntando até
     // o usuário autorizar no site (device code — intervalo vem da API).
     const connectTrakt = async () => {
@@ -459,7 +498,10 @@ export default function SettingsTab() {
     return (
         <ScrollView ref={scrollRef} style={styles.root} contentContainerStyle={{ padding: spacing.lg }} stickyHeaderIndices={[0]}>
             <SectionNav sectionY={sectionY} onJump={y => scrollRef.current?.scrollTo({ y, animated: true })} />
-            <Text style={styles.section} onLayout={e => { const y = e.nativeEvent.layout.y; setSectionY(prev => ({ ...prev, ['secAccounts']: y })) }}>{t('secAccounts')}</Text>
+            <TvTouchable disabled={!isTV} onLayout={e => { const y = e.nativeEvent.layout.y; setSectionY(prev => ({ ...prev, ['secAccounts']: y })) }} onPress={() => toggleSec('secAccounts')}>
+                <Text style={styles.section}>{isTV ? (openSecs.has('secAccounts') ? '▾ ' : '▸ ') : ''}{t('secAccounts')}</Text>
+            </TvTouchable>
+            {!isTV || openSecs.has('secAccounts') ? <>
             <View style={styles.card}>
                 {accounts.map(account => {
                     const isActive = account.id === active?.id
@@ -521,7 +563,11 @@ export default function SettingsTab() {
                 </TvTouchable>
             </View>
 
-            <Text style={styles.section}>{t('secActiveAccount')}</Text>
+            </> : null}
+            <TvTouchable disabled={!isTV} onPress={() => toggleSec('secActiveAccount')}>
+                <Text style={styles.section}>{isTV ? (openSecs.has('secActiveAccount') ? '▾ ' : '▸ ') : ''}{t('secActiveAccount')}</Text>
+            </TvTouchable>
+            {!isTV || openSecs.has('secActiveAccount') ? <>
             <View style={styles.card}>
                 <InfoRow label={t('serverRow')} value={active?.url ?? '—'} />
                 <InfoRow label={t('userRow')} value={active?.username ?? '—'} />
@@ -707,7 +753,11 @@ export default function SettingsTab() {
                 </View>
             </View>
 
-            <Text style={styles.section} onLayout={e => { const y = e.nativeEvent.layout.y; setSectionY(prev => ({ ...prev, ['secParental']: y })) }}>{t('secParental')}</Text>
+            </> : null}
+            <TvTouchable disabled={!isTV} onLayout={e => { const y = e.nativeEvent.layout.y; setSectionY(prev => ({ ...prev, ['secParental']: y })) }} onPress={() => toggleSec('secParental')}>
+                <Text style={styles.section}>{isTV ? (openSecs.has('secParental') ? '▾ ' : '▸ ') : ''}{t('secParental')}</Text>
+            </TvTouchable>
+            {!isTV || openSecs.has('secParental') ? <>
             <View style={[styles.card, { paddingVertical: spacing.md, gap: spacing.md }]}>
                 <Text style={styles.parentalHint}>
                     {parentalOn ? t('parentalOnHint') : t('parentalOffHint')}
@@ -787,9 +837,29 @@ export default function SettingsTab() {
                         {kidsLimit > 0 ? tf('kidsLimitLabel', { n: kidsLimit }) : t('kidsLimitOff')}
                     </Text>
                 </TvTouchable>
+                <TvTouchable
+                    style={styles.kidsRow}
+                    onPress={() => {
+                        // Sem janela → 8–20h → 8–22h → 6–20h → sem janela.
+                        const presets: (KidsWindow | null)[] = [null, { startHour: 8, endHour: 20 }, { startHour: 8, endHour: 22 }, { startHour: 6, endHour: 20 }]
+                        const index = presets.findIndex(preset => JSON.stringify(preset) === JSON.stringify(kidsWindow))
+                        const next = presets[(index + 1) % presets.length]
+                        setKidsWindowState(next)
+                        void setKidsWindow(next)
+                    }}
+                >
+                    <Ionicons name="time-outline" size={18} color={kidsWindow ? colors.accent : colors.textDim} />
+                    <Text style={[styles.kidsText, kidsWindow ? { color: colors.accent } : null]}>
+                        {kidsWindow ? tf('kidsWindowLabel', { a: kidsWindow.startHour, b: kidsWindow.endHour }) : t('kidsWindowOff')}
+                    </Text>
+                </TvTouchable>
             </View>
 
-            <Text style={styles.section}>{t('secAppLock')}</Text>
+            </> : null}
+            <TvTouchable disabled={!isTV} onPress={() => toggleSec('secAppLock')}>
+                <Text style={styles.section}>{isTV ? (openSecs.has('secAppLock') ? '▾ ' : '▸ ') : ''}{t('secAppLock')}</Text>
+            </TvTouchable>
+            {!isTV || openSecs.has('secAppLock') ? <>
             <View style={[styles.card, { paddingVertical: spacing.md, gap: spacing.md }]}>
                 <Text style={styles.parentalHint}>{lockOn ? t('appLockOnHint') : t('appLockOffHint')}</Text>
                 <View style={styles.pinRow}>
@@ -822,7 +892,11 @@ export default function SettingsTab() {
                 {lockError ? <Text style={styles.pinError}>{lockError}</Text> : null}
             </View>
 
-            <Text style={styles.section} onLayout={e => { const y = e.nativeEvent.layout.y; setSectionY(prev => ({ ...prev, ['secUsage']: y })) }}>{t('secUsage')}</Text>
+            </> : null}
+            <TvTouchable disabled={!isTV} onLayout={e => { const y = e.nativeEvent.layout.y; setSectionY(prev => ({ ...prev, ['secUsage']: y })) }} onPress={() => toggleSec('secUsage')}>
+                <Text style={styles.section}>{isTV ? (openSecs.has('secUsage') ? '▾ ' : '▸ ') : ''}{t('secUsage')}</Text>
+            </TvTouchable>
+            {!isTV || openSecs.has('secUsage') ? <>
             <View ref={usageShotRef} collapsable={false} style={styles.card}>
                 <InfoRow label={t('usageWeek')} value="" />
                 <View style={styles.usageBars}>
@@ -946,7 +1020,11 @@ export default function SettingsTab() {
                 </View>
             </View>
 
-            <Text style={styles.section} onLayout={e => { const y = e.nativeEvent.layout.y; setSectionY(prev => ({ ...prev, ['secStorage']: y })) }}>{t('secStorage')}</Text>
+            </> : null}
+            <TvTouchable disabled={!isTV} onLayout={e => { const y = e.nativeEvent.layout.y; setSectionY(prev => ({ ...prev, ['secStorage']: y })) }} onPress={() => toggleSec('secStorage')}>
+                <Text style={styles.section}>{isTV ? (openSecs.has('secStorage') ? '▾ ' : '▸ ') : ''}{t('secStorage')}</Text>
+            </TvTouchable>
+            {!isTV || openSecs.has('secStorage') ? <>
             <View style={[styles.card, { paddingVertical: spacing.md, gap: spacing.md }]}>
                 <Text style={styles.parentalHint}>{t('storageHint')}</Text>
                 <View style={styles.limitRow}>
@@ -1109,7 +1187,11 @@ export default function SettingsTab() {
                 </TvTouchable>
             </View>
 
-            <Text style={styles.section}>{t('remindersSection')}</Text>
+            </> : null}
+            <TvTouchable disabled={!isTV} onPress={() => toggleSec('remindersSection')}>
+                <Text style={styles.section}>{isTV ? (openSecs.has('remindersSection') ? '▾ ' : '▸ ') : ''}{t('remindersSection')}</Text>
+            </TvTouchable>
+            {!isTV || openSecs.has('remindersSection') ? <>
             <TvTouchable style={[styles.kidsRow, { paddingBottom: spacing.sm }]} onPress={() => router.push('/agenda')}>
                 <Ionicons name="calendar-outline" size={18} color={colors.accent} />
                 <Text style={[styles.kidsText, { color: colors.accent }]}>{t('agendaOpen')}</Text>
@@ -1149,7 +1231,11 @@ export default function SettingsTab() {
                 ))}
             </View>
 
-            <Text style={styles.section}>{t('hiddenSection')}</Text>
+            </> : null}
+            <TvTouchable disabled={!isTV} onPress={() => toggleSec('hiddenSection')}>
+                <Text style={styles.section}>{isTV ? (openSecs.has('hiddenSection') ? '▾ ' : '▸ ') : ''}{t('hiddenSection')}</Text>
+            </TvTouchable>
+            {!isTV || openSecs.has('hiddenSection') ? <>
             <View style={[styles.card, { paddingVertical: spacing.md, gap: spacing.sm }]}>
                 {hiddenList.length === 0 ? (
                     <Text style={styles.parentalHint}>{t('hiddenNone')}</Text>
@@ -1170,7 +1256,11 @@ export default function SettingsTab() {
                 ))}
             </View>
 
-            <Text style={styles.section}>{t('secHistory')}</Text>
+            </> : null}
+            <TvTouchable disabled={!isTV} onPress={() => toggleSec('secHistory')}>
+                <Text style={styles.section}>{isTV ? (openSecs.has('secHistory') ? '▾ ' : '▸ ') : ''}{t('secHistory')}</Text>
+            </TvTouchable>
+            {!isTV || openSecs.has('secHistory') ? <>
             <View style={[styles.card, { paddingVertical: spacing.md, gap: spacing.md }]}>
                 <Text style={styles.parentalHint}>{t('historyHint')}</Text>
                 <TvTouchable style={styles.backupBtn} onPress={() => router.push('/history')}>
@@ -1191,7 +1281,11 @@ export default function SettingsTab() {
                 </TvTouchable>
             </View>
 
-            <Text style={styles.section} onLayout={e => { const y = e.nativeEvent.layout.y; setSectionY(prev => ({ ...prev, ['secBackup']: y })) }}>{t('secBackup')}</Text>
+            </> : null}
+            <TvTouchable disabled={!isTV} onLayout={e => { const y = e.nativeEvent.layout.y; setSectionY(prev => ({ ...prev, ['secBackup']: y })) }} onPress={() => toggleSec('secBackup')}>
+                <Text style={styles.section}>{isTV ? (openSecs.has('secBackup') ? '▾ ' : '▸ ') : ''}{t('secBackup')}</Text>
+            </TvTouchable>
+            {!isTV || openSecs.has('secBackup') ? <>
             <View style={[styles.card, { paddingVertical: spacing.md, gap: spacing.md }]}>
                 <Text style={styles.parentalHint}>{t('backupHint')}</Text>
                 <TextInput
@@ -1387,7 +1481,11 @@ export default function SettingsTab() {
                 <Text style={styles.backupBtnText}>{t('shareSetupBtn')}</Text>
             </TvTouchable>
 
-            <Text style={styles.section}>{t('secApis')}</Text>
+            </> : null}
+            <TvTouchable disabled={!isTV} onPress={() => toggleSec('secApis')}>
+                <Text style={styles.section}>{isTV ? (openSecs.has('secApis') ? '▾ ' : '▸ ') : ''}{t('secApis')}</Text>
+            </TvTouchable>
+            {!isTV || openSecs.has('secApis') ? <>
             <View style={[styles.card, { paddingVertical: spacing.md, gap: spacing.md }]}>
                 <Text style={styles.parentalHint}>{t('tmdbHint')}</Text>
                 <View style={styles.pinRow}>
@@ -1449,9 +1547,19 @@ export default function SettingsTab() {
                         <Text style={styles.backupBtnText}>{traktMsg || t('traktConnect')}</Text>
                     </TvTouchable>
                 )}
+                {traktOn ? (
+                    <TvTouchable style={styles.backupBtn} onPress={() => { void importTraktWatched() }}>
+                        <Ionicons name="cloud-download-outline" size={16} color="#fff" />
+                        <Text style={styles.backupBtnText}>{traktImportMsg || t('traktImportBtn')}</Text>
+                    </TvTouchable>
+                ) : null}
             </View>
 
-            <Text style={styles.section} onLayout={e => { const y = e.nativeEvent.layout.y; setSectionY(prev => ({ ...prev, ['secAbout']: y })) }}>{t('secAbout')}</Text>
+            </> : null}
+            <TvTouchable disabled={!isTV} onLayout={e => { const y = e.nativeEvent.layout.y; setSectionY(prev => ({ ...prev, ['secAbout']: y })) }} onPress={() => toggleSec('secAbout')}>
+                <Text style={styles.section}>{isTV ? (openSecs.has('secAbout') ? '▾ ' : '▸ ') : ''}{t('secAbout')}</Text>
+            </TvTouchable>
+            {!isTV || openSecs.has('secAbout') ? <>
             <View style={[styles.card, { paddingVertical: spacing.md, gap: spacing.md }]}>
                 <InfoRow label={t('versionRow')} value={`v${Constants.expoConfig?.version ?? '?'}`} />
                 <TvTouchable
@@ -1490,6 +1598,7 @@ export default function SettingsTab() {
                 </TvTouchable>
             </View>
 
+            </> : null}
             <Text style={styles.version}>
                 NeoStream Mobile v{Constants.expoConfig?.version ?? '?'}
             </Text>

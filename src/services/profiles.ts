@@ -14,6 +14,8 @@ export interface Profile {
     icon?: string
     /** PIN de 4 dígitos opcional — protege o perfil (ex.: o dos adultos). */
     pin?: string
+    /** Perfil infantil: entrar nele liga o modo kids sozinho (e sair desliga). */
+    kids?: boolean
 }
 
 export const DEFAULT_PROFILE_ID = 'default'
@@ -149,8 +151,8 @@ async function persistExtras(): Promise<void> {
     } catch { /* best-effort */ }
 }
 
-/** Edita nome/cor/avatar/PIN de um perfil extra (pin/icon: '' remove). */
-export async function updateProfile(id: string, changes: { name?: string; pin?: string; color?: string; icon?: string }): Promise<void> {
+/** Edita nome/cor/avatar/PIN/infantil de um perfil extra (pin/icon: '' remove). */
+export async function updateProfile(id: string, changes: { name?: string; pin?: string; color?: string; icon?: string; kids?: boolean }): Promise<void> {
     if (id === DEFAULT_PROFILE_ID || id === GUEST_PROFILE_ID) return
     listCache = (await listProfiles()).map(profile => {
         if (profile.id !== id) return profile
@@ -159,6 +161,7 @@ export async function updateProfile(id: string, changes: { name?: string; pin?: 
             name: changes.name?.trim() || profile.name,
             color: changes.color || profile.color,
             icon: changes.icon === '' ? undefined : changes.icon ?? profile.icon,
+            kids: changes.kids ?? profile.kids,
             pin: changes.pin === '' ? undefined
                 : changes.pin && /^\d{4}$/.test(changes.pin) ? changes.pin : profile.pin,
         }

@@ -7,6 +7,7 @@
  * eles já nascem com a variante certa. Trocar o tema vale ao reabrir o app.
  */
 import AsyncStorage from '@react-native-async-storage/async-storage'
+import { isTV } from './tv'
 
 export type ThemeVariant = 'dark' | 'amoled'
 
@@ -93,4 +94,6 @@ export function resetThemeCache(): void {
     applyAccent('indigo')
 }
 
-export const spacing = { xs: 4, sm: 8, md: 12, lg: 16, xl: 24 }
+// Na TV o app respira mais — mesmo token, escala 10-foot.
+const gap = (n: number) => (isTV ? Math.round(n * 1.25) : n)
+export const spacing = { xs: gap(4), sm: gap(8), md: gap(12), lg: gap(16), xl: gap(24) }

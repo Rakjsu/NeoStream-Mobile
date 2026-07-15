@@ -5,12 +5,14 @@ import { useEffect, useState } from 'react'
 import { needsUnlock } from '../services/appLock'
 import { initProfiles, shouldPickProfile } from '../services/profiles'
 import { initTheme } from '../ui/theme'
-import { loadAccount } from '../services/session'
+import { getClient, loadAccount } from '../services/session'
+import { listRecentChannels } from '../services/recents'
 import { Loading } from '../ui/components'
 
 /** Porta de entrada: conta salva → app (ou tela de PIN, se o bloqueio está ativo). */
 export default function Index() {
-    const [state, setState] = useState<'checking' | 'in' | 'locked' | 'out' | 'welcome' | 'profiles' | 'live' | 'm3ulink'>('checking')
+    const [state, setState] = useState<'checking' | 'in' | 'locked' | 'out' | 'welcome' | 'profiles' | 'live' | 'm3ulink' | 'channel'>('checking')
+    const [playerParams, setPlayerParams] = useState<Record<string, string> | null>(null)
     const [m3uLink, setM3uLink] = useState('')
 
     useEffect(() => {
@@ -36,7 +38,23 @@ export default function Index() {
             }
             if (!account) setState(onboarded ? 'out' : 'welcome')
             else if (locked) setState('locked')
-            else setState(shouldPickProfile() ? 'profiles' : bootTab === 'live' ? 'live' : 'in')
+            else if (shouldPickProfile()) setState('profiles')
+            else if (bootTab === 'channel') {
+                // 📺 Modo zapeador: liga já tocando o último canal assistido.
+                void (async () => {
+                    const [recents, client] = await Promise.all([listRecentChannels(), getClient()])
+                    const last = recents[0]
+                    if (!alive) return
+                    if (client && last) {
+                        setPlayerParams({ url: client.liveStreamUrl(last.id), title: last.name, live: '1' })
+                        setState('channel')
+                    } else {
+                        setState('live')
+                    }
+                })()
+            } else {
+                setState(bootTab === 'live' ? 'live' : 'in')
+            }
         })
         return () => { alive = false }
     }, [])
@@ -46,6 +64,7 @@ export default function Index() {
     if (state === 'locked') return <Redirect href="/unlock" />
     if (state === 'profiles') return <Redirect href="/profiles" />
     if (state === 'live') return <Redirect href="/(tabs)/live" />
+    if (state === 'channel' && playerParams) return <Redirect href={{ pathname: '/player', params: playerParams }} />
     if (state === 'm3ulink') return <Redirect href={{ pathname: '/login', params: { m3u: m3uLink } }} />
     return <Redirect href={state === 'in' ? '/(tabs)/home' : '/login'} />
 }

@@ -9,6 +9,7 @@ import { stopRecording } from '../../services/recorder'
 import { OfflineBanner } from '../../ui/components'
 import { t } from '../../i18n/strings'
 import { colors } from '../../ui/theme'
+import { isTV, overscan, tvSize } from '../../ui/tv'
 
 export default function TabsLayout() {
     // Gravação agendada: checa em QUALQUER aba, a cada minuto com o app aberto.
@@ -35,7 +36,21 @@ export default function TabsLayout() {
                 tabBarStyle: { backgroundColor: colors.card, borderTopColor: colors.border },
                 tabBarActiveTintColor: colors.accent,
                 tabBarInactiveTintColor: colors.textDim,
-                sceneStyle: { backgroundColor: colors.bg },
+                sceneStyle: { backgroundColor: colors.bg, paddingHorizontal: overscan },
+                // 📺 Android TV: barra LATERAL (D-pad navega melhor), rótulos
+                // maiores e margem de overscan — a TV corta as bordas da tela.
+                ...(isTV ? {
+                    tabBarPosition: 'left' as const,
+                    tabBarVariant: 'material' as const,
+                    tabBarLabelPosition: 'below-icon' as const,
+                    tabBarStyle: {
+                        backgroundColor: colors.card,
+                        borderRightColor: colors.border,
+                        paddingVertical: 24,
+                    },
+                    tabBarLabelStyle: { fontSize: tvSize(10) },
+                    headerTitleStyle: { color: colors.text, fontSize: tvSize(18) },
+                } : {}),
             }}
         >
             <Tabs.Screen

@@ -17,6 +17,7 @@ import { rankChannels } from '../services/zap'
 import { EmptyState, Loading, SearchBar, TvTouchable } from '../ui/components'
 import { colors, spacing } from '../ui/theme'
 import { t } from '../i18n/strings'
+import { tvSize } from '../ui/tv'
 
 // Mutação de propriedade do player fora do componente (regra immutability).
 function applyVolume(target: { volume: number; muted: boolean }, on: boolean) {
@@ -263,9 +264,9 @@ const styles = StyleSheet.create({
         paddingVertical: 2,
         maxWidth: '80%',
     },
-    cellName: { color: colors.text, fontSize: 11, fontWeight: '600' },
+    cellName: { color: colors.text, fontSize: tvSize(11), fontWeight: '600' },
     cellEmpty: { flex: 1, alignItems: 'center', justifyContent: 'center', gap: spacing.sm },
-    cellHint: { color: colors.textDim, fontSize: 12 },
+    cellHint: { color: colors.textDim, fontSize: tvSize(12) },
     pickerOverlay: {
         position: 'absolute',
         top: 0, left: 0, right: 0, bottom: 0,
@@ -292,5 +293,5 @@ const styles = StyleSheet.create({
         borderBottomWidth: StyleSheet.hairlineWidth,
     },
     pickLogo: { width: 30, height: 30, borderRadius: 6, backgroundColor: colors.card },
-    pickName: { flex: 1, color: colors.text, fontSize: 14 },
+    pickName: { flex: 1, color: colors.text, fontSize: tvSize(14) },
 })

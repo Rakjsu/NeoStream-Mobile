@@ -40,6 +40,18 @@ function extinfName(line: string): string {
     return comma >= 0 ? line.slice(comma + 1).trim() : ''
 }
 
+/** Gera uma playlist M3U (PURO) — favoritos do usuário viram arquivo portátil. */
+export function buildM3u(channels: { name: string; logo?: string; group?: string; url: string }[]): string {
+    const lines = ['#EXTM3U']
+    for (const channel of channels) {
+        const logo = channel.logo ? ` tvg-logo="${channel.logo}"` : ''
+        const group = channel.group ? ` group-title="${channel.group}"` : ''
+        lines.push(`#EXTINF:-1${logo}${group},${channel.name}`)
+        lines.push(channel.url)
+    }
+    return lines.join('\n') + '\n'
+}
+
 /** URL do XMLTV no cabeçalho da playlist (`#EXTM3U url-tvg="…"`); '' se não há. */
 export function parseTvgUrl(text: string): string {
     const header = text.split(/\r?\n/, 1)[0] ?? ''

@@ -28,7 +28,7 @@ import { getKidsTimeLimit, isKidsMode, listKidsCategories, setKidsMode, setKidsT
 import { disconnectTrakt, getTraktCreds, isTraktConnected, pollDeviceToken, setTraktCreds, startDeviceAuth } from '../../services/trakt'
 import { getExtEpgUrl, setExtEpgUrl } from '../../services/extEpg'
 import { defaultRailPrefs, loadRailPrefs, moveRail, railOrderAll, saveRailPrefs, toggleRail, type RailKey, type RailPrefs } from '../../services/homeRails'
-import { M3uClient } from '../../services/m3u'
+import { M3uClient, buildM3u } from '../../services/m3u'
 import { loadSpeedHistory, runSpeedTest, saveSpeedSample, type SpeedSample, type SpeedVerdict } from '../../services/speedtest'
 import { clearHistory } from '../../services/progress'
 import { checkForUpdate } from '../../services/updates'
@@ -41,6 +41,7 @@ import { heatmapCells, loadHabits } from '../../services/habit'
 import { parseExpiry } from '../../services/xtream'
 import { TvTouchable } from '../../ui/components'
 import { ACCENT_PRESETS, colors, currentAccent, setAccent, setThemeVariant, spacing, themeVariant, type AccentName } from '../../ui/theme'
+import { tvSize } from '../../ui/tv'
 import { t, tf } from '../../i18n/strings'
 
 
@@ -203,7 +204,7 @@ export default function SettingsTab() {
     const [smartDl, setSmartDlState] = useState(false)
     const [cloudDir, setCloudDir] = useState('')
     const [speedHist, setSpeedHist] = useState<SpeedSample[]>([])
-    const [bootLive, setBootLive] = useState(false)
+    const [bootTab, setBootTab] = useState('')
     const [freeMsg, setFreeMsg] = useState('')
     const [kidsCatCount, setKidsCatCount] = useState(0)
     const [blockedCount, setBlockedCount] = useState(0)
@@ -211,6 +212,7 @@ export default function SettingsTab() {
     const [accent, setAccentState] = useState<AccentName>(currentAccent())
     const [recMaxAge, setRecMaxAge] = useState(0)
     const [seekStep, setSeekStepState] = useState(10)
+    const [groupVariants, setGroupVariantsState] = useState(true)
 
     const refreshStorage = useCallback(() => {
         void listDownloads().then(items => setDlBytes(items.reduce((sum, item) => sum + item.sizeBytes, 0)))
@@ -253,9 +255,10 @@ export default function SettingsTab() {
         void usageByProfile(Date.now()).then(setProfileUsage)
         void getRecMaxAgeDays().then(setRecMaxAge)
         void AsyncStorage.getItem('neostream_seek_step').then(raw => setSeekStepState(Number(raw) || 10)).catch(() => undefined)
+        void AsyncStorage.getItem('neostream_group_variants').then(raw => setGroupVariantsState(raw !== 'off')).catch(() => undefined)
         void getTraktCreds().then(creds => { setTraktCid(creds.clientId); setTraktCsec(creds.clientSecret) })
         void isTraktConnected().then(setTraktOn)
-        void AsyncStorage.getItem('neostream_boot_tab').then(v => setBootLive(v === 'live')).catch(() => undefined)
+        void AsyncStorage.getItem('neostream_boot_tab').then(v => setBootTab(v ?? '')).catch(() => undefined)
         refreshStorage()
         void loadUsage().then(map => {
             const today = dayKey(Date.now())
@@ -1013,16 +1016,19 @@ export default function SettingsTab() {
                 <TvTouchable
                     style={styles.kidsRow}
                     onPress={() => {
-                        const next = !bootLive
-                        setBootLive(next)
+                        // Off → aba TV → último canal → off.
+                        const next = bootTab === '' ? 'live' : bootTab === 'live' ? 'channel' : ''
+                        setBootTab(next)
                         void (next
-                            ? AsyncStorage.setItem('neostream_boot_tab', 'live')
+                            ? AsyncStorage.setItem('neostream_boot_tab', next)
                             : AsyncStorage.removeItem('neostream_boot_tab')
                         ).catch(() => undefined)
                     }}
                 >
-                    <Ionicons name={bootLive ? 'tv' : 'tv-outline'} size={18} color={bootLive ? colors.accent : colors.textDim} />
-                    <Text style={[styles.kidsText, bootLive && { color: colors.accent }]}>{t('bootLive')}</Text>
+                    <Ionicons name={bootTab ? 'tv' : 'tv-outline'} size={18} color={bootTab ? colors.accent : colors.textDim} />
+                    <Text style={[styles.kidsText, bootTab !== '' && { color: colors.accent }]}>
+                        {bootTab === 'channel' ? t('bootChannel') : t('bootLive')}
+                    </Text>
                 </TvTouchable>
                 <HomeRailsConfig prefs={railPrefs} onChange={next => { setRailPrefs(next); void saveRailPrefs(next) }} />
                 <TvTouchable
@@ -1065,6 +1071,20 @@ export default function SettingsTab() {
                 >
                     <Ionicons name="play-forward-outline" size={18} color={seekStep !== 10 ? colors.accent : colors.textDim} />
                     <Text style={[styles.kidsText, seekStep !== 10 && { color: colors.accent }]}>{tf('seekStepLabel', { n: seekStep })}</Text>
+                </TvTouchable>
+                <TvTouchable
+                    style={styles.kidsRow}
+                    onPress={() => {
+                        const next = !groupVariants
+                        setGroupVariantsState(next)
+                        void (next
+                            ? AsyncStorage.removeItem('neostream_group_variants')
+                            : AsyncStorage.setItem('neostream_group_variants', 'off')
+                        ).catch(() => undefined)
+                    }}
+                >
+                    <Ionicons name={groupVariants ? 'layers' : 'layers-outline'} size={18} color={groupVariants ? colors.accent : colors.textDim} />
+                    <Text style={[styles.kidsText, groupVariants && { color: colors.accent }]}>{t('groupVariantsLabel')}</Text>
                 </TvTouchable>
                 <TvTouchable
                     style={styles.saverRow}
@@ -1192,6 +1212,34 @@ export default function SettingsTab() {
                 >
                     <Ionicons name="share-outline" size={16} color="#fff" />
                     <Text style={styles.backupBtnText}>{t('exportBtn')}</Text>
+                </TvTouchable>
+                <TvTouchable
+                    style={styles.backupBtn}
+                    onPress={() => {
+                        void (async () => {
+                            const client = await getClient()
+                            if (!client) return
+                            const [live, cats, favorites] = await Promise.all([
+                                cachedFetch('live', () => client.getLiveChannels()),
+                                cachedFetch('live-cats', () => client.getLiveCategories()).catch(() => []),
+                                loadFavorites(),
+                            ])
+                            const catName = new Map(cats.map(cat => [cat.category_id, cat.category_name]))
+                            const favChannels = live
+                                .filter(channel => favorites.live.includes(String(channel.stream_id)))
+                                .map(channel => ({
+                                    name: channel.name,
+                                    logo: channel.stream_icon || '',
+                                    group: channel.category_id ? catName.get(channel.category_id) ?? '' : '',
+                                    url: client.liveStreamUrl(String(channel.stream_id)),
+                                }))
+                            if (favChannels.length === 0) { Alert.alert(t('exportFavsNone')); return }
+                            await Share.share({ message: buildM3u(favChannels) }).catch(() => undefined)
+                        })()
+                    }}
+                >
+                    <Ionicons name="list-outline" size={16} color="#fff" />
+                    <Text style={styles.backupBtnText}>{t('exportFavsBtn')}</Text>
                 </TvTouchable>
                 <TvTouchable
                     style={styles.ghRow}
@@ -1472,7 +1520,7 @@ const styles = StyleSheet.create({
     accentDot: { width: 26, height: 26, borderRadius: 13 },
     accentDotOn: { borderWidth: 3, borderColor: colors.text },
     root: { flex: 1, backgroundColor: colors.bg },
-    section: { color: colors.textDim, fontSize: 13, textTransform: 'uppercase', marginBottom: spacing.sm, marginTop: spacing.md },
+    section: { color: colors.textDim, fontSize: tvSize(13), textTransform: 'uppercase', marginBottom: spacing.sm, marginTop: spacing.md },
     card: {
         backgroundColor: colors.card,
         borderColor: colors.border,
@@ -1512,10 +1560,10 @@ const styles = StyleSheet.create({
         borderBottomColor: colors.border,
         borderBottomWidth: StyleSheet.hairlineWidth,
     },
-    infoLabel: { color: colors.textDim, fontSize: 14 },
-    infoValue: { color: colors.text, fontSize: 14, flexShrink: 1 },
+    infoLabel: { color: colors.textDim, fontSize: tvSize(14) },
+    infoValue: { color: colors.text, fontSize: tvSize(14), flexShrink: 1 },
     version: { color: colors.textDim, fontSize: 12, textAlign: 'center', marginTop: spacing.xl },
-    parentalHint: { color: colors.textDim, fontSize: 13, lineHeight: 18 },
+    parentalHint: { color: colors.textDim, fontSize: tvSize(13), lineHeight: 18 },
     pinRow: { flexDirection: 'row', gap: spacing.md },
     gateRoot: {
         flex: 1,
@@ -1527,7 +1575,7 @@ const styles = StyleSheet.create({
     },
     gateTitle: { color: colors.text, fontSize: 18, fontWeight: '700' },
     kidsRow: { flexDirection: 'row', alignItems: 'center', gap: spacing.sm, paddingTop: spacing.xs },
-    kidsText: { color: colors.textDim, fontSize: 13, fontWeight: '600', flex: 1 },
+    kidsText: { color: colors.textDim, fontSize: tvSize(13), fontWeight: '600', flex: 1 },
     pinInput: {
         flex: 1,
         backgroundColor: colors.bg,
@@ -1566,8 +1614,8 @@ const styles = StyleSheet.create({
     usageBarLabel: { color: colors.textDim, fontSize: 10 },
     ghRow: { flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: spacing.sm, paddingVertical: 4 },
     ghText: { color: colors.textDim, fontSize: 13, fontWeight: '600' },
-    diagLabel: { flex: 1, color: colors.text, fontSize: 14 },
-    diagMeta: { color: colors.textDim, fontSize: 13 },
+    diagLabel: { flex: 1, color: colors.text, fontSize: tvSize(14) },
+    diagMeta: { color: colors.textDim, fontSize: tvSize(13) },
     limitChip: {
         borderColor: colors.border,
         borderWidth: 1,
@@ -1588,7 +1636,7 @@ const styles = StyleSheet.create({
         paddingVertical: 10,
     },
     restoreBtn: { backgroundColor: colors.danger },
-    backupBtnText: { color: '#fff', fontSize: 14, fontWeight: '600' },
+    backupBtnText: { color: '#fff', fontSize: tvSize(14), fontWeight: '600' },
     importInput: {
         backgroundColor: colors.bg,
         borderColor: colors.border,

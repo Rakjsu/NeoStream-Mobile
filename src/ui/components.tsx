@@ -5,10 +5,11 @@ import type { ProgressEntry } from '../services/progress'
 import { progressPct } from '../services/progress'
 import type { Category } from '../services/xtream'
 import { t } from '../i18n/strings'
-import { useState } from 'react'
+import { useRef, useState } from 'react'
 import { useNetworkState } from 'expo-network'
 import { skipImages } from '../services/dataSaver'
 import { colors, spacing } from './theme'
+import { isTV, tvSize } from './tv'
 
 /** Faixa discreta quando o aparelho está sem rede (some sozinha ao voltar). */
 export function OfflineBanner() {
@@ -68,15 +69,15 @@ export function EmptyState({ icon, label }: { icon: keyof typeof Ionicons.glyphM
  * TouchableOpacity com foco visível de D-pad (Android TV): a borda acende
  * quando o controle chega no item. No touch, nada muda.
  */
-export function TvTouchable({ focusStyle, style, children, ...props }: React.ComponentProps<typeof TouchableOpacity> & { focusStyle?: object }) {
+export function TvTouchable({ focusStyle, style, children, onFocus, onBlur, ...props }: React.ComponentProps<typeof TouchableOpacity> & { focusStyle?: object }) {
     const [focused, setFocused] = useState(false)
     return (
         <TouchableOpacity
             accessibilityRole="button"
             {...props}
             style={[style, focused && (focusStyle ?? styles.tvFocus)]}
-            onFocus={() => setFocused(true)}
-            onBlur={() => setFocused(false)}
+            onFocus={event => { setFocused(true); onFocus?.(event) }}
+            onBlur={event => { setFocused(false); onBlur?.(event) }}
         >
             {children}
         </TouchableOpacity>
@@ -160,22 +161,28 @@ export function ContinueRail({ entries, onPlay, onRemove }: {
     /** Segurar um card remove do rail (com confirmação de quem chama). */
     onRemove?: (entry: ProgressEntry) => void
 }) {
+    // Hook ANTES do early-return (regra de hooks) — o card focado rola pra vista.
+    const listRef = useRef<FlatList<ProgressEntry>>(null)
     if (entries.length === 0) return null
+    const cardSpan = tvSize(108) + spacing.sm
     return (
         <View style={styles.railWrap}>
             <Text style={styles.railTitle}>{t('continueRail')}</Text>
             <FlatList
+                ref={listRef}
                 data={entries}
                 horizontal
                 showsHorizontalScrollIndicator={false}
                 keyExtractor={item => item.id}
                 contentContainerStyle={{ paddingHorizontal: spacing.md }}
-                renderItem={({ item }) => (
-                    <TouchableOpacity
+                getItemLayout={(_, index) => ({ length: cardSpan, offset: cardSpan * index, index })}
+                renderItem={({ item, index }) => (
+                    <TvTouchable
                         style={styles.railCard}
                         onPress={() => onPlay(item)}
                         onLongPress={onRemove ? () => onRemove(item) : undefined}
                         delayLongPress={350}
+                        onFocus={isTV ? () => listRef.current?.scrollToIndex({ index, viewPosition: 0.5, animated: true }) : undefined}
                     >
                         {item.cover && !skipImages() ? (
                             <Image source={{ uri: item.cover }} style={styles.railImg} contentFit="cover" transition={120} />
@@ -188,7 +195,7 @@ export function ContinueRail({ entries, onPlay, onRemove }: {
                             <View style={[styles.railBarFill, { width: `${progressPct(item.position, item.duration)}%` }]} />
                         </View>
                         <Text style={styles.railName} numberOfLines={2}>{item.title}</Text>
-                    </TouchableOpacity>
+                    </TvTouchable>
                 )}
             />
         </View>
@@ -212,18 +219,27 @@ export function PosterRail({ title, items, onPress }: {
     items: RailItem[]
     onPress: (item: RailItem) => void
 }) {
+    // Hook ANTES do early-return (regra de hooks) — o card focado rola pra vista.
+    const listRef = useRef<FlatList<RailItem>>(null)
     if (items.length === 0) return null
+    const cardSpan = tvSize(96) + spacing.sm
     return (
         <View style={styles.railWrap}>
             <Text style={styles.railTitle}>{title}</Text>
             <FlatList
+                ref={listRef}
                 data={items}
                 horizontal
                 showsHorizontalScrollIndicator={false}
                 keyExtractor={item => item.key}
                 contentContainerStyle={{ paddingHorizontal: spacing.md }}
-                renderItem={({ item }) => (
-                    <TouchableOpacity style={styles.posterRailCard} onPress={() => onPress(item)}>
+                getItemLayout={(_, index) => ({ length: cardSpan, offset: cardSpan * index, index })}
+                renderItem={({ item, index }) => (
+                    <TvTouchable
+                        style={styles.posterRailCard}
+                        onPress={() => onPress(item)}
+                        onFocus={isTV ? () => listRef.current?.scrollToIndex({ index, viewPosition: 0.5, animated: true }) : undefined}
+                    >
                         {item.cover && !skipImages() ? (
                             <Image source={{ uri: item.cover }} style={styles.posterRailImg} contentFit="cover" transition={120} />
                         ) : (
@@ -232,7 +248,7 @@ export function PosterRail({ title, items, onPress }: {
                             </View>
                         )}
                         <Text style={styles.railName} numberOfLines={2}>{item.name}</Text>
-                    </TouchableOpacity>
+                    </TvTouchable>
                 )}
             />
         </View>
@@ -245,18 +261,27 @@ export function ChannelRail({ title, items, onPress }: {
     items: { id: string; name: string; logo: string }[]
     onPress: (item: { id: string; name: string; logo: string }) => void
 }) {
+    // Hook ANTES do early-return (regra de hooks) — o card focado rola pra vista.
+    const listRef = useRef<FlatList<{ id: string; name: string; logo: string }>>(null)
     if (items.length === 0) return null
+    const cardSpan = tvSize(72) + spacing.sm
     return (
         <View style={styles.railWrap}>
             <Text style={styles.railTitle}>{title}</Text>
             <FlatList
+                ref={listRef}
                 data={items}
                 horizontal
                 showsHorizontalScrollIndicator={false}
                 keyExtractor={item => item.id}
                 contentContainerStyle={{ paddingHorizontal: spacing.md }}
-                renderItem={({ item }) => (
-                    <TouchableOpacity style={styles.chRailCard} onPress={() => onPress(item)}>
+                getItemLayout={(_, index) => ({ length: cardSpan, offset: cardSpan * index, index })}
+                renderItem={({ item, index }) => (
+                    <TvTouchable
+                        style={styles.chRailCard}
+                        onPress={() => onPress(item)}
+                        onFocus={isTV ? () => listRef.current?.scrollToIndex({ index, viewPosition: 0.5, animated: true }) : undefined}
+                    >
                         {item.logo && !skipImages() ? (
                             <Image source={{ uri: item.logo }} style={styles.chRailLogo} contentFit="contain" transition={120} />
                         ) : (
@@ -265,7 +290,7 @@ export function ChannelRail({ title, items, onPress }: {
                             </View>
                         )}
                         <Text style={styles.railName} numberOfLines={1}>{item.name}</Text>
-                    </TouchableOpacity>
+                    </TvTouchable>
                 )}
             />
         </View>
@@ -291,7 +316,10 @@ const styles = StyleSheet.create({
     poster: { flex: 1, padding: spacing.xs },
     posterImg: { width: '100%', aspectRatio: 2 / 3, borderRadius: 8, backgroundColor: colors.card },
     posterSelected: { opacity: 0.85, borderColor: colors.accent, borderWidth: 2, borderRadius: 10 },
-    tvFocus: { backgroundColor: colors.accentSoft, borderRadius: 10 },
+    // Na TV o foco precisa GRITAR (borda + zoom); no touch, só o fundo suave.
+    tvFocus: isTV
+        ? { backgroundColor: colors.accentSoft, borderRadius: 10, borderWidth: 2, borderColor: colors.accent, transform: [{ scale: 1.05 }] }
+        : { backgroundColor: colors.accentSoft, borderRadius: 10 },
     offlineBanner: { backgroundColor: colors.card, borderBottomColor: colors.border, borderBottomWidth: 1, paddingVertical: 5 },
     offlineText: { color: colors.textDim, fontSize: 12, textAlign: 'center' },
     selBadge: {
@@ -307,7 +335,7 @@ const styles = StyleSheet.create({
         justifyContent: 'center',
     },
     posterFallback: { alignItems: 'center', justifyContent: 'center' },
-    posterName: { color: colors.text, fontSize: 12, marginTop: 4 },
+    posterName: { color: colors.text, fontSize: tvSize(12), marginTop: 4 },
     favBadge: {
         position: 'absolute',
         top: spacing.sm,
@@ -344,18 +372,18 @@ const styles = StyleSheet.create({
     railWrap: { marginBottom: spacing.sm },
     railTitle: {
         color: colors.textDim,
-        fontSize: 13,
+        fontSize: tvSize(13),
         textTransform: 'uppercase',
         marginHorizontal: spacing.lg,
         marginBottom: spacing.sm,
     },
-    railCard: { width: 108, marginRight: spacing.sm },
-    railImg: { width: 108, height: 72, borderRadius: 8, backgroundColor: colors.card },
+    railCard: { width: tvSize(108), marginRight: spacing.sm },
+    railImg: { width: tvSize(108), height: tvSize(72), borderRadius: 8, backgroundColor: colors.card },
     railBarTrack: { height: 3, backgroundColor: colors.border, borderRadius: 2, marginTop: 4 },
     railBarFill: { height: 3, backgroundColor: colors.accent, borderRadius: 2 },
-    railName: { color: colors.text, fontSize: 11, marginTop: 4 },
-    posterRailCard: { width: 96, marginRight: spacing.sm },
-    posterRailImg: { width: 96, aspectRatio: 2 / 3, borderRadius: 8, backgroundColor: colors.card },
-    chRailCard: { width: 72, marginRight: spacing.sm, alignItems: 'center' },
-    chRailLogo: { width: 56, height: 56, borderRadius: 28, backgroundColor: colors.card },
+    railName: { color: colors.text, fontSize: tvSize(11), marginTop: 4 },
+    posterRailCard: { width: tvSize(96), marginRight: spacing.sm },
+    posterRailImg: { width: tvSize(96), aspectRatio: 2 / 3, borderRadius: 8, backgroundColor: colors.card },
+    chRailCard: { width: tvSize(72), marginRight: spacing.sm, alignItems: 'center' },
+    chRailLogo: { width: tvSize(56), height: tvSize(56), borderRadius: tvSize(28), backgroundColor: colors.card },
 })

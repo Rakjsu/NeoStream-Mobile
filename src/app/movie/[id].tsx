@@ -15,6 +15,7 @@ import { findMovieVersions, type MovieVersion } from '../../services/movieVersio
 import { emptyVodDetails, fetchTmdbDetails, mergeDetails } from '../../services/tmdb'
 import { hasItem, loadWatchlist, toggleWatchlist } from '../../services/watchlist'
 import { colors, spacing } from '../../ui/theme'
+import { tvSize } from '../../ui/tv'
 import { currentLang, t, tf } from '../../i18n/strings'
 
 /** Ficha do filme: capa, sinopse e metadados antes de dar o play. */
@@ -301,8 +302,8 @@ const styles = StyleSheet.create({
     cover: { width: 130, aspectRatio: 2 / 3, borderRadius: 12, backgroundColor: colors.card },
     coverFallback: { alignItems: 'center', justifyContent: 'center' },
     heroInfo: { flex: 1, justifyContent: 'flex-end', gap: spacing.sm },
-    title: { color: colors.text, fontSize: 20, fontWeight: '700' },
-    meta: { color: colors.textDim, fontSize: 13 },
+    title: { color: colors.text, fontSize: tvSize(20), fontWeight: '700' },
+    meta: { color: colors.textDim, fontSize: tvSize(13) },
     resumeTrack: { height: 4, backgroundColor: colors.border, borderRadius: 2 },
     resumeFill: { height: 4, backgroundColor: colors.accent, borderRadius: 2 },
     actions: { flexDirection: 'row', gap: spacing.md },
@@ -316,7 +317,7 @@ const styles = StyleSheet.create({
         borderRadius: 10,
         paddingVertical: 13,
     },
-    playText: { color: '#fff', fontSize: 16, fontWeight: '600' },
+    playText: { color: '#fff', fontSize: tvSize(16), fontWeight: '600' },
     favBtn: {
         width: 48,
         alignItems: 'center',
@@ -335,8 +336,8 @@ const styles = StyleSheet.create({
         borderColor: colors.accent,
     },
     listBtnOn: { backgroundColor: colors.accent },
-    plot: { color: colors.text, fontSize: 14, lineHeight: 21 },
-    plotDim: { color: colors.textDim, fontSize: 14 },
+    plot: { color: colors.text, fontSize: tvSize(14), lineHeight: 21 },
+    plotDim: { color: colors.textDim, fontSize: tvSize(14) },
     trailerBtn: {
         flexDirection: 'row',
         alignItems: 'center',
@@ -368,6 +369,6 @@ const styles = StyleSheet.create({
     },
     trailerWeb: { flex: 1, backgroundColor: '#000' },
     trailerClose: { position: 'absolute', top: 40, right: 16 },
-    credits: { color: colors.textDim, fontSize: 13, lineHeight: 19 },
+    credits: { color: colors.textDim, fontSize: tvSize(13), lineHeight: 19 },
     creditsLabel: { color: colors.text, fontWeight: '600' },
 })

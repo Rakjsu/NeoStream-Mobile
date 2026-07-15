@@ -13,6 +13,7 @@ import { CategoryChips, ContinueRail, EmptyState, Loading, PosterCard, SearchBar
 import { isRecentlyAdded, nextSortMode, sortCatalog, type SortMode } from '../../services/sorting'
 import { colors, spacing } from '../../ui/theme'
 import { SORT_KEY, t, tf } from '../../i18n/strings'
+import { isTV } from '../../ui/tv'
 
 export default function SeriesTab() {
     const [series, setSeries] = useState<SeriesItem[] | null>(null)
@@ -65,7 +66,8 @@ export default function SeriesTab() {
             : AsyncStorage.setItem('neostream_grid_cols', String(next))
         ).catch(() => undefined)
     }
-    const columns = density > 0 ? density : Math.max(3, Math.min(8, Math.floor(width / 128)))
+    // Na TV o card precisa ser legível do sofá — divisor maior = menos colunas.
+    const columns = density > 0 ? density : Math.max(3, Math.min(8, Math.floor(width / (isTV ? 190 : 128))))
 
     const load = useCallback(async (force = false) => {
         try {
@@ -208,7 +210,19 @@ export default function SeriesTab() {
                                 params: { id, name: item.name, cover: item.cover || '' },
                             })
                         }}
-                        onLongPress={() => setSelection(current => current ?? new Set([String(item.series_id)]))}
+                        onLongPress={() => {
+                            // Na TV o OK longo abre o menu de contexto (padrão leanback).
+                            if (isTV) {
+                                const id = String(item.series_id)
+                                Alert.alert(item.name, '', [
+                                    { text: t('cancel'), style: 'cancel' },
+                                    { text: t('ctxOpen'), onPress: () => router.push({ pathname: '/series/[id]', params: { id, name: item.name, cover: item.cover || '' } }) },
+                                    { text: t('selFav'), onPress: () => { void persistToggle('series', id).then(setFavorites) } },
+                                ])
+                                return
+                            }
+                            setSelection(current => current ?? new Set([String(item.series_id)]))
+                        }}
                         delayLongPress={350}
                     >
                         <PosterCard

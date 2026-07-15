@@ -15,6 +15,7 @@ import { CategoryChips, ContinueRail, EmptyState, Loading, PosterCard, SearchBar
 import { isRecentlyAdded, nextSortMode, sortCatalog, type SortMode } from '../../services/sorting'
 import { colors, spacing } from '../../ui/theme'
 import { SORT_KEY, t, tf } from '../../i18n/strings'
+import { isTV } from '../../ui/tv'
 
 export default function MoviesTab() {
     const [movies, setMovies] = useState<VodMovie[] | null>(null)
@@ -52,6 +53,20 @@ export default function MoviesTab() {
         setSelection(null)
     }
 
+    // Baixar UM filme (menu de contexto da TV) — mesmo request da seleção.
+    const downloadOne = async (movie: VodMovie) => {
+        const client = await getClient()
+        if (!client) return
+        const container = movie.container_extension || 'mp4'
+        await enqueueDownloads([{
+            id: buildProgressId('movie', String(movie.stream_id)),
+            url: await resolvePlayableUrl(client.vodStreamUrl(String(movie.stream_id), container)),
+            title: movie.name,
+            cover: movie.stream_icon || '',
+            container,
+        }])
+    }
+
     const downloadSelection = async () => {
         if (!selection || !movies) return
         const client = await getClient()
@@ -87,7 +102,8 @@ export default function MoviesTab() {
             : AsyncStorage.setItem('neostream_grid_cols', String(next))
         ).catch(() => undefined)
     }
-    const columns = density > 0 ? density : Math.max(3, Math.min(8, Math.floor(width / 128)))
+    // Na TV o card precisa ser legível do sofá — divisor maior = menos colunas.
+    const columns = density > 0 ? density : Math.max(3, Math.min(8, Math.floor(width / (isTV ? 190 : 128))))
 
     const load = useCallback(async (force = false) => {
         try {
@@ -240,7 +256,20 @@ export default function MoviesTab() {
                             style={{ flex: 1 / columns }}
                             hasTVPreferredFocus={index === 0}
                             onPress={() => (selection ? toggleSelected(id) : openDetails(item))}
-                            onLongPress={() => setSelection(current => current ?? new Set([id]))}
+                            onLongPress={() => {
+                                // Na TV o OK longo abre o menu de contexto (padrão leanback);
+                                // no touch continua entrando na seleção em lote.
+                                if (isTV) {
+                                    Alert.alert(item.name, '', [
+                                        { text: t('cancel'), style: 'cancel' },
+                                        { text: t('ctxOpen'), onPress: () => openDetails(item) },
+                                        { text: t('selFav'), onPress: () => { void persistToggle('movie', id).then(setFavorites) } },
+                                        { text: t('selDownload'), onPress: () => { void downloadOne(item) } },
+                                    ])
+                                    return
+                                }
+                                setSelection(current => current ?? new Set([id]))
+                            }}
                             delayLongPress={350}
                         >
                             <PosterCard

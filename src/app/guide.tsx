@@ -17,10 +17,12 @@ import { rankChannels, setZapContext } from '../services/zap'
 import { CategoryChips, EmptyState, Loading, SearchBar, TvTouchable } from '../ui/components'
 import { colors, spacing } from '../ui/theme'
 import { t, tf } from '../i18n/strings'
+import { isTV, tvSize } from '../ui/tv'
 
-const PX_PER_MIN = 4
-const NAME_W = 112
-const ROW_H = 52
+// Na TV tudo cresce ~30% — bloco de 30 min legível do sofá.
+const PX_PER_MIN = isTV ? 5 : 4
+const NAME_W = isTV ? 150 : 112
+const ROW_H = isTV ? 66 : 52
 const PAST_H = 2 // horas de passado visíveis (replay)
 const FUTURE_H = 22 // horas de futuro visíveis
 const TIMELINE_W = (PAST_H + FUTURE_H) * 60 * PX_PER_MIN
@@ -379,7 +381,7 @@ const styles = StyleSheet.create({
         borderRightWidth: 1,
         backgroundColor: colors.card,
     },
-    name: { color: colors.text, fontSize: 12, fontWeight: '600' },
+    name: { color: colors.text, fontSize: tvSize(12), fontWeight: '600' },
     timeline: { width: TIMELINE_W },
     loadingCell: { color: colors.textDim, fontSize: 12, padding: spacing.md },
     block: {
@@ -395,7 +397,7 @@ const styles = StyleSheet.create({
     },
     blockLive: { backgroundColor: colors.accentSoft, borderColor: colors.accent },
     blockPast: { opacity: 0.65 },
-    blockText: { color: colors.text, fontSize: 11 },
+    blockText: { color: colors.text, fontSize: tvSize(11) },
     blockTextLive: { fontWeight: '700' },
     hintBar: {
         flexDirection: 'row',

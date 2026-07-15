@@ -3,8 +3,8 @@ import { useEvent, useEventListener } from 'expo'
 import { useKeepAwake } from 'expo-keep-awake'
 import { router, useLocalSearchParams } from 'expo-router'
 import { useVideoPlayer, VideoView, type AudioTrack, type SubtitleTrack } from 'expo-video'
-import { useEffect, useRef, useState } from 'react'
-import { Alert, FlatList, PanResponder, Platform, StyleSheet, Text, TextInput, View } from 'react-native'
+import { useCallback, useEffect, useRef, useState } from 'react'
+import { Alert, BackHandler, FlatList, PanResponder, Platform, StyleSheet, Text, TextInput, View, type ViewToken } from 'react-native'
 import { useSafeAreaInsets } from 'react-native-safe-area-context'
 import { StatusBar } from 'expo-status-bar'
 import * as Brightness from 'expo-brightness'
@@ -17,7 +17,7 @@ import { listRecentChannels, recordRecentChannel } from '../services/recents'
 import { loadFavorites, persistToggle } from '../services/favorites'
 import { cachedFetch, getClient, resolvePlayableUrl } from '../services/session'
 import { tapLight } from '../services/haptics'
-import { alternateLiveUrl } from '../services/xtream'
+import { alternateLiveUrl, hasCatchup } from '../services/xtream'
 import AsyncStorage from '@react-native-async-storage/async-storage'
 import { getAspect, nextAspect, setAspect, type AspectMode } from '../services/aspect'
 import { dayKey, formatMinutes, loadUsage, recordWatchMinute, summarize, usageGoalJustHit } from '../services/usage'
@@ -29,6 +29,7 @@ import { recordHabitMinute } from '../services/habit'
 import { canRecordUrl, recordingTitle, startRecording, stopRecording } from '../services/recorder'
 import { currentZapChannel, hasZapContext, peekZap, rankChannels, zapBy, zapList, zapTo, zapToNumber, type ZapChannel } from '../services/zap'
 import { TvTouchable } from '../ui/components'
+import { isTV, tvSize } from '../ui/tv'
 import { colors, spacing } from '../ui/theme'
 import { t, tf } from '../i18n/strings'
 
@@ -55,6 +56,8 @@ function applyBackgroundMode(
 function applyVolume(target: { volume: number }, volume: number) {
     target.volume = volume
 }
+const DRAWER_VIEWABILITY = { itemVisiblePercentThreshold: 30 }
+
 // Conexão instável = 3 rebuffers em 90s (Date.now fora do componente — purity).
 function recordRebuffer(ref: { current: number[] }): boolean {
     const now = Date.now()
@@ -447,6 +450,19 @@ export default function Player() {
     }
     useEffect(() => () => { void ScreenOrientation.unlockAsync().catch(() => undefined) }, [])
 
+    // 📺 BACK na TV confirma antes de sair (o botão do controle escapa fácil).
+    useEffect(() => {
+        if (!isTV) return
+        const sub = BackHandler.addEventListener('hardwareBackPress', () => {
+            Alert.alert(t('exitPlayerTitle'), '', [
+                { text: t('cancel'), style: 'cancel' },
+                { text: t('kidsTimeUpExit'), style: 'destructive', onPress: () => router.back() },
+            ])
+            return true // segura o back até o usuário confirmar
+        })
+        return () => sub.remove()
+    }, [])
+
     // 🕐 Relógio + resolução do stream (aparecem junto com os controles).
     const [clock, setClock] = useState('')
     const [videoRes, setVideoRes] = useState(0)
@@ -518,6 +534,9 @@ export default function Player() {
     }, [live, liveTitle, stillRound])
 
 
+    // ⏮ Programa atual com replay (canal tv_archive + início conhecido pelo EPG).
+    const [restart, setRestart] = useState<{ channelId: string; startMs: number; endMs: number; programId?: string } | null>(null)
+
     const showEpg = (channelId: string) => {
         void (async () => {
             const client = await getClient()
@@ -528,6 +547,28 @@ export default function Player() {
                 setLiveEpg(nowNext.now.title)
                 setLiveDesc(nowNext.now.desc ?? '')
             }
+            if (nowNext?.now?.startMs && client.catchupUrl) {
+                const channels = await cachedFetch('live', () => client.getLiveChannels()).catch(() => [])
+                const channel = channels.find(c => String(c.stream_id) === channelId)
+                setRestart(channel && hasCatchup(channel)
+                    ? { channelId, startMs: nowNext.now.startMs, endMs: nowNext.now.endMs, programId: nowNext.now.id }
+                    : null)
+            } else {
+                setRestart(null)
+            }
+        })()
+    }
+
+    const restartProgram = () => {
+        const info = restart
+        if (!info) return
+        void (async () => {
+            const client = await getClient()
+            if (!client?.catchupUrl) return
+            const durationMin = Math.max(1, Math.round((info.endMs - info.startMs) / 60_000))
+            const raw = client.catchupUrl(info.channelId, info.startMs, durationMin, info.programId)
+            if (!raw) return
+            router.push({ pathname: '/player', params: { url: await resolvePlayableUrl(raw), title: `⏪ ${liveEpg || liveTitle}` } })
         })()
     }
 
@@ -606,6 +647,24 @@ export default function Player() {
         void loadFavorites().then(favorites => setDrawerFavs(new Set(favorites.live)))
         void listRecentChannels().then(recents => setDrawerRecents(recents.map(channel => channel.id)))
     }
+
+    // "Agora" de cada canal da gaveta — só os visíveis, via cache da sessão.
+    const [drawerEpg, setDrawerEpg] = useState<Record<string, string>>({})
+    const drawerEpgInFlight = useRef(new Set<string>())
+    const onDrawerViewable = useCallback(({ viewableItems }: { viewableItems: ViewToken[] }) => {
+        for (const token of viewableItems) {
+            const channel = token.item as ZapChannel | null
+            if (!channel?.id || drawerEpgInFlight.current.has(channel.id)) continue
+            drawerEpgInFlight.current.add(channel.id)
+            void (async () => {
+                const client = await getClient()
+                if (!client) return
+                const nowNext = await cachedFetch(`epg:${channel.id}`, () => client.getShortEpg(channel.id)).catch(() => null)
+                const nowTitle = nowNext?.now?.title
+                if (nowTitle) setDrawerEpg(prev => ({ ...prev, [channel.id]: nowTitle }))
+            })()
+        }
+    }, [])
 
     const drawerChannels = channelsOpen
         ? rankChannels(
@@ -969,7 +1028,12 @@ export default function Player() {
 
             {!chrome ? (
                 <TvTouchable
-                    style={[styles.chromeStrip, { height: insets.top + 56 }]}
+                    // Na TV a camada cobre a tela: o OK do controle (que não gera
+                    // onTouchStart) traz os controles de volta. No touch, só a faixa
+                    // do topo — o resto continua indo pros controles nativos.
+                    style={[styles.chromeStrip, isTV ? StyleSheet.absoluteFill : { height: insets.top + 56 }]}
+                    focusStyle={isTV ? {} : undefined}
+                    hasTVPreferredFocus={isTV}
                     accessibilityLabel={t('a11yShowBar')}
                     onPress={() => setChrome(true)}
                 />
@@ -990,6 +1054,11 @@ export default function Player() {
                     ) : null}
                 </View>
                 <Text style={styles.clock}>{videoRes > 0 ? `${videoRes}p · ` : ''}{clock}</Text>
+                {live === '1' && restart ? (
+                    <TvTouchable style={styles.trackBtn} accessibilityLabel={t('a11yRestart')} onPress={restartProgram}>
+                        <Ionicons name="play-back-circle-outline" size={20} color={colors.text} />
+                    </TvTouchable>
+                ) : null}
                 {live === '1' ? (
                     <TvTouchable style={styles.trackBtn} accessibilityLabel={t('a11yFavChannel')} onPress={toggleChannelFav}>
                         <Ionicons name={channelFav ? 'heart' : 'heart-outline'} size={20} color={channelFav ? colors.danger : colors.text} />
@@ -1160,6 +1229,8 @@ export default function Player() {
                         data={drawerChannels}
                         keyExtractor={channel => channel.id}
                         keyboardShouldPersistTaps="handled"
+                        onViewableItemsChanged={onDrawerViewable}
+                        viewabilityConfig={DRAWER_VIEWABILITY}
                         renderItem={({ item }) => (
                             <TvTouchable
                                 style={styles.drawerRow}
@@ -1169,12 +1240,17 @@ export default function Player() {
                                     setChannelsOpen(false)
                                 }}
                             >
-                                <Text
-                                    style={[styles.drawerName, item.name === liveTitle && styles.drawerNameOn]}
-                                    numberOfLines={1}
-                                >
-                                    {item.name}
-                                </Text>
+                                <View style={{ flex: 1 }}>
+                                    <Text
+                                        style={[styles.drawerName, item.name === liveTitle && styles.drawerNameOn]}
+                                        numberOfLines={1}
+                                    >
+                                        {item.name}
+                                    </Text>
+                                    {drawerEpg[item.id] ? (
+                                        <Text style={styles.drawerEpg} numberOfLines={1}>{drawerEpg[item.id]}</Text>
+                                    ) : null}
+                                </View>
                                 {item.name === liveTitle ? (
                                     <Ionicons name="play" size={14} color={colors.accent} />
                                 ) : null}
@@ -1318,8 +1394,8 @@ const styles = StyleSheet.create({
     },
     back: { padding: spacing.xs },
     titleBlock: { flex: 1 },
-    title: { color: colors.text, fontSize: 16, fontWeight: '600' },
-    epg: { color: 'rgba(244,244,248,0.7)', fontSize: 12 },
+    title: { color: colors.text, fontSize: tvSize(16), fontWeight: '600' },
+    epg: { color: 'rgba(244,244,248,0.7)', fontSize: tvSize(12) },
     trackBtn: { padding: spacing.sm },
     rateText: { color: colors.text, fontSize: 13, fontWeight: '700', minWidth: 30, textAlign: 'center' },
     trackToast: {
@@ -1377,7 +1453,7 @@ const styles = StyleSheet.create({
     },
     timeUpExit: { paddingHorizontal: 18, paddingVertical: 8 },
     timeUpExitText: { color: colors.accent, fontSize: 14, fontWeight: '700' },
-    clock: { color: colors.textDim, fontSize: 13, fontWeight: '700', marginRight: spacing.sm },
+    clock: { color: colors.textDim, fontSize: tvSize(13), fontWeight: '700', marginRight: spacing.sm },
     zapCol: {
         position: 'absolute',
         right: spacing.sm,
@@ -1457,7 +1533,8 @@ const styles = StyleSheet.create({
         borderBottomColor: colors.border,
         borderBottomWidth: StyleSheet.hairlineWidth,
     },
-    drawerName: { flex: 1, color: colors.text, fontSize: 14 },
+    drawerName: { color: colors.text, fontSize: tvSize(14) },
+    drawerEpg: { color: colors.textDim, fontSize: tvSize(11) },
     drawerNameOn: { color: colors.accent, fontWeight: '700' },
     castBar: {
         position: 'absolute',

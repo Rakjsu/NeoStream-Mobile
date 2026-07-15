@@ -8,7 +8,9 @@ import {
     markProfilePicked, removeProfile, switchProfile, updateProfile, type Profile,
 } from '../services/profiles'
 import { TvTouchable } from '../ui/components'
+import { loadParental } from '../services/parental'
 import { colors, spacing } from '../ui/theme'
+import { tvSize } from '../ui/tv'
 import { t, tf } from '../i18n/strings'
 
 // Avatares prontos (emoji) — o perfil pode trocar a letra inicial por um deles.
@@ -26,6 +28,8 @@ export default function Profiles() {
     // Perfil com PIN: guarda o alvo até o PIN certo liberar.
     const [pinFor, setPinFor] = useState<Profile | null>(null)
     const [pinTry, setPinTry] = useState('')
+    // 'profile' pede o PIN do perfil; 'parental' aceita o do responsável (esqueci).
+    const [pinMode, setPinMode] = useState<'profile' | 'parental'>('profile')
     const [editing, setEditing] = useState<Profile | null>(null)
     const [iconDraft, setIconDraft] = useState('')
     const [colorDraft, setColorDraft] = useState('')
@@ -58,7 +62,7 @@ export default function Profiles() {
     }
 
     const pick = (profile: Profile) => {
-        if (profile.pin) { setPinTry(''); setPinFor(profile); return }
+        if (profile.pin) { setPinTry(''); setPinMode('profile'); setPinFor(profile); return }
         enter(profile)
     }
 
@@ -212,10 +216,23 @@ export default function Profiles() {
                         onChangeText={text => {
                             const digits = text.replace(/[^0-9]/g, '')
                             setPinTry(digits)
-                            if (digits.length === 4) {
+                            if (digits.length !== 4) return
+                            if (pinMode === 'profile') {
                                 if (digits === pinFor.pin) { setPinFor(null); enter(pinFor) }
                                 else setPinTry('')
+                                return
                             }
+                            // PIN do responsável destrava E REMOVE o PIN esquecido.
+                            void loadParental().then(state => {
+                                if (state.pin && digits === state.pin) {
+                                    void updateProfile(pinFor.id, { pin: '' }).then(() => {
+                                        setPinFor(null)
+                                        enter(pinFor)
+                                    })
+                                } else {
+                                    setPinTry('')
+                                }
+                            })
                         }}
                         placeholder="••••"
                         placeholderTextColor={colors.textDim}
@@ -224,6 +241,21 @@ export default function Profiles() {
                         maxLength={4}
                         autoFocus
                     />
+                    {pinMode === 'profile' ? (
+                        <TvTouchable
+                            style={styles.addBtn}
+                            accessibilityLabel={t('pinForgot')}
+                            onPress={() => {
+                                void loadParental().then(state => {
+                                    if (!state.pin) { Alert.alert(t('pinParentalMissing')); return }
+                                    setPinTry('')
+                                    setPinMode('parental')
+                                })
+                            }}
+                        >
+                            <Ionicons name="help" size={20} color="#fff" />
+                        </TvTouchable>
+                    ) : null}
                     {bioOk ? (
                         <TvTouchable
                             style={styles.addBtn}
@@ -250,19 +282,19 @@ export default function Profiles() {
 
 const styles = StyleSheet.create({
     root: { flex: 1, backgroundColor: colors.bg, alignItems: 'center', justifyContent: 'center', padding: spacing.xl, gap: spacing.lg },
-    title: { color: colors.text, fontSize: 22, fontWeight: '700' },
+    title: { color: colors.text, fontSize: tvSize(22), fontWeight: '700' },
     grid: { flexDirection: 'row', flexWrap: 'wrap', justifyContent: 'center', gap: spacing.xl },
-    cell: { alignItems: 'center', gap: spacing.sm, width: 92 },
+    cell: { alignItems: 'center', gap: spacing.sm, width: tvSize(92) },
     avatar: {
-        width: 72,
-        height: 72,
-        borderRadius: 36,
+        width: tvSize(72),
+        height: tvSize(72),
+        borderRadius: tvSize(36),
         alignItems: 'center',
         justifyContent: 'center',
     },
     avatarActive: { borderWidth: 3, borderColor: colors.text },
     avatarAdd: { backgroundColor: colors.card, borderWidth: 1, borderColor: colors.border },
-    avatarLetter: { color: '#fff', fontSize: 28, fontWeight: '700' },
+    avatarLetter: { color: '#fff', fontSize: tvSize(28), fontWeight: '700' },
     pinBadge: {
         position: 'absolute',
         right: -2,
@@ -271,7 +303,7 @@ const styles = StyleSheet.create({
         borderRadius: 9,
         padding: 3,
     },
-    name: { color: colors.text, fontSize: 13, fontWeight: '600' },
+    name: { color: colors.text, fontSize: tvSize(13), fontWeight: '600' },
     addRow: { flexDirection: 'row', gap: spacing.sm, alignItems: 'center' },
     input: {
         width: 200,
@@ -297,6 +329,6 @@ const styles = StyleSheet.create({
     },
     pickChipOn: { borderColor: colors.accent, borderWidth: 2 },
     colorDot: { width: 30, height: 30, borderRadius: 15, borderWidth: 1, borderColor: colors.border },
-    avatarEmoji: { fontSize: 32 },
+    avatarEmoji: { fontSize: tvSize(32) },
     hint: { color: colors.textDim, fontSize: 12, textAlign: 'center' },
 })

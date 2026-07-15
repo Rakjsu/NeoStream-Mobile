@@ -203,7 +203,7 @@ export default function SettingsTab() {
     const [smartDl, setSmartDlState] = useState(false)
     const [cloudDir, setCloudDir] = useState('')
     const [speedHist, setSpeedHist] = useState<SpeedSample[]>([])
-    const [bootLive, setBootLive] = useState(false)
+    const [bootTab, setBootTab] = useState('')
     const [freeMsg, setFreeMsg] = useState('')
     const [kidsCatCount, setKidsCatCount] = useState(0)
     const [blockedCount, setBlockedCount] = useState(0)
@@ -255,7 +255,7 @@ export default function SettingsTab() {
         void AsyncStorage.getItem('neostream_seek_step').then(raw => setSeekStepState(Number(raw) || 10)).catch(() => undefined)
         void getTraktCreds().then(creds => { setTraktCid(creds.clientId); setTraktCsec(creds.clientSecret) })
         void isTraktConnected().then(setTraktOn)
-        void AsyncStorage.getItem('neostream_boot_tab').then(v => setBootLive(v === 'live')).catch(() => undefined)
+        void AsyncStorage.getItem('neostream_boot_tab').then(v => setBootTab(v ?? '')).catch(() => undefined)
         refreshStorage()
         void loadUsage().then(map => {
             const today = dayKey(Date.now())
@@ -1013,16 +1013,19 @@ export default function SettingsTab() {
                 <TvTouchable
                     style={styles.kidsRow}
                     onPress={() => {
-                        const next = !bootLive
-                        setBootLive(next)
+                        // Off → aba TV → último canal → off.
+                        const next = bootTab === '' ? 'live' : bootTab === 'live' ? 'channel' : ''
+                        setBootTab(next)
                         void (next
-                            ? AsyncStorage.setItem('neostream_boot_tab', 'live')
+                            ? AsyncStorage.setItem('neostream_boot_tab', next)
                             : AsyncStorage.removeItem('neostream_boot_tab')
                         ).catch(() => undefined)
                     }}
                 >
-                    <Ionicons name={bootLive ? 'tv' : 'tv-outline'} size={18} color={bootLive ? colors.accent : colors.textDim} />
-                    <Text style={[styles.kidsText, bootLive && { color: colors.accent }]}>{t('bootLive')}</Text>
+                    <Ionicons name={bootTab ? 'tv' : 'tv-outline'} size={18} color={bootTab ? colors.accent : colors.textDim} />
+                    <Text style={[styles.kidsText, bootTab !== '' && { color: colors.accent }]}>
+                        {bootTab === 'channel' ? t('bootChannel') : t('bootLive')}
+                    </Text>
                 </TvTouchable>
                 <HomeRailsConfig prefs={railPrefs} onChange={next => { setRailPrefs(next); void saveRailPrefs(next) }} />
                 <TvTouchable

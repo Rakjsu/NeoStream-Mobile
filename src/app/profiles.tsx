@@ -9,6 +9,7 @@ import {
 } from '../services/profiles'
 import { TvTouchable } from '../ui/components'
 import { colors, spacing } from '../ui/theme'
+import { tvSize } from '../ui/tv'
 import { t, tf } from '../i18n/strings'
 
 // Avatares prontos (emoji) — o perfil pode trocar a letra inicial por um deles.
@@ -250,19 +251,19 @@ export default function Profiles() {
 
 const styles = StyleSheet.create({
     root: { flex: 1, backgroundColor: colors.bg, alignItems: 'center', justifyContent: 'center', padding: spacing.xl, gap: spacing.lg },
-    title: { color: colors.text, fontSize: 22, fontWeight: '700' },
+    title: { color: colors.text, fontSize: tvSize(22), fontWeight: '700' },
     grid: { flexDirection: 'row', flexWrap: 'wrap', justifyContent: 'center', gap: spacing.xl },
-    cell: { alignItems: 'center', gap: spacing.sm, width: 92 },
+    cell: { alignItems: 'center', gap: spacing.sm, width: tvSize(92) },
     avatar: {
-        width: 72,
-        height: 72,
-        borderRadius: 36,
+        width: tvSize(72),
+        height: tvSize(72),
+        borderRadius: tvSize(36),
         alignItems: 'center',
         justifyContent: 'center',
     },
     avatarActive: { borderWidth: 3, borderColor: colors.text },
     avatarAdd: { backgroundColor: colors.card, borderWidth: 1, borderColor: colors.border },
-    avatarLetter: { color: '#fff', fontSize: 28, fontWeight: '700' },
+    avatarLetter: { color: '#fff', fontSize: tvSize(28), fontWeight: '700' },
     pinBadge: {
         position: 'absolute',
         right: -2,
@@ -271,7 +272,7 @@ const styles = StyleSheet.create({
         borderRadius: 9,
         padding: 3,
     },
-    name: { color: colors.text, fontSize: 13, fontWeight: '600' },
+    name: { color: colors.text, fontSize: tvSize(13), fontWeight: '600' },
     addRow: { flexDirection: 'row', gap: spacing.sm, alignItems: 'center' },
     input: {
         width: 200,
@@ -297,6 +298,6 @@ const styles = StyleSheet.create({
     },
     pickChipOn: { borderColor: colors.accent, borderWidth: 2 },
     colorDot: { width: 30, height: 30, borderRadius: 15, borderWidth: 1, borderColor: colors.border },
-    avatarEmoji: { fontSize: 32 },
+    avatarEmoji: { fontSize: tvSize(32) },
     hint: { color: colors.textDim, fontSize: 12, textAlign: 'center' },
 })

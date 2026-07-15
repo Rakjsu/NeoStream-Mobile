@@ -14,6 +14,7 @@ import { setZapContext } from '../../services/zap'
 import { CategoryChips, EmptyState, Loading, SearchBar, TvTouchable } from '../../ui/components'
 import { colors, spacing } from '../../ui/theme'
 import { t, tf } from '../../i18n/strings'
+import { tvSize } from '../../ui/tv'
 
 const VIEWABILITY = { itemVisiblePercentThreshold: 30 }
 
@@ -281,7 +282,7 @@ const styles = StyleSheet.create({
         borderBottomColor: colors.border,
         borderBottomWidth: StyleSheet.hairlineWidth,
     },
-    logo: { width: 42, height: 42, borderRadius: 8, backgroundColor: colors.card },
+    logo: { width: tvSize(42), height: tvSize(42), borderRadius: 8, backgroundColor: colors.card },
     miniGuide: {
         backgroundColor: colors.card,
         marginHorizontal: spacing.lg,
@@ -296,9 +297,9 @@ const styles = StyleSheet.create({
     miniDesc: { color: colors.textDim, fontSize: 12, fontStyle: 'italic', marginBottom: 4 },
     logoFallback: { alignItems: 'center', justifyContent: 'center' },
     nameBlock: { flex: 1, gap: 1 },
-    name: { color: colors.text, fontSize: 15 },
+    name: { color: colors.text, fontSize: tvSize(15) },
     chNum: { color: colors.textDim, fontSize: 12, fontWeight: '700' },
-    epg: { color: colors.textDim, fontSize: 12 },
+    epg: { color: colors.textDim, fontSize: tvSize(12) },
     favBtn: { padding: spacing.xs },
     reorderCol: { justifyContent: 'center' },
     reorderBtn: { paddingHorizontal: 4, paddingVertical: 2 },

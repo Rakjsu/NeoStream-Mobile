@@ -3,6 +3,9 @@ import { colors, initTheme, paletteFor, resetThemeCache, setThemeVariant, themeV
 // Hoisted pelo vitest.
 import AsyncStorage from '@react-native-async-storage/async-storage'
 
+// O tema importa a deteccao de TV -> react-native (Flow) nao parseia no vitest.
+vi.mock('react-native', () => ({ Platform: { isTV: false } }))
+
 vi.mock('@react-native-async-storage/async-storage', () => {
     const store = new Map<string, string>()
     return {

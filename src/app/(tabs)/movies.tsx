@@ -15,6 +15,7 @@ import { CategoryChips, ContinueRail, EmptyState, Loading, PosterCard, SearchBar
 import { isRecentlyAdded, nextSortMode, sortCatalog, type SortMode } from '../../services/sorting'
 import { colors, spacing } from '../../ui/theme'
 import { SORT_KEY, t, tf } from '../../i18n/strings'
+import { isTV } from '../../ui/tv'
 
 export default function MoviesTab() {
     const [movies, setMovies] = useState<VodMovie[] | null>(null)
@@ -87,7 +88,8 @@ export default function MoviesTab() {
             : AsyncStorage.setItem('neostream_grid_cols', String(next))
         ).catch(() => undefined)
     }
-    const columns = density > 0 ? density : Math.max(3, Math.min(8, Math.floor(width / 128)))
+    // Na TV o card precisa ser legível do sofá — divisor maior = menos colunas.
+    const columns = density > 0 ? density : Math.max(3, Math.min(8, Math.floor(width / (isTV ? 190 : 128))))
 
     const load = useCallback(async (force = false) => {
         try {

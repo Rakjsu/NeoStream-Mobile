@@ -32,6 +32,7 @@ import { probeAll } from '../../services/probe'
 import { fetchTraktPlayback, fetchTraktWatchlist } from '../../services/trakt'
 import { getCloudBackupDir } from '../../services/autoBackup'
 import { ChannelRail, ContinueRail, EmptyState, Loading, PosterRail, type RailItem } from '../../ui/components'
+import { tvSize } from '../../ui/tv'
 import { colors, spacing } from '../../ui/theme'
 import { t, tf } from '../../i18n/strings'
 
@@ -579,7 +580,7 @@ export default function HomeTab() {
 const styles = StyleSheet.create({
     root: { flex: 1, backgroundColor: colors.bg },
     error: { color: colors.danger, marginHorizontal: spacing.lg, marginVertical: spacing.sm },
-    greeting: { color: colors.text, fontSize: 20, fontWeight: '800', marginHorizontal: spacing.lg, marginTop: spacing.xs, marginBottom: spacing.sm },
+    greeting: { color: colors.text, fontSize: tvSize(20), fontWeight: '800', marginHorizontal: spacing.lg, marginTop: spacing.xs, marginBottom: spacing.sm },
     ageText: { color: colors.textDim, fontSize: 11, marginHorizontal: spacing.lg, marginBottom: spacing.xs },
     updateBanner: {
         flexDirection: 'row',
@@ -594,7 +595,7 @@ const styles = StyleSheet.create({
         paddingHorizontal: spacing.md,
         paddingVertical: 10,
     },
-    updateText: { flex: 1, color: colors.text, fontSize: 13, fontWeight: '600' },
+    updateText: { flex: 1, color: colors.text, fontSize: tvSize(13), fontWeight: '600' },
     snackbar: {
         flexDirection: 'row',
         alignItems: 'center',

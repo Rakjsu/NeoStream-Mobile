@@ -9,6 +9,7 @@ import { useState } from 'react'
 import { useNetworkState } from 'expo-network'
 import { skipImages } from '../services/dataSaver'
 import { colors, spacing } from './theme'
+import { isTV, tvSize } from './tv'
 
 /** Faixa discreta quando o aparelho está sem rede (some sozinha ao voltar). */
 export function OfflineBanner() {
@@ -291,7 +292,10 @@ const styles = StyleSheet.create({
     poster: { flex: 1, padding: spacing.xs },
     posterImg: { width: '100%', aspectRatio: 2 / 3, borderRadius: 8, backgroundColor: colors.card },
     posterSelected: { opacity: 0.85, borderColor: colors.accent, borderWidth: 2, borderRadius: 10 },
-    tvFocus: { backgroundColor: colors.accentSoft, borderRadius: 10 },
+    // Na TV o foco precisa GRITAR (borda + zoom); no touch, só o fundo suave.
+    tvFocus: isTV
+        ? { backgroundColor: colors.accentSoft, borderRadius: 10, borderWidth: 2, borderColor: colors.accent, transform: [{ scale: 1.05 }] }
+        : { backgroundColor: colors.accentSoft, borderRadius: 10 },
     offlineBanner: { backgroundColor: colors.card, borderBottomColor: colors.border, borderBottomWidth: 1, paddingVertical: 5 },
     offlineText: { color: colors.textDim, fontSize: 12, textAlign: 'center' },
     selBadge: {
@@ -307,7 +311,7 @@ const styles = StyleSheet.create({
         justifyContent: 'center',
     },
     posterFallback: { alignItems: 'center', justifyContent: 'center' },
-    posterName: { color: colors.text, fontSize: 12, marginTop: 4 },
+    posterName: { color: colors.text, fontSize: tvSize(12), marginTop: 4 },
     favBadge: {
         position: 'absolute',
         top: spacing.sm,
@@ -344,18 +348,18 @@ const styles = StyleSheet.create({
     railWrap: { marginBottom: spacing.sm },
     railTitle: {
         color: colors.textDim,
-        fontSize: 13,
+        fontSize: tvSize(13),
         textTransform: 'uppercase',
         marginHorizontal: spacing.lg,
         marginBottom: spacing.sm,
     },
-    railCard: { width: 108, marginRight: spacing.sm },
-    railImg: { width: 108, height: 72, borderRadius: 8, backgroundColor: colors.card },
+    railCard: { width: tvSize(108), marginRight: spacing.sm },
+    railImg: { width: tvSize(108), height: tvSize(72), borderRadius: 8, backgroundColor: colors.card },
     railBarTrack: { height: 3, backgroundColor: colors.border, borderRadius: 2, marginTop: 4 },
     railBarFill: { height: 3, backgroundColor: colors.accent, borderRadius: 2 },
-    railName: { color: colors.text, fontSize: 11, marginTop: 4 },
-    posterRailCard: { width: 96, marginRight: spacing.sm },
-    posterRailImg: { width: 96, aspectRatio: 2 / 3, borderRadius: 8, backgroundColor: colors.card },
-    chRailCard: { width: 72, marginRight: spacing.sm, alignItems: 'center' },
-    chRailLogo: { width: 56, height: 56, borderRadius: 28, backgroundColor: colors.card },
+    railName: { color: colors.text, fontSize: tvSize(11), marginTop: 4 },
+    posterRailCard: { width: tvSize(96), marginRight: spacing.sm },
+    posterRailImg: { width: tvSize(96), aspectRatio: 2 / 3, borderRadius: 8, backgroundColor: colors.card },
+    chRailCard: { width: tvSize(72), marginRight: spacing.sm, alignItems: 'center' },
+    chRailLogo: { width: tvSize(56), height: tvSize(56), borderRadius: tvSize(28), backgroundColor: colors.card },
 })

@@ -33,7 +33,7 @@ import { checkWhatsNew } from '../../services/whatsnew'
 import { probeAll } from '../../services/probe'
 import { fetchTraktPlayback, fetchTraktWatchlist } from '../../services/trakt'
 import { getCloudBackupDir } from '../../services/autoBackup'
-import { ChannelRail, ContinueRail, EmptyState, Loading, PosterRail, TvTouchable, type RailItem } from '../../ui/components'
+import { ChannelRail, ContinueRail, EmptyState, HomeSkeleton, PosterRail, TvTouchable, type RailItem } from '../../ui/components'
 import { isTV, tvSize } from '../../ui/tv'
 import { colors, spacing } from '../../ui/theme'
 import { t, tf } from '../../i18n/strings'
@@ -466,7 +466,7 @@ export default function HomeTab() {
         )
     }
 
-    if (!ready) return <Loading label={t('loadingHome')} />
+    if (!ready) return <HomeSkeleton />
 
     const empty = continueList.length === 0 && favPosters.length === 0 && favChannels.length === 0 && recentChannels.length === 0
         && newMovies.length === 0 && newSeries.length === 0 && freshEpisodes.length === 0 && watchRail.length === 0

@@ -387,3 +387,24 @@ const styles = StyleSheet.create({
     chRailCard: { width: tvSize(72), marginRight: spacing.sm, alignItems: 'center' },
     chRailLogo: { width: tvSize(56), height: tvSize(56), borderRadius: tvSize(28), backgroundColor: colors.card },
 })
+
+/** Esqueleto do Início: caixas na cor do card enquanto o catálogo carrega. */
+export function HomeSkeleton() {
+    return (
+        <View style={{ flex: 1, backgroundColor: colors.bg, padding: spacing.lg, gap: spacing.xl }}>
+            {[0, 1, 2].map(row => (
+                <View key={row} style={{ gap: spacing.sm }}>
+                    <View style={skeleton.title} />
+                    <View style={{ flexDirection: 'row', gap: spacing.sm }}>
+                        {[0, 1, 2, 3].map(box => <View key={box} style={skeleton.poster} />)}
+                    </View>
+                </View>
+            ))}
+        </View>
+    )
+}
+
+const skeleton = StyleSheet.create({
+    title: { width: 150, height: 14, borderRadius: 7, backgroundColor: colors.card },
+    poster: { width: tvSize(96), height: tvSize(144), borderRadius: 10, backgroundColor: colors.card },
+})

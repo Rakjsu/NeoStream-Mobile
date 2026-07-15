@@ -67,7 +67,9 @@ export async function checkForUpdate(currentVersion: string, now = Date.now(), f
             }
             version = typeof data.tag_name === 'string' ? data.tag_name : ''
             url = typeof data.html_url === 'string' ? data.html_url : ''
-            apkUrl = data.assets?.find(asset => asset.name?.endsWith('.apk'))?.browser_download_url ?? ''
+            // Prefere o APK universal; o -arm64 é só pra download manual.
+            const apkAssets = (data.assets ?? []).filter(asset => asset.name?.endsWith('.apk'))
+            apkUrl = (apkAssets.find(asset => !asset.name?.includes('arm64')) ?? apkAssets[0])?.browser_download_url ?? ''
             await AsyncStorage.setItem(CACHE_KEY, JSON.stringify({ at: now, version, url, apkUrl } satisfies CachedCheck))
         } catch {
             // Sem rede/limite da API: usa o cache velho se houver, senão silencia.

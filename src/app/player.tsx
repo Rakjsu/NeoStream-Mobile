@@ -26,6 +26,7 @@ import { getKidsTimeLimit, getKidsWindow, isKidsMode, isOutsideKidsWindow } from
 import { traktRate, traktScrobble } from '../services/trakt'
 import * as ScreenOrientation from 'expo-screen-orientation'
 import { loadParental } from '../services/parental'
+import { recordPinAttempt } from '../services/parentalLog'
 import { recordHabitMinute } from '../services/habit'
 import { canRecordUrl, recordingTitle, startRecording, stopRecording } from '../services/recorder'
 import { currentZapChannel, hasZapContext, peekZap, rankChannels, zapBy, zapList, zapTo, zapToNumber, type ZapChannel } from '../services/zap'
@@ -1497,6 +1498,7 @@ export default function Player() {
                                         try { player.play() } catch { /* player já liberado */ }
                                     } else {
                                         setTimeUpPin('')
+                                        void recordPinAttempt()
                                     }
                                 })
                             }

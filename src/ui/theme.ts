@@ -9,7 +9,7 @@
 import AsyncStorage from '@react-native-async-storage/async-storage'
 import { isTV } from './tv'
 
-export type ThemeVariant = 'dark' | 'amoled'
+export type ThemeVariant = 'dark' | 'amoled' | 'contrast'
 
 const THEME_KEY = 'neostream_theme'
 const ACCENT_KEY = 'neostream_accent'
@@ -24,9 +24,10 @@ export const ACCENT_PRESETS = {
 } as const
 export type AccentName = keyof typeof ACCENT_PRESETS
 
-/** Só as superfícies mudam por variante (PURO). */
+/** Superfícies por variante; alto contraste clareia as bordas (PURO). */
 export function paletteFor(variant: ThemeVariant): { bg: string; card: string; border: string } {
     if (variant === 'amoled') return { bg: '#000000', card: '#0c0c0c', border: '#1d1d1d' }
+    if (variant === 'contrast') return { bg: '#000000', card: '#101014', border: '#6b6b7e' }
     return { bg: '#0b0b10', card: '#16161f', border: '#26263a' }
 }
 
@@ -61,13 +62,17 @@ function applyAccent(next: AccentName): void {
 function applyVariant(next: ThemeVariant): void {
     variant = next
     Object.assign(colors, paletteFor(next))
+    // Alto contraste também empurra os textos pro branco puro.
+    Object.assign(colors, next === 'contrast'
+        ? { text: '#ffffff', textDim: 'rgba(255,255,255,0.8)' }
+        : { text: '#f4f4f8', textDim: 'rgba(244,244,248,0.55)' })
 }
 
 /** Boot: carrega a variante salva antes das telas montarem seus estilos. */
 export async function initTheme(): Promise<void> {
     try {
         const saved = await AsyncStorage.getItem(THEME_KEY)
-        if (saved === 'amoled') applyVariant('amoled')
+        if (saved === 'amoled' || saved === 'contrast') applyVariant(saved)
         const savedAccent = await AsyncStorage.getItem(ACCENT_KEY)
         if (savedAccent && savedAccent in ACCENT_PRESETS) applyAccent(savedAccent as AccentName)
     } catch { /* fica no escuro padrão */ }

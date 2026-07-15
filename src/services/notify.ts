@@ -3,6 +3,7 @@
  * sobre o expo-notifications — tudo best-effort: falhar em notificar nunca
  * pode derrubar o fluxo que notificaria.
  */
+import AsyncStorage from '@react-native-async-storage/async-storage'
 import * as Notifications from 'expo-notifications'
 import { t, tf } from '../i18n/strings'
 
@@ -34,9 +35,30 @@ export async function ensureNotifyPermission(): Promise<boolean> {
     }
 }
 
+// 🔕 Snooze: avisos automáticos silenciados até o horário salvo (lembretes
+// agendados pelo usuário passam direto — foram pedidos explicitamente).
+const SNOOZE_KEY = 'neostream_notify_snooze_until'
+
+export async function getNotifySnoozeUntil(): Promise<number> {
+    try {
+        const until = Number(await AsyncStorage.getItem(SNOOZE_KEY))
+        return Number.isFinite(until) ? until : 0
+    } catch {
+        return 0
+    }
+}
+
+export async function setNotifySnooze(untilMs: number): Promise<void> {
+    try {
+        if (untilMs > 0) await AsyncStorage.setItem(SNOOZE_KEY, String(untilMs))
+        else await AsyncStorage.removeItem(SNOOZE_KEY)
+    } catch { /* best-effort */ }
+}
+
 /** Notificação imediata com um marcador de rota no payload (o _layout roteia o clique). */
 export async function notifyNow(title: string, body: string, route: string): Promise<void> {
     try {
+        if (Date.now() < (await getNotifySnoozeUntil())) return
         if (!(await ensureNotifyPermission())) return
         await Notifications.scheduleNotificationAsync({
             content: { title, body, data: { route } },

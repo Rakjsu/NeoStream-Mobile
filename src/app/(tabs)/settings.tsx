@@ -14,8 +14,8 @@ import { getDownloadLimitGb, getRecMaxAgeDays, isNightOnly, isSmartDownloads, is
 import { captureRef } from 'react-native-view-shot'
 import * as Sharing from 'expo-sharing'
 import { chooseCloudBackupDir, clearCloudBackupDir, getCloudBackupDir, listAutoBackups, readAutoBackup, type AutoBackupFile } from '../../services/autoBackup'
-import { listErrors, type LoggedError } from '../../services/errorLog'
-import { cancelScheduled, listScheduled, type ScheduledReminder } from '../../services/notify'
+import { clearErrors, listErrors, type LoggedError } from '../../services/errorLog'
+import { cancelScheduled, getNotifySnoozeUntil, listScheduled, setNotifySnooze, type ScheduledReminder } from '../../services/notify'
 import { listRecurring, removeRecurring, type RecurringReminder } from '../../services/recurring'
 import { buildSetupLink } from '../../services/setupLink'
 import { getTmdbKey, setTmdbKey } from '../../services/tmdb'
@@ -24,6 +24,7 @@ import { applyBackup, collectBackup, decryptBackup, isEncryptedBackup, parseBack
 import { probeAll } from '../../services/probe'
 import { loadFavorites } from '../../services/favorites'
 import { disableParental, enableParental, isValidPin, listBlockedCategories, loadParental } from '../../services/parental'
+import { clearPinAttempts, getPinAttempts, type PinAttempts } from '../../services/parentalLog'
 import { getKidsTimeLimit, getKidsWindow, isKidsMode, listKidsCategories, setKidsMode, setKidsTimeLimit, setKidsWindow, type KidsWindow } from '../../services/kids'
 import { disconnectTrakt, fetchTraktProfile, fetchTraktWatchedMovies, getTraktCreds, isTraktConnected, pollDeviceToken, setTraktCreds, startDeviceAuth } from '../../services/trakt'
 import { getExtEpgUrl, setExtEpgUrl } from '../../services/extEpg'
@@ -219,13 +220,15 @@ export default function SettingsTab() {
     const [collections, setCollections] = useState<Collection[]>([])
     const [colDraft, setColDraft] = useState('')
     const [records, setRecords] = useState<ReturnType<typeof usageRecords> | null>(null)
+    const [pinAttempts, setPinAttempts] = useState<PinAttempts>({ count: 0, lastMs: 0 })
+    const [snoozeUntil, setSnoozeUntilState] = useState(0)
     const [cloudDir, setCloudDir] = useState('')
     const [speedHist, setSpeedHist] = useState<SpeedSample[]>([])
     const [bootTab, setBootTab] = useState('')
     const [freeMsg, setFreeMsg] = useState('')
     const [kidsCatCount, setKidsCatCount] = useState(0)
     const [blockedCount, setBlockedCount] = useState(0)
-    const [amoled, setAmoled] = useState(themeVariant() === 'amoled')
+    const [theme, setTheme] = useState(themeVariant())
     const [accent, setAccentState] = useState<AccentName>(currentAccent())
     const [recMaxAge, setRecMaxAge] = useState(0)
     const [seekStep, setSeekStepState] = useState(10)
@@ -270,6 +273,8 @@ export default function SettingsTab() {
         void getKidsWindow().then(setKidsWindowState)
         void isNightOnly().then(setNightOnlyState)
         void listCollections().then(setCollections)
+        void getPinAttempts().then(setPinAttempts)
+        void getNotifySnoozeUntil().then(until => setSnoozeUntilState(until > Date.now() ? until : 0))
         void loadHabits().then(map => setHabitGrid(heatmapCells(map)))
         void getUsageGoal().then(setUsageGoalState)
         void usageByProfile(Date.now()).then(setProfileUsage)
@@ -880,6 +885,17 @@ export default function SettingsTab() {
                     <Ionicons name="clipboard-outline" size={18} color={colors.textDim} />
                     <Text style={styles.kidsText}>{t('kidsReportBtn')}</Text>
                 </TvTouchable>
+                {pinAttempts.count > 0 ? (
+                    <TvTouchable
+                        style={styles.kidsRow}
+                        onPress={() => { void clearPinAttempts().then(() => setPinAttempts({ count: 0, lastMs: 0 })) }}
+                    >
+                        <Ionicons name="alert-circle-outline" size={18} color={colors.danger} />
+                        <Text style={[styles.kidsText, { color: colors.danger, flex: 1 }]} numberOfLines={2}>
+                            {tf('pinAttemptsLine', { n: pinAttempts.count, date: new Date(pinAttempts.lastMs).toLocaleString() })}
+                        </Text>
+                    </TvTouchable>
+                ) : null}
             </View>
 
             </> : null}
@@ -1083,15 +1099,18 @@ export default function SettingsTab() {
                 <TvTouchable
                     style={styles.kidsRow}
                     onPress={() => {
-                        const next = !amoled
-                        setAmoled(next)
-                        void setThemeVariant(next ? 'amoled' : 'dark')
+                        // escuro → AMOLED → alto contraste → escuro
+                        const next = theme === 'dark' ? 'amoled' as const : theme === 'amoled' ? 'contrast' as const : 'dark' as const
+                        setTheme(next)
+                        void setThemeVariant(next)
                     }}
                 >
-                    <Ionicons name={amoled ? 'contrast' : 'contrast-outline'} size={18} color={amoled ? colors.accent : colors.textDim} />
-                    <Text style={[styles.kidsText, amoled && { color: colors.accent }]}>{t('themeAmoled')}</Text>
+                    <Ionicons name={theme !== 'dark' ? 'contrast' : 'contrast-outline'} size={18} color={theme !== 'dark' ? colors.accent : colors.textDim} />
+                    <Text style={[styles.kidsText, theme !== 'dark' && { color: colors.accent }]}>
+                        {theme === 'amoled' ? t('themeAmoled') : theme === 'contrast' ? t('themeContrast') : t('themeDark')}
+                    </Text>
                 </TvTouchable>
-                {amoled ? <Text style={styles.parentalHint}>{t('themeHint')}</Text> : null}
+                {theme !== 'dark' ? <Text style={styles.parentalHint}>{t('themeHint')}</Text> : null}
                 <View style={styles.accentRow}>
                     {(Object.keys(ACCENT_PRESETS) as AccentName[]).map(name => (
                         <TouchableOpacity
@@ -1275,6 +1294,19 @@ export default function SettingsTab() {
                 <Text style={styles.section}>{isTV ? (openSecs.has('remindersSection') ? '▾ ' : '▸ ') : ''}{t('remindersSection')}</Text>
             </TvTouchable>
             {!isTV || openSecs.has('remindersSection') ? <>
+            <TvTouchable
+                style={styles.kidsRow}
+                onPress={() => {
+                    const next = snoozeUntil > 0 ? 0 : Date.now() + 24 * 3600_000
+                    setSnoozeUntilState(next)
+                    void setNotifySnooze(next)
+                }}
+            >
+                <Ionicons name={snoozeUntil > 0 ? 'notifications-off' : 'notifications-off-outline'} size={18} color={snoozeUntil > 0 ? colors.accent : colors.textDim} />
+                <Text style={[styles.kidsText, snoozeUntil > 0 && { color: colors.accent }]}>
+                    {snoozeUntil > 0 ? tf('snoozeOn', { time: new Date(snoozeUntil).toLocaleString() }) : t('snoozeOff')}
+                </Text>
+            </TvTouchable>
             <TvTouchable style={[styles.kidsRow, { paddingBottom: spacing.sm }]} onPress={() => router.push('/agenda')}>
                 <Ionicons name="calendar-outline" size={18} color={colors.accent} />
                 <Text style={[styles.kidsText, { color: colors.accent }]}>{t('agendaOpen')}</Text>
@@ -1662,6 +1694,12 @@ export default function SettingsTab() {
                 <Text style={styles.parentalHint}>
                     {errorList.length === 0 ? t('errorsNone') : t('lastErrors')}
                 </Text>
+                {errorList.length > 0 ? (
+                    <TvTouchable style={styles.kidsRow} onPress={() => { void clearErrors().then(() => setErrorList([])) }}>
+                        <Ionicons name="trash-outline" size={16} color={colors.textDim} />
+                        <Text style={styles.kidsText}>{t('clearErrorsBtn')}</Text>
+                    </TvTouchable>
+                ) : null}
                 {errorList.map(entry => (
                     <TvTouchable
                         key={entry.at}

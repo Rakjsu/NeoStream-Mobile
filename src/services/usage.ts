@@ -288,10 +288,10 @@ export async function recordWatchMinute(kind: UsageKind, nowMs = Date.now(), tit
 
 const GOAL_KEY = 'neostream_usage_goal_min'
 
-/** Meta diária de uso pra adultos em minutos (0 = desligada). */
+/** Meta diária de uso pra adultos em minutos (0 = desligada) — POR PERFIL. */
 export async function getUsageGoal(): Promise<number> {
     try {
-        const minutes = Number(await AsyncStorage.getItem(GOAL_KEY))
+        const minutes = Number(await AsyncStorage.getItem(profileKey(GOAL_KEY)))
         return Number.isFinite(minutes) && minutes > 0 ? minutes : 0
     } catch {
         return 0
@@ -300,8 +300,8 @@ export async function getUsageGoal(): Promise<number> {
 
 export async function setUsageGoal(minutes: number): Promise<void> {
     try {
-        if (minutes > 0) await AsyncStorage.setItem(GOAL_KEY, String(minutes))
-        else await AsyncStorage.removeItem(GOAL_KEY)
+        if (minutes > 0) await AsyncStorage.setItem(profileKey(GOAL_KEY), String(minutes))
+        else await AsyncStorage.removeItem(profileKey(GOAL_KEY))
     } catch { /* best-effort */ }
 }
 
@@ -311,7 +311,7 @@ export async function usageGoalJustHit(nowMs: number): Promise<number> {
     if (goal <= 0) return 0
     const today = dayKey(nowMs)
     if (summarize(await loadUsage(), today).totalMinutes < goal) return 0
-    const flag = `neostream_goal_seen_${today}`
+    const flag = profileKey(`neostream_goal_seen_${today}`)
     try {
         if (await AsyncStorage.getItem(flag)) return 0
         await AsyncStorage.setItem(flag, '1')

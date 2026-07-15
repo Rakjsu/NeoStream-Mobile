@@ -10,6 +10,7 @@ import {
 } from '../services/profiles'
 import { TvTouchable } from '../ui/components'
 import { loadParental } from '../services/parental'
+import { recordPinAttempt } from '../services/parentalLog'
 import { setKidsMode } from '../services/kids'
 import { colors, spacing } from '../ui/theme'
 import { tvSize } from '../ui/tv'
@@ -242,7 +243,7 @@ export default function Profiles() {
                             if (digits.length !== 4) return
                             if (pinMode === 'profile') {
                                 if (digits === pinFor.pin) { setPinFor(null); enter(pinFor) }
-                                else setPinTry('')
+                                else { setPinTry(''); void recordPinAttempt() }
                                 return
                             }
                             // PIN do responsável destrava E REMOVE o PIN esquecido.
@@ -254,6 +255,7 @@ export default function Profiles() {
                                     })
                                 } else {
                                     setPinTry('')
+                                    void recordPinAttempt()
                                 }
                             })
                         }}

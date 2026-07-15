@@ -946,7 +946,13 @@ export default function Player() {
     }, [pid, trackable])
 
     return (
-        <View style={styles.root}>
+        <View
+            style={styles.root}
+            // Qualquer toque na tela traz a barra do app de volta JUNTO com os
+            // controles nativos do player (onTouchStart só observa — não rouba
+            // o toque de ninguém). Antes, só uma faixinha no topo reabria a barra.
+            onTouchStart={() => { if (!touchLocked) setChrome(true) }}
+        >
             <StatusBar hidden />
             <VideoView
                 ref={videoRef}

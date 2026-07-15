@@ -11,6 +11,7 @@ import * as Brightness from 'expo-brightness'
 import * as NavigationBar from 'expo-navigation-bar'
 import { enqueueDownloads, getDownload, isSmartDownloads, removeDownload } from '../services/downloads'
 import { castAvailable, castToCurrentSession, onCastSessionStarted, showCastPicker, type CastControls } from '../services/cast'
+import { fetchChapters, findIntroChapter, type IntroChapter } from '../services/chapters'
 import { nextEpisodeAfter, type QueuedEpisode } from '../services/episodeQueue'
 import { getEntry, resumePosition, saveSample, type ProgressKind } from '../services/progress'
 import { listRecentChannels, recordRecentChannel } from '../services/recents'
@@ -72,6 +73,8 @@ function applySeekTo(target: { currentTime: number }, seconds: number) {
 }
 
 const clamp01 = (value: number) => Math.min(1, Math.max(0, value))
+
+const hhmm = (ms: number) => new Date(ms).toTimeString().slice(0, 5)
 
 // Destravar exige toque duplo — Date.now fora do componente (regra purity).
 function isUnlockDoubleTap(ref: { current: number }): boolean {
@@ -537,6 +540,15 @@ export default function Player() {
     // ⏮ Programa atual com replay (canal tv_archive + início conhecido pelo EPG).
     const [restart, setRestart] = useState<{ channelId: string; startMs: number; endMs: number; programId?: string } | null>(null)
 
+    // ℹ️ Banner informativo do canal (nome + agora/a seguir + progresso) —
+    // aparece ao abrir o canal e a cada zap, some sozinho em 6s.
+    const [liveBanner, setLiveBanner] = useState<{ nowTitle: string; nowRange: string; nextTitle: string; pct: number } | null>(null)
+    useEffect(() => {
+        if (!liveBanner) return
+        const timer = setTimeout(() => setLiveBanner(null), 6000)
+        return () => clearTimeout(timer)
+    }, [liveBanner])
+
     const showEpg = (channelId: string) => {
         void (async () => {
             const client = await getClient()
@@ -547,6 +559,15 @@ export default function Player() {
                 setLiveEpg(nowNext.now.title)
                 setLiveDesc(nowNext.now.desc ?? '')
             }
+            const now = nowNext?.now ?? null
+            setLiveBanner({
+                nowTitle: now?.title ?? '',
+                nowRange: now ? `${hhmm(now.startMs)}–${hhmm(now.endMs)}` : '',
+                nextTitle: nowNext?.next?.title ?? '',
+                pct: now
+                    ? Math.min(100, Math.max(0, Math.round(((Date.now() - now.startMs) / Math.max(1, now.endMs - now.startMs)) * 100)))
+                    : 0,
+            })
             if (nowNext?.now?.startMs && client.catchupUrl) {
                 const channels = await cachedFetch('live', () => client.getLiveChannels()).catch(() => [])
                 const channel = channels.find(c => String(c.stream_id) === channelId)
@@ -570,6 +591,54 @@ export default function Player() {
             if (!raw) return
             router.push({ pathname: '/player', params: { url: await resolvePlayableUrl(raw), title: `⏪ ${liveEpg || liveTitle}` } })
         })()
+    }
+
+    // Abriu um canal ao vivo: ja busca o agora/a seguir (banner + botao ⏮).
+    useEffect(() => {
+        if (live !== '1') return
+        queueMicrotask(() => {
+            const channel = currentZapChannel()
+            if (channel) showEpg(channel.id)
+        })
+    }, [live])
+
+    // ⏭ Pular abertura: capitulos DO ARQUIVO (MP4 chpl / MKV) via HTTP Range.
+    // Achou um capitulo curto no comeco → botao pula pro fim exato dele.
+    const [intro, setIntro] = useState<IntroChapter | null>(null)
+    const [introVisible, setIntroVisible] = useState(false)
+    useEffect(() => {
+        queueMicrotask(() => {
+            setIntro(null)
+            setIntroVisible(false)
+        })
+        if (live === '1' || !source) return
+        let cancelled = false
+        void fetchChapters(source)
+            .then(chapters => {
+                if (!cancelled && chapters.length > 1) setIntro(findIntroChapter(chapters))
+            })
+            .catch(() => undefined)
+        return () => { cancelled = true }
+    }, [source, live])
+
+    useEffect(() => {
+        if (!intro) return
+        const timer = setInterval(() => {
+            let at = -1
+            try { at = player.currentTime } catch { return } // player ja liberado
+            if (at < 0) return
+            setIntroVisible(at >= intro.startSec && at < intro.endSec - 1)
+        }, 1000)
+        return () => clearInterval(timer)
+        // eslint-disable-next-line react-hooks/exhaustive-deps
+    }, [intro])
+
+    const skipIntro = () => {
+        const target = intro
+        if (!target) return
+        try { applySeekTo(player, target.endSec) } catch { return }
+        setIntroVisible(false)
+        showTrackToast(t('skipIntro'))
     }
 
     const switchChannel = (channel: ZapChannel) => {
@@ -1154,6 +1223,30 @@ export default function Player() {
                 </View>
             ) : null}
 
+            {live === '1' && liveBanner ? (
+                <View style={styles.liveBanner} pointerEvents="none">
+                    <Text style={styles.liveBannerName} numberOfLines={1}>🔴 {liveTitle}</Text>
+                    {liveBanner.nowTitle ? (
+                        <Text style={styles.liveBannerNow} numberOfLines={1}>{liveBanner.nowRange}  {liveBanner.nowTitle}</Text>
+                    ) : null}
+                    {liveBanner.nowTitle ? (
+                        <View style={styles.liveBannerBar}>
+                            <View style={[styles.liveBannerFill, { width: `${liveBanner.pct}%` }]} />
+                        </View>
+                    ) : null}
+                    {liveBanner.nextTitle ? (
+                        <Text style={styles.liveBannerNext} numberOfLines={1}>{t('upNextTitle')}: {liveBanner.nextTitle}</Text>
+                    ) : null}
+                </View>
+            ) : null}
+
+            {introVisible && intro ? (
+                <TvTouchable style={styles.skipIntro} accessibilityLabel={t('skipIntro')} onPress={skipIntro}>
+                    <Ionicons name="play-skip-forward" size={16} color={colors.text} />
+                    <Text style={styles.skipIntroText}>{t('skipIntro')}</Text>
+                </TvTouchable>
+            ) : null}
+
             {chrome && zappable ? (
                 <View style={styles.zapCol}>
                     <TvTouchable
@@ -1530,6 +1623,38 @@ const styles = StyleSheet.create({
     drawerName: { color: colors.text, fontSize: tvSize(14) },
     drawerEpg: { color: colors.textDim, fontSize: tvSize(11) },
     drawerNameOn: { color: colors.accent, fontWeight: '700' },
+    liveBanner: {
+        position: 'absolute',
+        left: spacing.lg,
+        right: spacing.lg,
+        bottom: spacing.xl,
+        backgroundColor: 'rgba(11,11,16,0.9)',
+        borderColor: colors.border,
+        borderWidth: 1,
+        borderRadius: 12,
+        padding: spacing.md,
+        gap: 4,
+    },
+    liveBannerName: { color: colors.text, fontSize: tvSize(15), fontWeight: '800' },
+    liveBannerNow: { color: colors.text, fontSize: tvSize(13) },
+    liveBannerBar: { height: 3, borderRadius: 2, backgroundColor: colors.border, overflow: 'hidden' },
+    liveBannerFill: { height: 3, backgroundColor: colors.accent },
+    liveBannerNext: { color: colors.textDim, fontSize: tvSize(12) },
+    skipIntro: {
+        position: 'absolute',
+        left: spacing.lg,
+        bottom: 96,
+        flexDirection: 'row',
+        alignItems: 'center',
+        gap: 6,
+        backgroundColor: 'rgba(22,22,31,0.95)',
+        borderColor: colors.border,
+        borderWidth: 1,
+        borderRadius: 8,
+        paddingHorizontal: spacing.md,
+        paddingVertical: 8,
+    },
+    skipIntroText: { color: colors.text, fontSize: tvSize(14), fontWeight: '700' },
     castBar: {
         position: 'absolute',
         bottom: 32,

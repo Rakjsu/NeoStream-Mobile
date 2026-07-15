@@ -25,7 +25,7 @@ import { probeAll } from '../../services/probe'
 import { loadFavorites } from '../../services/favorites'
 import { disableParental, enableParental, isValidPin, listBlockedCategories, loadParental } from '../../services/parental'
 import { getKidsTimeLimit, isKidsMode, listKidsCategories, setKidsMode, setKidsTimeLimit } from '../../services/kids'
-import { disconnectTrakt, getTraktCreds, isTraktConnected, pollDeviceToken, setTraktCreds, startDeviceAuth } from '../../services/trakt'
+import { disconnectTrakt, fetchTraktProfile, getTraktCreds, isTraktConnected, pollDeviceToken, setTraktCreds, startDeviceAuth } from '../../services/trakt'
 import { getExtEpgUrl, setExtEpgUrl } from '../../services/extEpg'
 import { defaultRailPrefs, loadRailPrefs, moveRail, railOrderAll, saveRailPrefs, toggleRail, type RailKey, type RailPrefs } from '../../services/homeRails'
 import { M3uClient, buildM3u } from '../../services/m3u'
@@ -175,6 +175,7 @@ export default function SettingsTab() {
     const [traktCsec, setTraktCsec] = useState('')
     const [traktOn, setTraktOn] = useState(false)
     const [traktMsg, setTraktMsg] = useState('')
+    const [traktUser, setTraktUser] = useState('')
     const [favCheck, setFavCheck] = useState<{ dead: { id: string; name: string }[]; total: number } | null>(null)
     const [favChecking, setFavChecking] = useState(false)
     const [backupPass, setBackupPass] = useState('')
@@ -258,6 +259,7 @@ export default function SettingsTab() {
         void AsyncStorage.getItem('neostream_group_variants').then(raw => setGroupVariantsState(raw !== 'off')).catch(() => undefined)
         void getTraktCreds().then(creds => { setTraktCid(creds.clientId); setTraktCsec(creds.clientSecret) })
         void isTraktConnected().then(setTraktOn)
+        void fetchTraktProfile().then(setTraktUser)
         void AsyncStorage.getItem('neostream_boot_tab').then(v => setBootTab(v ?? '')).catch(() => undefined)
         refreshStorage()
         void loadUsage().then(map => {
@@ -391,6 +393,7 @@ export default function SettingsTab() {
             if (result === 'ok') {
                 setTraktOn(true)
                 setTraktMsg('')
+                void fetchTraktProfile().then(setTraktUser)
                 Alert.alert(t('traktConnected'))
                 return
             }
@@ -1431,10 +1434,10 @@ export default function SettingsTab() {
                 {traktOn ? (
                     <TvTouchable
                         style={[styles.backupBtn, styles.restoreBtn]}
-                        onPress={() => { void disconnectTrakt().then(() => setTraktOn(false)) }}
+                        onPress={() => { void disconnectTrakt().then(() => { setTraktOn(false); setTraktUser('') }) }}
                     >
                         <Ionicons name="link" size={16} color="#fff" />
-                        <Text style={styles.backupBtnText}>{t('traktConnected')} — {t('traktDisconnect')}</Text>
+                        <Text style={styles.backupBtnText}>{t('traktConnected')}{traktUser ? ` @${traktUser}` : ''} — {t('traktDisconnect')}</Text>
                     </TvTouchable>
                 ) : (
                     <TvTouchable

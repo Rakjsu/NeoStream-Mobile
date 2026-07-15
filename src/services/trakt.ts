@@ -275,6 +275,19 @@ export async function syncTraktWatched(kind: 'movie' | 'episode', title: string)
     }
 }
 
+/** Username da conta conectada (GET /users/me) — '' se desconectado/erro. */
+export async function fetchTraktProfile(): Promise<string> {
+    const token = await getToken()
+    const { clientId } = await getTraktCreds()
+    if (!token || !clientId) return ''
+    try {
+        const data = await traktGet('/users/me', clientId, token.access) as { username?: string }
+        return typeof data.username === 'string' ? data.username : ''
+    } catch {
+        return ''
+    }
+}
+
 /** Só pra testes. */
 export function resetTraktCache(): void {
     payloadCache.clear()

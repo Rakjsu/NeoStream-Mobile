@@ -1,4 +1,5 @@
 import Constants from 'expo-constants'
+import { Image } from 'expo-image'
 import { Ionicons } from '@expo/vector-icons'
 import { router, useFocusEffect } from 'expo-router'
 import { useCallback, useEffect, useState } from 'react'
@@ -31,8 +32,8 @@ import { checkWhatsNew } from '../../services/whatsnew'
 import { probeAll } from '../../services/probe'
 import { fetchTraktPlayback, fetchTraktWatchlist } from '../../services/trakt'
 import { getCloudBackupDir } from '../../services/autoBackup'
-import { ChannelRail, ContinueRail, EmptyState, Loading, PosterRail, type RailItem } from '../../ui/components'
-import { tvSize } from '../../ui/tv'
+import { ChannelRail, ContinueRail, EmptyState, Loading, PosterRail, TvTouchable, type RailItem } from '../../ui/components'
+import { isTV, tvSize } from '../../ui/tv'
 import { colors, spacing } from '../../ui/theme'
 import { t, tf } from '../../i18n/strings'
 
@@ -520,6 +521,36 @@ export default function HomeTab() {
                 <EmptyState icon="home-outline" label={t('homeEmpty')} />
             ) : (
                 <View style={{ gap: spacing.md }}>
+                    {isTV && (continueList[0] || newMovies[0]) ? (
+                        <TvTouchable
+                            style={styles.hero}
+                            hasTVPreferredFocus
+                            accessibilityLabel={t('watchNow')}
+                            onPress={() => {
+                                const entry = continueList[0]
+                                if (entry) { void resume(entry); return }
+                                openRailItem(newMovies[0])
+                            }}
+                        >
+                            <Image
+                                source={{ uri: continueList[0]?.cover || newMovies[0]?.cover || '' }}
+                                style={styles.heroImg}
+                                contentFit="cover"
+                                transition={200}
+                            />
+                            <View style={styles.heroShade} />
+                            <View style={styles.heroBody}>
+                                <Text style={styles.heroKicker}>{continueList[0] ? t('heroContinue') : t('newMoviesRail')}</Text>
+                                <Text style={styles.heroTitle} numberOfLines={2}>
+                                    {continueList[0]?.title ?? newMovies[0]?.name ?? ''}
+                                </Text>
+                                <View style={styles.heroBtn}>
+                                    <Ionicons name="play" size={18} color="#fff" />
+                                    <Text style={styles.heroBtnText}>{t('watchNow')}</Text>
+                                </View>
+                            </View>
+                        </TvTouchable>
+                    ) : null}
                     <ContinueRail entries={continueList} onPlay={entry => void resume(entry)} onRemove={confirmRemoveContinue} />
                     {orderedRails(railPrefs).map(key => {
                         switch (key) {
@@ -622,6 +653,24 @@ const styles = StyleSheet.create({
         gap: spacing.sm,
     },
     whatsNewHeader: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between' },
+    hero: { height: 300, marginHorizontal: spacing.lg, borderRadius: 16, overflow: 'hidden', backgroundColor: colors.card },
+    heroImg: { position: 'absolute', top: 0, left: 0, right: 0, bottom: 0 },
+    heroShade: { position: 'absolute', top: 0, left: 0, right: 0, bottom: 0, backgroundColor: 'rgba(0,0,0,0.45)' },
+    heroBody: { position: 'absolute', left: spacing.lg, right: spacing.lg, bottom: spacing.lg, gap: spacing.xs },
+    heroKicker: { color: colors.accent, fontSize: tvSize(12), fontWeight: '800', textTransform: 'uppercase' },
+    heroTitle: { color: colors.text, fontSize: tvSize(24), fontWeight: '800' },
+    heroBtn: {
+        flexDirection: 'row',
+        alignItems: 'center',
+        gap: 6,
+        alignSelf: 'flex-start',
+        backgroundColor: colors.accent,
+        borderRadius: 8,
+        paddingHorizontal: spacing.md,
+        paddingVertical: 8,
+        marginTop: spacing.xs,
+    },
+    heroBtnText: { color: '#fff', fontSize: tvSize(14), fontWeight: '700' },
     whatsNewTitle: { color: colors.text, fontSize: 14, fontWeight: '700' },
     whatsNewBody: { color: colors.textDim, fontSize: 12, lineHeight: 18 },
 })

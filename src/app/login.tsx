@@ -12,6 +12,7 @@ import { StalkerClient, normalizeMac, normalizePortalUrl } from '../services/sta
 import { addAccount } from '../services/session'
 import { XtreamClient, normalizeBaseUrl } from '../services/xtream'
 import { colors, spacing } from '../ui/theme'
+import { tvSize } from '../ui/tv'
 import { t } from '../i18n/strings'
 
 export default function Login() {
@@ -216,7 +217,7 @@ const styles = StyleSheet.create({
         paddingVertical: 8,
         marginTop: 8,
     },
-    fileBtnText: { color: colors.text, fontSize: 13, fontWeight: '600' },
+    fileBtnText: { color: colors.text, fontSize: tvSize(13), fontWeight: '600' },
     root: { flex: 1, backgroundColor: colors.bg },
     scroll: { flexGrow: 1, justifyContent: 'center', padding: spacing.xl },
     logoWrap: { alignItems: 'center', marginBottom: spacing.xl, gap: spacing.xs },
@@ -231,11 +232,11 @@ const styles = StyleSheet.create({
         backgroundColor: colors.card,
     },
     modeBtnOn: { borderColor: colors.accent, backgroundColor: colors.accentSoft },
-    modeText: { color: colors.textDim, fontSize: 14, fontWeight: '600' },
+    modeText: { color: colors.textDim, fontSize: tvSize(14), fontWeight: '600' },
     modeTextOn: { color: colors.accent },
-    title: { color: colors.text, fontSize: 28, fontWeight: '700' },
-    subtitle: { color: colors.textDim, fontSize: 14, textAlign: 'center' },
-    label: { color: colors.textDim, fontSize: 13, marginBottom: spacing.xs, marginTop: spacing.md },
+    title: { color: colors.text, fontSize: tvSize(28), fontWeight: '700' },
+    subtitle: { color: colors.textDim, fontSize: tvSize(14), textAlign: 'center' },
+    label: { color: colors.textDim, fontSize: tvSize(13), marginBottom: spacing.xs, marginTop: spacing.md },
     input: {
         backgroundColor: colors.card,
         borderColor: colors.border,
@@ -244,7 +245,7 @@ const styles = StyleSheet.create({
         color: colors.text,
         paddingHorizontal: spacing.md,
         paddingVertical: 12,
-        fontSize: 15,
+        fontSize: tvSize(15),
     },
     passwordRow: { flexDirection: 'row', alignItems: 'center', gap: spacing.sm },
     eye: { padding: spacing.sm },
@@ -257,6 +258,6 @@ const styles = StyleSheet.create({
         marginTop: spacing.xl,
     },
     buttonDisabled: { opacity: 0.5 },
-    buttonText: { color: '#fff', fontSize: 16, fontWeight: '600' },
-    hint: { color: colors.textDim, fontSize: 12, textAlign: 'center', marginTop: spacing.lg },
+    buttonText: { color: '#fff', fontSize: tvSize(16), fontWeight: '600' },
+    hint: { color: colors.textDim, fontSize: tvSize(12), textAlign: 'center', marginTop: spacing.lg },
 })

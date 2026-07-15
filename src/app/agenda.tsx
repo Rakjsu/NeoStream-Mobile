@@ -1,5 +1,5 @@
 import { Ionicons } from '@expo/vector-icons'
-import { Stack } from 'expo-router'
+import { Stack, router } from 'expo-router'
 import { useEffect, useState } from 'react'
 import { ScrollView, StyleSheet, Text, View } from 'react-native'
 import { cancelScheduled, listScheduled, type ScheduledReminder } from '../services/notify'
@@ -46,6 +46,10 @@ export default function Agenda() {
     return (
         <ScrollView style={styles.root} contentContainerStyle={total === 0 ? { flexGrow: 1 } : { padding: spacing.lg }}>
             <Stack.Screen options={{ title: t('agendaTitle') }} />
+            <TvTouchable style={styles.calBtn} onPress={() => router.push('/calendar')}>
+                <Ionicons name="sparkles-outline" size={16} color={colors.accent} />
+                <Text style={styles.calText}>{t('calendarBtn')}</Text>
+            </TvTouchable>
             {total === 0 ? (
                 <EmptyState icon="calendar-outline" label={t('remindersNone')} />
             ) : (
@@ -88,5 +92,18 @@ const styles = StyleSheet.create({
         borderBottomWidth: StyleSheet.hairlineWidth,
     },
     label: { color: colors.text, fontSize: 14 },
+    calBtn: {
+        flexDirection: 'row',
+        alignItems: 'center',
+        gap: spacing.sm,
+        alignSelf: 'flex-start',
+        borderColor: colors.border,
+        borderWidth: 1,
+        borderRadius: 10,
+        paddingHorizontal: spacing.md,
+        paddingVertical: 10,
+        margin: spacing.md,
+    },
+    calText: { color: colors.text, fontSize: 13, fontWeight: '600' },
     meta: { color: colors.textDim, fontSize: 12 },
 })

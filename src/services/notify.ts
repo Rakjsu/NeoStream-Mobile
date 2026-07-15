@@ -108,6 +108,24 @@ export async function notifyDownloadDone(title: string): Promise<void> {
     await notifyNow(t('dlNotifTitle'), tf('dlNotifBody', { title }), '/downloads')
 }
 
+/** Progresso do download na barra de status (mesmo id → substitui, sem spam). */
+export async function notifyDownloadProgress(id: string, title: string, pct: number): Promise<void> {
+    try {
+        if (!(await ensureNotifyPermission())) return
+        await Notifications.scheduleNotificationAsync({
+            identifier: `dl-${id}`,
+            content: { title: tf('dlProgressNotif', { pct }), body: title, data: { route: '/downloads' } },
+            trigger: null,
+        })
+    } catch { /* best-effort */ }
+}
+
+export async function dismissDownloadProgress(id: string): Promise<void> {
+    try {
+        await Notifications.dismissNotificationAsync(`dl-${id}`)
+    } catch { /* best-effort */ }
+}
+
 // ------------------------------------------------------ gravação com ⏹ --
 
 const REC_CATEGORY = 'neostream-rec'

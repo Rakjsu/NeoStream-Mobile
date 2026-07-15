@@ -10,7 +10,7 @@ import * as FileSystem from 'expo-file-system/legacy'
 import { disableAppLock, enableAppLock, loadAppLock } from '../../services/appLock'
 import { applyCapturePolicy } from '../../services/privacy'
 import { isDataSaverEnabled, setDataSaver } from '../../services/dataSaver'
-import { getDownloadLimitGb, getRecMaxAgeDays, isSmartDownloads, isWifiOnly, listDownloads, setDownloadLimitGb, setRecMaxAgeDays, setSmartDownloads, setWifiOnly , listFreeable, removeDownload as removeDl } from '../../services/downloads'
+import { getDownloadLimitGb, getRecMaxAgeDays, isNightOnly, isSmartDownloads, isWifiOnly, listDownloads, setDownloadLimitGb, setNightOnly, setRecMaxAgeDays, setSmartDownloads, setWifiOnly , listFreeable, removeDownload as removeDl } from '../../services/downloads'
 import { captureRef } from 'react-native-view-shot'
 import * as Sharing from 'expo-sharing'
 import { chooseCloudBackupDir, clearCloudBackupDir, getCloudBackupDir, listAutoBackups, readAutoBackup, type AutoBackupFile } from '../../services/autoBackup'
@@ -214,6 +214,7 @@ export default function SettingsTab() {
     const [speedMsg, setSpeedMsg] = useState('')
     const [wifiOnly, setWifiOnlyState] = useState(false)
     const [smartDl, setSmartDlState] = useState(false)
+    const [nightOnly, setNightOnlyState] = useState(false)
     const [cloudDir, setCloudDir] = useState('')
     const [speedHist, setSpeedHist] = useState<SpeedSample[]>([])
     const [bootTab, setBootTab] = useState('')
@@ -263,6 +264,7 @@ export default function SettingsTab() {
         void loadRailPrefs().then(setRailPrefs)
         void getKidsTimeLimit().then(setKidsLimit)
         void getKidsWindow().then(setKidsWindowState)
+        void isNightOnly().then(setNightOnlyState)
         void loadHabits().then(map => setHabitGrid(heatmapCells(map)))
         void getUsageGoal().then(setUsageGoalState)
         void usageByProfile(Date.now()).then(setProfileUsage)
@@ -385,6 +387,21 @@ export default function SettingsTab() {
         } finally {
             setFavChecking(false)
         }
+    }
+
+    // 📋 Relatório pro responsável: minutos hoje/7 dias + top títulos.
+    const showKidsReport = async () => {
+        const usage = await loadUsage()
+        const today = dayKey(Date.now())
+        const series = lastDays(usage, today, 7)
+        const todayMin = series[series.length - 1]?.minutes ?? 0
+        const weekMin = series.reduce((sum, day) => sum + day.minutes, 0)
+        const tops = topTitles(await loadTitleUsage(), today, ['live', 'movie', 'episode'], 5)
+        Alert.alert(t('kidsReportTitle'), [
+            tf('kidsReportToday', { time: formatMinutes(todayMin) }),
+            tf('kidsReportWeek', { time: formatMinutes(weekMin) }),
+            ...(tops.length > 0 ? ['', ...tops.map(top => `• ${top.title} — ${formatMinutes(top.minutes)}`)] : []),
+        ].join('\n'))
     }
 
     // ⬇️ Vistos do Trakt viram vistos locais (filmes, match exato por nome —
@@ -853,6 +870,10 @@ export default function SettingsTab() {
                         {kidsWindow ? tf('kidsWindowLabel', { a: kidsWindow.startHour, b: kidsWindow.endHour }) : t('kidsWindowOff')}
                     </Text>
                 </TvTouchable>
+                <TvTouchable style={styles.kidsRow} onPress={() => { void showKidsReport() }}>
+                    <Ionicons name="clipboard-outline" size={18} color={colors.textDim} />
+                    <Text style={styles.kidsText}>{t('kidsReportBtn')}</Text>
+                </TvTouchable>
             </View>
 
             </> : null}
@@ -1094,6 +1115,18 @@ export default function SettingsTab() {
                     <Text style={[styles.kidsText, smartDl && { color: colors.accent }]}>{t('smartDlLabel')}</Text>
                 </TvTouchable>
                 {smartDl ? <Text style={styles.parentalHint}>{t('smartDlHint')}</Text> : null}
+                <TvTouchable
+                    style={styles.kidsRow}
+                    onPress={() => {
+                        const next = !nightOnly
+                        setNightOnlyState(next)
+                        void setNightOnly(next)
+                    }}
+                >
+                    <Ionicons name={nightOnly ? 'moon' : 'moon-outline'} size={18} color={nightOnly ? colors.accent : colors.textDim} />
+                    <Text style={[styles.kidsText, nightOnly && { color: colors.accent }]}>{t('dlNightLabel')}</Text>
+                </TvTouchable>
+                {nightOnly ? <Text style={styles.parentalHint}>{t('dlNightHint')}</Text> : null}
                 <TvTouchable
                     style={styles.kidsRow}
                     onPress={() => {

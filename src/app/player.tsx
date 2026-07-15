@@ -696,6 +696,25 @@ export default function Player() {
     const [touchLocked, setTouchLocked] = useState(false)
     const unlockTapRef = useRef(0)
 
+    // 📻 Modo rádio: o áudio segue e a tela vira breu (rádio/música no live
+    // sem torrar bateria/OLED). Toque em qualquer lugar volta ao normal.
+    const [radioMode, setRadioMode] = useState(false)
+    const radioPrevBrightness = useRef(-1)
+    const enterRadioMode = () => {
+        void Brightness.getBrightnessAsync()
+            .then(value => { radioPrevBrightness.current = value })
+            .catch(() => { radioPrevBrightness.current = -1 })
+        void Brightness.setBrightnessAsync(0.01).catch(() => undefined)
+        setRadioMode(true)
+        setChrome(false)
+    }
+    const exitRadioMode = () => {
+        if (radioPrevBrightness.current >= 0) {
+            void Brightness.setBrightnessAsync(radioPrevBrightness.current).catch(() => undefined)
+        }
+        setRadioMode(false)
+    }
+
     // Zap por número: teclado na tela; commit após 1,5s parado (ou no ✓).
     const [numPadOpen, setNumPadOpen] = useState(false)
     const [numBuffer, setNumBuffer] = useState('')
@@ -1150,6 +1169,11 @@ export default function Player() {
                     </TvTouchable>
                 ) : null}
                 {live === '1' ? (
+                    <TvTouchable style={styles.trackBtn} accessibilityLabel={t('a11yRadio')} onPress={enterRadioMode}>
+                        <Ionicons name="radio-outline" size={20} color={colors.text} />
+                    </TvTouchable>
+                ) : null}
+                {live === '1' ? (
                     <TvTouchable
                         style={styles.trackBtn}
                         accessibilityLabel={t('a11yRec')}
@@ -1429,6 +1453,17 @@ export default function Player() {
                 </View>
             ) : null}
 
+            {radioMode ? (
+                <View
+                    style={styles.radioOverlay}
+                    onStartShouldSetResponder={() => true}
+                    onResponderRelease={exitRadioMode}
+                >
+                    <Ionicons name="radio-outline" size={40} color="rgba(244,244,248,0.25)" />
+                    <Text style={styles.radioHint}>{t('radioOn')}</Text>
+                </View>
+            ) : null}
+
             {touchLocked ? (
                 <View
                     style={styles.lockOverlay}
@@ -1536,6 +1571,16 @@ const styles = StyleSheet.create({
         left: 0,
         right: 0,
     },
+    radioOverlay: {
+        position: 'absolute',
+        top: 0, left: 0, right: 0, bottom: 0,
+        zIndex: 35,
+        backgroundColor: '#000',
+        alignItems: 'center',
+        justifyContent: 'center',
+        gap: spacing.md,
+    },
+    radioHint: { color: 'rgba(244,244,248,0.3)', fontSize: tvSize(13) },
     lockOverlay: {
         position: 'absolute',
         top: 0, left: 0, right: 0, bottom: 0,

@@ -7,6 +7,8 @@ import { emptyFavorites, isFavorite, persistMove, persistToggle, loadFavorites, 
 import { loadParental } from '../../services/parental'
 import { guardedCategoryIds } from '../../services/kids'
 import { hiddenIdSet, hideChannel } from '../../services/hidden'
+import { groupChannelVariants } from '../../services/channelVariants'
+import AsyncStorage from '@react-native-async-storage/async-storage'
 import { recordRecentChannel } from '../../services/recents'
 import { cachedFetch, getClient } from '../../services/session'
 import type { Category, EpgProgram, LiveChannel, NowNext } from '../../services/xtream'
@@ -33,6 +35,13 @@ export default function LiveTab() {
     const epgInFlight = useRef(new Set<string>())
     // Mini-guia inline: um canal expandido por vez, grade via cache SWR.
     const [expandedId, setExpandedId] = useState<string | null>(null)
+    // FHD/HD/SD do mesmo canal viram UM card (desligável nos Ajustes).
+    const [groupVariants, setGroupVariants] = useState(true)
+    useEffect(() => {
+        void AsyncStorage.getItem('neostream_group_variants')
+            .then(raw => setGroupVariants(raw !== 'off'))
+            .catch(() => undefined)
+    }, [])
     const [daySchedules, setDaySchedules] = useState<Record<string, EpgProgram[]>>({})
 
     const toggleExpand = (id: string) => {
@@ -72,8 +81,8 @@ export default function LiveTab() {
 
     useEffect(() => { queueMicrotask(() => { void load() }) }, [load])
 
-    const filtered = useMemo(() => {
-        if (!channels) return []
+    const { list: filtered, variantsOf } = useMemo(() => {
+        if (!channels) return { list: [] as LiveChannel[], variantsOf: new Map<string, LiveChannel[]>() }
         const q = query.trim().toLowerCase()
         let list = channels
         if (category === 'fav') {
@@ -85,8 +94,11 @@ export default function LiveTab() {
         else if (category !== 'all') list = list.filter(c => c.category_id === category)
         if (allowed) list = list.filter(item => !item.category_id || allowed.has(item.category_id))
         if (hidden.size > 0) list = list.filter(item => !hidden.has(String(item.stream_id)))
-        return q ? list.filter(c => c.name.toLowerCase().includes(q)) : list
-    }, [channels, query, category, favorites, allowed, hidden])
+        if (q) list = list.filter(c => c.name.toLowerCase().includes(q))
+        if (!groupVariants) return { list, variantsOf: new Map<string, typeof list>() }
+        const grouped = groupChannelVariants(list)
+        return { list: grouped.groups, variantsOf: grouped.variantsOf }
+    }, [channels, query, category, favorites, allowed, hidden, groupVariants])
 
     const play = async (channel: LiveChannel) => {
         const client = await getClient()
@@ -192,6 +204,21 @@ export default function LiveTab() {
                                 <Text style={styles.name} numberOfLines={1}>{item.num ? <Text style={styles.chNum}>{item.num}  </Text> : null}{item.name}</Text>
                                 {epgLine ? <Text style={styles.epg} numberOfLines={1}>{epgLine}</Text> : null}
                             </View>
+                            {variantsOf.has(String(item.stream_id)) ? (
+                                <TouchableOpacity
+                                    style={styles.favBtn}
+                                    accessibilityLabel={t('variantPick')}
+                                    onPress={() => {
+                                        const variants = variantsOf.get(String(item.stream_id)) ?? []
+                                        Alert.alert(t('variantPick'), item.name, [
+                                            { text: t('cancel'), style: 'cancel' },
+                                            ...variants.map(variant => ({ text: variant.name, onPress: () => void play(variant) })),
+                                        ])
+                                    }}
+                                >
+                                    <Text style={styles.variantBadge}>×{variantsOf.get(String(item.stream_id))?.length}</Text>
+                                </TouchableOpacity>
+                            ) : null}
                             {category === 'fav' ? (
                                 <View style={styles.reorderCol}>
                                     <TouchableOpacity
@@ -301,6 +328,7 @@ const styles = StyleSheet.create({
     chNum: { color: colors.textDim, fontSize: 12, fontWeight: '700' },
     epg: { color: colors.textDim, fontSize: tvSize(12) },
     favBtn: { padding: spacing.xs },
+    variantBadge: { color: colors.accent, fontSize: tvSize(11), fontWeight: '800' },
     reorderCol: { justifyContent: 'center' },
     reorderBtn: { paddingHorizontal: 4, paddingVertical: 2 },
 })

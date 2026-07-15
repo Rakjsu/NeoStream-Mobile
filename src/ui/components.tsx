@@ -5,7 +5,7 @@ import type { ProgressEntry } from '../services/progress'
 import { progressPct } from '../services/progress'
 import type { Category } from '../services/xtream'
 import { t } from '../i18n/strings'
-import { useState } from 'react'
+import { useRef, useState } from 'react'
 import { useNetworkState } from 'expo-network'
 import { skipImages } from '../services/dataSaver'
 import { colors, spacing } from './theme'
@@ -69,15 +69,15 @@ export function EmptyState({ icon, label }: { icon: keyof typeof Ionicons.glyphM
  * TouchableOpacity com foco visível de D-pad (Android TV): a borda acende
  * quando o controle chega no item. No touch, nada muda.
  */
-export function TvTouchable({ focusStyle, style, children, ...props }: React.ComponentProps<typeof TouchableOpacity> & { focusStyle?: object }) {
+export function TvTouchable({ focusStyle, style, children, onFocus, onBlur, ...props }: React.ComponentProps<typeof TouchableOpacity> & { focusStyle?: object }) {
     const [focused, setFocused] = useState(false)
     return (
         <TouchableOpacity
             accessibilityRole="button"
             {...props}
             style={[style, focused && (focusStyle ?? styles.tvFocus)]}
-            onFocus={() => setFocused(true)}
-            onBlur={() => setFocused(false)}
+            onFocus={event => { setFocused(true); onFocus?.(event) }}
+            onBlur={event => { setFocused(false); onBlur?.(event) }}
         >
             {children}
         </TouchableOpacity>
@@ -161,22 +161,28 @@ export function ContinueRail({ entries, onPlay, onRemove }: {
     /** Segurar um card remove do rail (com confirmação de quem chama). */
     onRemove?: (entry: ProgressEntry) => void
 }) {
+    // Hook ANTES do early-return (regra de hooks) — o card focado rola pra vista.
+    const listRef = useRef<FlatList<ProgressEntry>>(null)
     if (entries.length === 0) return null
+    const cardSpan = tvSize(108) + spacing.sm
     return (
         <View style={styles.railWrap}>
             <Text style={styles.railTitle}>{t('continueRail')}</Text>
             <FlatList
+                ref={listRef}
                 data={entries}
                 horizontal
                 showsHorizontalScrollIndicator={false}
                 keyExtractor={item => item.id}
                 contentContainerStyle={{ paddingHorizontal: spacing.md }}
-                renderItem={({ item }) => (
-                    <TouchableOpacity
+                getItemLayout={(_, index) => ({ length: cardSpan, offset: cardSpan * index, index })}
+                renderItem={({ item, index }) => (
+                    <TvTouchable
                         style={styles.railCard}
                         onPress={() => onPlay(item)}
                         onLongPress={onRemove ? () => onRemove(item) : undefined}
                         delayLongPress={350}
+                        onFocus={isTV ? () => listRef.current?.scrollToIndex({ index, viewPosition: 0.5, animated: true }) : undefined}
                     >
                         {item.cover && !skipImages() ? (
                             <Image source={{ uri: item.cover }} style={styles.railImg} contentFit="cover" transition={120} />
@@ -189,7 +195,7 @@ export function ContinueRail({ entries, onPlay, onRemove }: {
                             <View style={[styles.railBarFill, { width: `${progressPct(item.position, item.duration)}%` }]} />
                         </View>
                         <Text style={styles.railName} numberOfLines={2}>{item.title}</Text>
-                    </TouchableOpacity>
+                    </TvTouchable>
                 )}
             />
         </View>
@@ -213,18 +219,27 @@ export function PosterRail({ title, items, onPress }: {
     items: RailItem[]
     onPress: (item: RailItem) => void
 }) {
+    // Hook ANTES do early-return (regra de hooks) — o card focado rola pra vista.
+    const listRef = useRef<FlatList<RailItem>>(null)
     if (items.length === 0) return null
+    const cardSpan = tvSize(96) + spacing.sm
     return (
         <View style={styles.railWrap}>
             <Text style={styles.railTitle}>{title}</Text>
             <FlatList
+                ref={listRef}
                 data={items}
                 horizontal
                 showsHorizontalScrollIndicator={false}
                 keyExtractor={item => item.key}
                 contentContainerStyle={{ paddingHorizontal: spacing.md }}
-                renderItem={({ item }) => (
-                    <TouchableOpacity style={styles.posterRailCard} onPress={() => onPress(item)}>
+                getItemLayout={(_, index) => ({ length: cardSpan, offset: cardSpan * index, index })}
+                renderItem={({ item, index }) => (
+                    <TvTouchable
+                        style={styles.posterRailCard}
+                        onPress={() => onPress(item)}
+                        onFocus={isTV ? () => listRef.current?.scrollToIndex({ index, viewPosition: 0.5, animated: true }) : undefined}
+                    >
                         {item.cover && !skipImages() ? (
                             <Image source={{ uri: item.cover }} style={styles.posterRailImg} contentFit="cover" transition={120} />
                         ) : (
@@ -233,7 +248,7 @@ export function PosterRail({ title, items, onPress }: {
                             </View>
                         )}
                         <Text style={styles.railName} numberOfLines={2}>{item.name}</Text>
-                    </TouchableOpacity>
+                    </TvTouchable>
                 )}
             />
         </View>
@@ -246,18 +261,27 @@ export function ChannelRail({ title, items, onPress }: {
     items: { id: string; name: string; logo: string }[]
     onPress: (item: { id: string; name: string; logo: string }) => void
 }) {
+    // Hook ANTES do early-return (regra de hooks) — o card focado rola pra vista.
+    const listRef = useRef<FlatList<{ id: string; name: string; logo: string }>>(null)
     if (items.length === 0) return null
+    const cardSpan = tvSize(72) + spacing.sm
     return (
         <View style={styles.railWrap}>
             <Text style={styles.railTitle}>{title}</Text>
             <FlatList
+                ref={listRef}
                 data={items}
                 horizontal
                 showsHorizontalScrollIndicator={false}
                 keyExtractor={item => item.id}
                 contentContainerStyle={{ paddingHorizontal: spacing.md }}
-                renderItem={({ item }) => (
-                    <TouchableOpacity style={styles.chRailCard} onPress={() => onPress(item)}>
+                getItemLayout={(_, index) => ({ length: cardSpan, offset: cardSpan * index, index })}
+                renderItem={({ item, index }) => (
+                    <TvTouchable
+                        style={styles.chRailCard}
+                        onPress={() => onPress(item)}
+                        onFocus={isTV ? () => listRef.current?.scrollToIndex({ index, viewPosition: 0.5, animated: true }) : undefined}
+                    >
                         {item.logo && !skipImages() ? (
                             <Image source={{ uri: item.logo }} style={styles.chRailLogo} contentFit="contain" transition={120} />
                         ) : (
@@ -266,7 +290,7 @@ export function ChannelRail({ title, items, onPress }: {
                             </View>
                         )}
                         <Text style={styles.railName} numberOfLines={1}>{item.name}</Text>
-                    </TouchableOpacity>
+                    </TvTouchable>
                 )}
             />
         </View>

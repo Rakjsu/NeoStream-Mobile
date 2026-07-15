@@ -19,6 +19,7 @@ import { hasItem, loadWatchlist, toggleWatchlist } from '../../services/watchlis
 import type { Episode } from '../../services/xtream'
 import { EmptyState, Loading } from '../../ui/components'
 import { colors, spacing } from '../../ui/theme'
+import { tvSize } from '../../ui/tv'
 import { currentLang, t, tf } from '../../i18n/strings'
 
 interface Season {
@@ -440,8 +441,8 @@ const styles = StyleSheet.create({
     cover: { width: 96, aspectRatio: 2 / 3, borderRadius: 10, backgroundColor: colors.card },
     coverFallback: { alignItems: 'center', justifyContent: 'center' },
     heroInfo: { flex: 1, gap: spacing.sm },
-    seriesName: { color: colors.text, fontSize: 18, fontWeight: '700' },
-    plot: { color: colors.textDim, fontSize: 13, lineHeight: 19 },
+    seriesName: { color: colors.text, fontSize: tvSize(18), fontWeight: '700' },
+    plot: { color: colors.textDim, fontSize: tvSize(13), lineHeight: 19 },
     favBtn: {
         flexDirection: 'row',
         alignItems: 'center',
@@ -474,7 +475,7 @@ const styles = StyleSheet.create({
         borderRadius: 10,
         paddingVertical: 12,
     },
-    nextText: { color: '#fff', fontSize: 15, fontWeight: '600' },
+    nextText: { color: '#fff', fontSize: tvSize(15), fontWeight: '600' },
     seasonCount: { color: colors.textDim, fontSize: 12, fontWeight: '700' },
     seasonBarTrack: { height: 3, marginHorizontal: 16, borderRadius: 2, backgroundColor: colors.card, overflow: 'hidden' },
     seasonBarFill: { height: 3, borderRadius: 2, backgroundColor: colors.accent },
@@ -523,7 +524,7 @@ const styles = StyleSheet.create({
     },
     epNum: { color: colors.accent, fontSize: 13, fontWeight: '700' },
     epInfo: { flex: 1, gap: 4 },
-    epTitle: { color: colors.text, fontSize: 15 },
+    epTitle: { color: colors.text, fontSize: tvSize(15) },
     epTitleSeen: { color: colors.textDim },
     epTrack: { height: 3, backgroundColor: colors.border, borderRadius: 2 },
     dlBtn: { padding: spacing.xs, minWidth: 34, alignItems: 'center' },

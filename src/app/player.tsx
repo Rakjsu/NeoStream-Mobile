@@ -29,7 +29,7 @@ import { recordHabitMinute } from '../services/habit'
 import { canRecordUrl, recordingTitle, startRecording, stopRecording } from '../services/recorder'
 import { currentZapChannel, hasZapContext, peekZap, rankChannels, zapBy, zapList, zapTo, zapToNumber, type ZapChannel } from '../services/zap'
 import { TvTouchable } from '../ui/components'
-import { tvSize } from '../ui/tv'
+import { isTV, tvSize } from '../ui/tv'
 import { colors, spacing } from '../ui/theme'
 import { t, tf } from '../i18n/strings'
 
@@ -1009,7 +1009,12 @@ export default function Player() {
 
             {!chrome ? (
                 <TvTouchable
-                    style={[styles.chromeStrip, { height: insets.top + 56 }]}
+                    // Na TV a camada cobre a tela: o OK do controle (que não gera
+                    // onTouchStart) traz os controles de volta. No touch, só a faixa
+                    // do topo — o resto continua indo pros controles nativos.
+                    style={[styles.chromeStrip, isTV ? StyleSheet.absoluteFill : { height: insets.top + 56 }]}
+                    focusStyle={isTV ? {} : undefined}
+                    hasTVPreferredFocus={isTV}
                     accessibilityLabel={t('a11yShowBar')}
                     onPress={() => setChrome(true)}
                 />

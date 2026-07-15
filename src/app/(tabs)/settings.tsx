@@ -41,6 +41,7 @@ import { heatmapCells, loadHabits } from '../../services/habit'
 import { parseExpiry } from '../../services/xtream'
 import { TvTouchable } from '../../ui/components'
 import { ACCENT_PRESETS, colors, currentAccent, setAccent, setThemeVariant, spacing, themeVariant, type AccentName } from '../../ui/theme'
+import { tvSize } from '../../ui/tv'
 import { t, tf } from '../../i18n/strings'
 
 
@@ -211,6 +212,7 @@ export default function SettingsTab() {
     const [accent, setAccentState] = useState<AccentName>(currentAccent())
     const [recMaxAge, setRecMaxAge] = useState(0)
     const [seekStep, setSeekStepState] = useState(10)
+    const [groupVariants, setGroupVariantsState] = useState(true)
 
     const refreshStorage = useCallback(() => {
         void listDownloads().then(items => setDlBytes(items.reduce((sum, item) => sum + item.sizeBytes, 0)))
@@ -253,6 +255,7 @@ export default function SettingsTab() {
         void usageByProfile(Date.now()).then(setProfileUsage)
         void getRecMaxAgeDays().then(setRecMaxAge)
         void AsyncStorage.getItem('neostream_seek_step').then(raw => setSeekStepState(Number(raw) || 10)).catch(() => undefined)
+        void AsyncStorage.getItem('neostream_group_variants').then(raw => setGroupVariantsState(raw !== 'off')).catch(() => undefined)
         void getTraktCreds().then(creds => { setTraktCid(creds.clientId); setTraktCsec(creds.clientSecret) })
         void isTraktConnected().then(setTraktOn)
         void AsyncStorage.getItem('neostream_boot_tab').then(v => setBootTab(v ?? '')).catch(() => undefined)
@@ -1070,6 +1073,20 @@ export default function SettingsTab() {
                     <Text style={[styles.kidsText, seekStep !== 10 && { color: colors.accent }]}>{tf('seekStepLabel', { n: seekStep })}</Text>
                 </TvTouchable>
                 <TvTouchable
+                    style={styles.kidsRow}
+                    onPress={() => {
+                        const next = !groupVariants
+                        setGroupVariantsState(next)
+                        void (next
+                            ? AsyncStorage.removeItem('neostream_group_variants')
+                            : AsyncStorage.setItem('neostream_group_variants', 'off')
+                        ).catch(() => undefined)
+                    }}
+                >
+                    <Ionicons name={groupVariants ? 'layers' : 'layers-outline'} size={18} color={groupVariants ? colors.accent : colors.textDim} />
+                    <Text style={[styles.kidsText, groupVariants && { color: colors.accent }]}>{t('groupVariantsLabel')}</Text>
+                </TvTouchable>
+                <TvTouchable
                     style={styles.saverRow}
                     onPress={() => {
                         const next = !dataSaver
@@ -1475,7 +1492,7 @@ const styles = StyleSheet.create({
     accentDot: { width: 26, height: 26, borderRadius: 13 },
     accentDotOn: { borderWidth: 3, borderColor: colors.text },
     root: { flex: 1, backgroundColor: colors.bg },
-    section: { color: colors.textDim, fontSize: 13, textTransform: 'uppercase', marginBottom: spacing.sm, marginTop: spacing.md },
+    section: { color: colors.textDim, fontSize: tvSize(13), textTransform: 'uppercase', marginBottom: spacing.sm, marginTop: spacing.md },
     card: {
         backgroundColor: colors.card,
         borderColor: colors.border,
@@ -1515,10 +1532,10 @@ const styles = StyleSheet.create({
         borderBottomColor: colors.border,
         borderBottomWidth: StyleSheet.hairlineWidth,
     },
-    infoLabel: { color: colors.textDim, fontSize: 14 },
-    infoValue: { color: colors.text, fontSize: 14, flexShrink: 1 },
+    infoLabel: { color: colors.textDim, fontSize: tvSize(14) },
+    infoValue: { color: colors.text, fontSize: tvSize(14), flexShrink: 1 },
     version: { color: colors.textDim, fontSize: 12, textAlign: 'center', marginTop: spacing.xl },
-    parentalHint: { color: colors.textDim, fontSize: 13, lineHeight: 18 },
+    parentalHint: { color: colors.textDim, fontSize: tvSize(13), lineHeight: 18 },
     pinRow: { flexDirection: 'row', gap: spacing.md },
     gateRoot: {
         flex: 1,
@@ -1530,7 +1547,7 @@ const styles = StyleSheet.create({
     },
     gateTitle: { color: colors.text, fontSize: 18, fontWeight: '700' },
     kidsRow: { flexDirection: 'row', alignItems: 'center', gap: spacing.sm, paddingTop: spacing.xs },
-    kidsText: { color: colors.textDim, fontSize: 13, fontWeight: '600', flex: 1 },
+    kidsText: { color: colors.textDim, fontSize: tvSize(13), fontWeight: '600', flex: 1 },
     pinInput: {
         flex: 1,
         backgroundColor: colors.bg,
@@ -1569,8 +1586,8 @@ const styles = StyleSheet.create({
     usageBarLabel: { color: colors.textDim, fontSize: 10 },
     ghRow: { flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: spacing.sm, paddingVertical: 4 },
     ghText: { color: colors.textDim, fontSize: 13, fontWeight: '600' },
-    diagLabel: { flex: 1, color: colors.text, fontSize: 14 },
-    diagMeta: { color: colors.textDim, fontSize: 13 },
+    diagLabel: { flex: 1, color: colors.text, fontSize: tvSize(14) },
+    diagMeta: { color: colors.textDim, fontSize: tvSize(13) },
     limitChip: {
         borderColor: colors.border,
         borderWidth: 1,
@@ -1591,7 +1608,7 @@ const styles = StyleSheet.create({
         paddingVertical: 10,
     },
     restoreBtn: { backgroundColor: colors.danger },
-    backupBtnText: { color: '#fff', fontSize: 14, fontWeight: '600' },
+    backupBtnText: { color: '#fff', fontSize: tvSize(14), fontWeight: '600' },
     importInput: {
         backgroundColor: colors.bg,
         borderColor: colors.border,

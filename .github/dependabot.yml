@@ -1,0 +1,25 @@
+# 🤖 Atualização automática de dependências (item 64 do backlog).
+# Dependabot nativo do GitHub — mesmo papel do Renovate, sem app externo.
+# ⚠️ Lembrete emnapi: PRs de deps regeneram o lock no Linux (lá as entradas
+# @emnapi sobrevivem); ao mexer no lock LOCALMENTE no Windows, conferir
+# grep '"node_modules/@emnapi/core"' package-lock.json antes de commitar.
+version: 2
+updates:
+  - package-ecosystem: npm
+    directory: "/"
+    schedule:
+      interval: weekly
+      day: monday
+      time: "09:00"
+      timezone: America/Sao_Paulo
+    open-pull-requests-limit: 5
+    groups:
+      minor-e-patch:
+        update-types:
+          - minor
+          - patch
+  - package-ecosystem: github-actions
+    directory: "/"
+    schedule:
+      interval: weekly
+      day: monday

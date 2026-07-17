@@ -7,6 +7,7 @@ import { setupShortcuts } from '../services/shortcuts'
 import { applyCapturePolicy } from '../services/privacy'
 import { refreshDataSaver } from '../services/dataSaver'
 import { runAutoBackup } from '../services/autoBackup'
+import { connectDesktopLink } from '../services/desktopLink'
 import { ErrorBoundary } from '../ui/ErrorBoundary'
 import { recordError } from '../services/errorLog'
 import { colors } from '../ui/theme'
@@ -45,6 +46,9 @@ export default function RootLayout() {
 
     // Auto-backup silencioso (a cada 3 dias, mantém as 5 últimas cópias).
     useEffect(() => { void runAutoBackup() }, [])
+
+    // 🔗 Receber do desktop ligado → reconecta ao controle web no boot.
+    useEffect(() => { void connectDesktopLink() }, [])
 
     // Dezembro: retrospectiva anual, uma vez por ano.
     useEffect(() => {

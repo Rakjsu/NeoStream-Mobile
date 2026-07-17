@@ -2,6 +2,7 @@ import { Ionicons } from '@expo/vector-icons'
 import { Stack, router } from 'expo-router'
 import { useState } from 'react'
 import { Alert, StyleSheet, Text, TextInput, View } from 'react-native'
+import { setDesktopLinkConfig } from '../services/desktopLink'
 import { restoreAccounts } from '../services/session'
 import { extractSetupParam, parseSetupParam, type SetupPayload } from '../services/setupLink'
 import { TvTouchable } from '../ui/components'
@@ -52,6 +53,8 @@ export default function PairDesktop() {
                     setMsg(sawForbidden ? t('pairPinWrong') : t('pairFail'))
                     return
                 }
+                // Pareou: guarda endereço+PIN pro "receber do desktop" reutilizar.
+                void setDesktopLinkConfig({ addr: address, pin: code })
                 const found = payload
                 Alert.alert(t('pairTitle'), tf('setupMsg', { n: found.accounts.length }), [
                     { text: t('cancel'), style: 'cancel' },

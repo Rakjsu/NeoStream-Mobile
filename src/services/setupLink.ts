@@ -62,3 +62,14 @@ export function parseSetupParam(d: string): SetupPayload | null {
         return null
     }
 }
+
+/** Acha o parâmetro d do deep link dentro do HTML da página /setup do desktop (PURO). */
+export function extractSetupParam(html: string): string | null {
+    const match = html.match(/neostream:\/\/setup\?d=([A-Za-z0-9%+/=._-]+)/)
+    if (!match) return null
+    try {
+        return decodeURIComponent(match[1])
+    } catch {
+        return null
+    }
+}

@@ -54,9 +54,11 @@
   },
   "devDependencies": {
     "@types/react": "~19.2.2",
-    "eslint": "^10.7.0",
+    "@typescript-eslint/parser": "8.64.0",
+    "eslint": "^9.39.5",
     "eslint-config-expo": "~57.0.0",
-    "typescript": "~7.0.2",
+    "eslint-import-resolver-typescript": "3.10.1",
+    "typescript": "6.0.3",
     "vitest": "^4.1.10"
   },
   "scripts": {

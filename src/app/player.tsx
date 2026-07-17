@@ -18,6 +18,7 @@ import { listRecentChannels, recordRecentChannel } from '../services/recents'
 import { loadFavorites, persistToggle } from '../services/favorites'
 import { cachedFetch, getClient, resolvePlayableUrl } from '../services/session'
 import { tapLight } from '../services/haptics'
+import { addBookmark, fmtBookmark, listBookmarks, removeBookmark, type Bookmark } from '../services/bookmarks'
 import { alternateLiveUrl, hasCatchup } from '../services/xtream'
 import AsyncStorage from '@react-native-async-storage/async-storage'
 import { getAspect, nextAspect, setAspect, type AspectMode } from '../services/aspect'
@@ -93,6 +94,8 @@ interface GestureRefs {
     aspect: React.MutableRefObject<(cover: boolean) => void>
     /** Segundos do pulo do toque duplo (configurável nos Ajustes). */
     seekStep: React.MutableRefObject<number>
+    /** Segurar parado no VOD = 2x temporário (true ativa, false restaura). */
+    holdRate: React.MutableRefObject<(active: boolean) => void>
 }
 
 // Pinça: a distância entre 2 dedos cresce/encolhe além do limiar → zoom.
@@ -122,9 +125,25 @@ function pinchDelta(state: { dist: number }, touches: { pageX: number; pageY: nu
 function createGesturePan(side: 'left' | 'right', refs: GestureRefs) {
     let startValue = -1
     let lastTapAt = 0
+    // Segurar o dedo parado 500ms no VOD = 2x até soltar (estilo YouTube).
+    let holdTimer: ReturnType<typeof setTimeout> | null = null
+    let holding = false
+    const cancelHold = () => {
+        if (holdTimer) {
+            clearTimeout(holdTimer)
+            holdTimer = null
+        }
+    }
     return PanResponder.create({
         onStartShouldSetPanResponder: () => true,
         onPanResponderGrant: () => {
+            if (!refs.live.current) {
+                cancelHold()
+                holdTimer = setTimeout(() => {
+                    holding = true
+                    refs.holdRate.current(true)
+                }, 500)
+            }
             if (side === 'right') {
                 try { startValue = refs.player.current.volume } catch { startValue = 1 }
             } else {
@@ -135,6 +154,8 @@ function createGesturePan(side: 'left' | 'right', refs: GestureRefs) {
             }
         },
         onPanResponderMove: (event, gesture) => {
+            // Mexeu o dedo = não é o gesto de segurar.
+            if (holdTimer && (Math.abs(gesture.dx) > 10 || Math.abs(gesture.dy) > 10)) cancelHold()
             // Dois dedos = pinça (zoom); o arrasto de brilho/volume ignora.
             const touches = event.nativeEvent.touches
             if (touches.length >= 2) {
@@ -152,8 +173,22 @@ function createGesturePan(side: 'left' | 'right', refs: GestureRefs) {
                 refs.toast.current(`☀️ ${Math.round(next * 100)}%`)
             }
         },
-        onPanResponderRelease: (_event, gesture) => {
+        onPanResponderTerminate: () => {
+            cancelHold()
             refs.pinch.current.dist = 0
+            if (holding) {
+                holding = false
+                refs.holdRate.current(false)
+            }
+        },
+        onPanResponderRelease: (_event, gesture) => {
+            cancelHold()
+            refs.pinch.current.dist = 0
+            if (holding) {
+                holding = false
+                refs.holdRate.current(false)
+                return // era o segurar-2x — sem double-tap
+            }
             if (Math.abs(gesture.dx) > 10 || Math.abs(gesture.dy) > 10) return // foi arrasto
             const now = Date.now()
             const doubleTap = now - lastTapAt < 300
@@ -404,6 +439,8 @@ export default function Player() {
     const gestureToastRef = useRef<(text: string) => void>(() => undefined)
     const gesturePinchRef = useRef({ dist: 0 })
     const gestureSeekRef = useRef(10)
+    const holdPrevRateRef = useRef(1)
+    const gestureHoldRateRef = useRef<(active: boolean) => void>(() => undefined)
     const gestureAspectRef = useRef<(cover: boolean) => void>(() => undefined)
     useEffect(() => {
         gesturePlayerRef.current = player
@@ -419,8 +456,8 @@ export default function Player() {
     // A fábrica só GUARDA as refs — nenhum .current é lido aqui no render.
     // eslint-disable-next-line react-hooks/refs
     const [pans] = useState(() => ({
-        left: createGesturePan('left', { player: gesturePlayerRef, live: gestureLiveRef, toast: gestureToastRef, pinch: gesturePinchRef, aspect: gestureAspectRef, seekStep: gestureSeekRef }),
-        right: createGesturePan('right', { player: gesturePlayerRef, live: gestureLiveRef, toast: gestureToastRef, pinch: gesturePinchRef, aspect: gestureAspectRef, seekStep: gestureSeekRef }),
+        left: createGesturePan('left', { player: gesturePlayerRef, live: gestureLiveRef, toast: gestureToastRef, pinch: gesturePinchRef, aspect: gestureAspectRef, seekStep: gestureSeekRef, holdRate: gestureHoldRateRef }),
+        right: createGesturePan('right', { player: gesturePlayerRef, live: gestureLiveRef, toast: gestureToastRef, pinch: gesturePinchRef, aspect: gestureAspectRef, seekStep: gestureSeekRef, holdRate: gestureHoldRateRef }),
     }))
 
     // ⏩ Pulo do toque duplo configurável (10/30/60s nos Ajustes).
@@ -431,6 +468,40 @@ export default function Player() {
                 .catch(() => undefined)
         })
     }, [])
+
+    // ⏩ Segurar parado = 2x até soltar; o rate escolhido volta sozinho.
+    useEffect(() => {
+        gestureHoldRateRef.current = (active: boolean) => {
+            if (active) {
+                holdPrevRateRef.current = rate
+                try { applyPlaybackRate(player, 2) } catch { return }
+                showTrackToast('⏩ 2x')
+                return
+            }
+            try { applyPlaybackRate(player, holdPrevRateRef.current) } catch { return }
+            if (holdPrevRateRef.current !== 2) showTrackToast(`⏩ ${holdPrevRateRef.current}x`)
+        }
+    })
+
+    // 🔖 Marcadores do conteúdo atual (toque marca; segurar abre a lista).
+    const [marks, setMarks] = useState<Bookmark[]>([])
+    const [marksOpen, setMarksOpen] = useState(false)
+    useEffect(() => {
+        if (!trackable) return
+        queueMicrotask(() => {
+            void listBookmarks(String(pid)).then(setMarks)
+        })
+    }, [trackable, pid])
+
+    const addMark = () => {
+        if (!trackable) return
+        let seconds = 0
+        try { seconds = player.currentTime } catch { return }
+        void addBookmark(String(pid), seconds, Date.now()).then(next => {
+            setMarks(next)
+            showTrackToast(`🔖 ${fmtBookmark(seconds)}`)
+        })
+    }
 
     // 🔄 Travar rotação: fixa a orientação ATUAL; sair do player libera.
     const [orientationLocked, setOrientationLocked] = useState(false)
@@ -469,13 +540,13 @@ export default function Player() {
 
     // 🕐 Relógio + resolução do stream (aparecem junto com os controles).
     const [clock, setClock] = useState('')
-    const [videoRes, setVideoRes] = useState(0)
+    const [videoDim, setVideoDim] = useState('')
     useEffect(() => {
         const update = () => {
             setClock(new Date().toTimeString().slice(0, 5))
             try {
-                const height = player.videoTrack?.size?.height ?? 0
-                setVideoRes(current => (height > 0 ? height : current))
+                const size = player.videoTrack?.size
+                setVideoDim(current => (size && size.height > 0 ? `${size.width}×${size.height}` : current))
             } catch { /* player já liberado */ }
         }
         queueMicrotask(update)
@@ -1164,7 +1235,7 @@ export default function Player() {
                         <Text style={styles.epg} numberOfLines={2}>{liveDesc}</Text>
                     ) : null}
                 </View>
-                <Text style={styles.clock}>{videoRes > 0 ? `${videoRes}p · ` : ''}{clock}</Text>
+                <Text style={styles.clock}>{videoDim ? `${videoDim} · ` : ''}{rate !== 1 ? `${rate}x · ` : ''}{clock}</Text>
                 {live === '1' && restart ? (
                     <TvTouchable style={styles.trackBtn} accessibilityLabel={t('a11yRestart')} onPress={restartProgram}>
                         <Ionicons name="play-back-circle-outline" size={20} color={colors.text} />
@@ -1219,6 +1290,20 @@ export default function Player() {
                 {live !== '1' ? (
                     <TvTouchable style={styles.trackBtn} accessibilityLabel={t('a11yRate')} onPress={cycleRate}>
                         <Text style={styles.rateText}>{rate}x</Text>
+                    </TvTouchable>
+                ) : null}
+                {trackable ? (
+                    <TvTouchable
+                        style={styles.trackBtn}
+                        accessibilityLabel={t('a11yBookmark')}
+                        onPress={addMark}
+                        onLongPress={() => setMarksOpen(open => !open)}
+                    >
+                        <Ionicons
+                            name={marks.length > 0 ? 'bookmark' : 'bookmark-outline'}
+                            size={20}
+                            color={marks.length > 0 ? colors.accent : colors.text}
+                        />
                     </TvTouchable>
                 ) : null}
                 {trackable ? (
@@ -1348,6 +1433,31 @@ export default function Player() {
                             </TvTouchable>
                         ))}
                     </View>
+                </View>
+            ) : null}
+
+            {marksOpen && marks.length > 0 ? (
+                <View style={styles.numPad}>
+                    {marks.map(mark => (
+                        <View key={mark.t} style={{ flexDirection: 'row', alignItems: 'center', gap: 8 }}>
+                            <TvTouchable
+                                style={{ flex: 1, paddingVertical: 8 }}
+                                onPress={() => {
+                                    try { applySeekTo(player, mark.t) } catch { return }
+                                    setMarksOpen(false)
+                                    showTrackToast(`🔖 ${fmtBookmark(mark.t)}`)
+                                }}
+                            >
+                                <Text style={styles.numKeyText}>🔖 {fmtBookmark(mark.t)}</Text>
+                            </TvTouchable>
+                            <TvTouchable
+                                style={{ padding: 8 }}
+                                onPress={() => { void removeBookmark(String(pid), mark.t).then(setMarks) }}
+                            >
+                                <Text style={styles.numKeyText}>✕</Text>
+                            </TvTouchable>
+                        </View>
+                    ))}
                 </View>
             ) : null}
 

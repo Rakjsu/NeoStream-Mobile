@@ -1,0 +1,10 @@
+# 🧪 Smoke: o app instala, abre e chega na primeira tela (onboarding/login)
+# sem crashar. Rodado pelo workflow manual "Maestro E2E" num emulador do CI.
+appId: com.rakjsu.neostream
+---
+- launchApp:
+    clearState: true
+- extendedWaitUntil:
+    visible:
+      text: ".*(NeoStream|Xtream|M3U|conta|account|cuenta).*"
+    timeout: 30000

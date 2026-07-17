@@ -21,6 +21,7 @@ import { buildSetupLink } from '../../services/setupLink'
 import { getTmdbKey, setTmdbKey } from '../../services/tmdb'
 import { hideChannel, listHiddenChannels, unhideChannel, type HiddenChannel } from '../../services/hidden'
 import { applyBackup, collectBackup, decryptBackup, isEncryptedBackup, mergeAccountLists, parseBackup, parseDesktopBackupAccounts, protectBackup, serializeBackup } from '../../services/backup'
+import { connectDesktopLink, disconnectDesktopLink, getDesktopLinkConfig, setDesktopLinkConfig } from '../../services/desktopLink'
 import { probeAll } from '../../services/probe'
 import { loadFavorites } from '../../services/favorites'
 import { disableParental, enableParental, isValidPin, listBlockedCategories, loadParental } from '../../services/parental'
@@ -181,6 +182,13 @@ export default function SettingsTab() {
     const [favCheck, setFavCheck] = useState<{ dead: { id: string; name: string }[]; total: number } | null>(null)
     const [favChecking, setFavChecking] = useState(false)
     const [backupPass, setBackupPass] = useState('')
+    // 🔗 Receber do desktop (enviar canal do PC pro app)
+    const [deskLink, setDeskLink] = useState(false)
+    useEffect(() => {
+        queueMicrotask(() => {
+            void getDesktopLinkConfig().then(config => setDeskLink(config.enabled))
+        })
+    }, [])
     const [topLive, setTopLive] = useState<TopTitle[]>([])
     const [topShows, setTopShows] = useState<TopTitle[]>([])
     const usageShotRef = useRef<View>(null)
@@ -1626,6 +1634,28 @@ export default function SettingsTab() {
             >
                 <Ionicons name="desktop-outline" size={16} color="#fff" />
                 <Text style={styles.backupBtnText}>{t('pairBtn')}</Text>
+            </TvTouchable>
+            <TvTouchable
+                style={[styles.backupBtn, { marginBottom: spacing.md }]}
+                onPress={() => {
+                    void (async () => {
+                        const next = !deskLink
+                        setDeskLink(next)
+                        const config = await setDesktopLinkConfig({ enabled: next })
+                        if (!next) {
+                            disconnectDesktopLink()
+                            return
+                        }
+                        if (!config.addr || config.pin.length < 4) {
+                            setBackupMsg(t('deskLinkNeedPair'))
+                            return
+                        }
+                        void connectDesktopLink()
+                    })()
+                }}
+            >
+                <Ionicons name={deskLink ? 'link' : 'link-outline'} size={16} color="#fff" />
+                <Text style={styles.backupBtnText}>{deskLink ? t('deskLinkOn') : t('deskLinkBtn')}</Text>
             </TvTouchable>
 
             </> : null}

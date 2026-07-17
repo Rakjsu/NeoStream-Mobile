@@ -12,7 +12,8 @@ import { loadParental, restoreParental, type ParentalState } from './parental'
 import { loadProgress, loadWatched, restoreProgress, type ProgressEntry } from './progress'
 import { getDownloadLimitGb, setDownloadLimitGb } from './downloads'
 import { isDataSaverEnabled, setDataSaver } from './dataSaver'
-import { getActiveAccountId, listAccounts, restoreAccounts, type StoredAccount } from './session'
+import { accountId, getActiveAccountId, listAccounts, restoreAccounts, type StoredAccount } from './session'
+import { decodeBase64Utf8, type XtreamAccount } from './xtream'
 import { exportProfiles, restoreProfilesList, type Profile } from './profiles'
 import { loadWatchlist, restoreWatchlist, type WatchItem } from './watchlist'
 import { getTmdbKey, setTmdbKey } from './tmdb'
@@ -183,4 +184,62 @@ export function decryptBackup(text: string, password: string): string | null {
     } catch {
         return null
     }
+}
+
+// ------------------------------------------------- backup do DESKTOP --
+
+/** Backup do desktop não traz o tipo — deduz: MAC → stalker, sem usuário ou .m3u → m3u, resto xtream (PURO). */
+export function guessAccountType(url: string, username: string): 'xtream' | 'm3u' | 'stalker' {
+    if (/^([0-9A-Fa-f]{2}:){5}[0-9A-Fa-f]{2}$/.test(username.trim())) return 'stalker'
+    if (!username.trim() || /\.m3u8?($|\?)/i.test(url)) return 'm3u'
+    return 'xtream'
+}
+
+/**
+ * Backup do NeoStream DESKTOP (app 'neostream', v1–v3): só as contas
+ * interessam aqui. null = não é um backup do desktop; [] = é, mas sem contas
+ * (o v1 não levava playlists). Senhas vêm em base64 (passwordB64).
+ */
+export function parseDesktopBackupAccounts(text: string): StoredAccount[] | null {
+    let parsed: unknown
+    try {
+        parsed = JSON.parse(text)
+    } catch {
+        return null
+    }
+    const backup = parsed as { app?: string; playlists?: unknown } | null
+    if (!backup || backup.app !== 'neostream') return null
+    if (!Array.isArray(backup.playlists)) return []
+    const accounts: StoredAccount[] = []
+    for (const raw of backup.playlists) {
+        const entry = raw as { name?: unknown; url?: unknown; username?: unknown; passwordB64?: unknown } | null
+        if (!entry || typeof entry.url !== 'string' || !entry.url.trim()) continue
+        const username = typeof entry.username === 'string' ? entry.username : ''
+        let password = ''
+        if (typeof entry.passwordB64 === 'string' && entry.passwordB64) {
+            try {
+                password = decodeBase64Utf8(entry.passwordB64)
+            } catch {
+                continue
+            }
+        }
+        const account: XtreamAccount = { url: entry.url, username, password, type: guessAccountType(entry.url, username) }
+        accounts.push({
+            ...account,
+            id: accountId(account),
+            alias: typeof entry.name === 'string' && entry.name.trim() ? entry.name.trim() : undefined,
+        })
+    }
+    return accounts
+}
+
+/** Junta contas importadas às atuais — mesmo id substitui, apelido local vence (PURO). */
+export function mergeAccountLists(current: StoredAccount[], imported: StoredAccount[]): StoredAccount[] {
+    let merged = [...current]
+    for (const account of imported) {
+        if (!account?.id || !account.url) continue
+        const previous = merged.find(a => a.id === account.id)
+        merged = [...merged.filter(a => a.id !== account.id), { ...account, alias: previous?.alias ?? account.alias }]
+    }
+    return merged
 }

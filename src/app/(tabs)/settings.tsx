@@ -20,7 +20,7 @@ import { listRecurring, removeRecurring, type RecurringReminder } from '../../se
 import { buildSetupLink } from '../../services/setupLink'
 import { getTmdbKey, setTmdbKey } from '../../services/tmdb'
 import { hideChannel, listHiddenChannels, unhideChannel, type HiddenChannel } from '../../services/hidden'
-import { applyBackup, collectBackup, decryptBackup, isEncryptedBackup, parseBackup, protectBackup, serializeBackup } from '../../services/backup'
+import { applyBackup, collectBackup, decryptBackup, isEncryptedBackup, mergeAccountLists, parseBackup, parseDesktopBackupAccounts, protectBackup, serializeBackup } from '../../services/backup'
 import { probeAll } from '../../services/probe'
 import { loadFavorites } from '../../services/favorites'
 import { disableParental, enableParental, isValidPin, listBlockedCategories, loadParental } from '../../services/parental'
@@ -35,7 +35,7 @@ import { loadSpeedHistory, runSpeedTest, saveSpeedSample, type SpeedSample, type
 import { clearHistory, loadWatched, markWatched } from '../../services/progress'
 import { checkForUpdate } from '../../services/updates'
 import {
-    accountLabel, cachedFetch, clearCatalogCache, getClient, listAccounts, loadAccount, removeAccount, renameAccount, resolvePlayableUrl, switchAccount,
+    accountLabel, cachedFetch, clearCatalogCache, getClient, listAccounts, loadAccount, removeAccount, renameAccount, resolvePlayableUrl, restoreAccounts, switchAccount,
     type StoredAccount,
 } from '../../services/session'
 import { currentStreak, dayKey, formatMinutes, getUsageGoal, lastDays, lastMonths, loadMonthUsage, loadTitleUsage, loadUsage, monthKey, setUsageGoal, summarize, topTitles, usageByProfile, usageCsv, usageRecords, weekDelta, type ProfileUsage, type TopTitle, type UsageSummary } from '../../services/usage'
@@ -1515,6 +1515,31 @@ export default function SettingsTab() {
                                 setBackupMsg(t('backupPassWrong'))
                                 return
                             }
+                            // Backup do DESKTOP: só as contas entram (juntam às atuais).
+                            const desktopAccounts = parseDesktopBackupAccounts(raw)
+                            if (desktopAccounts) {
+                                if (desktopAccounts.length === 0) {
+                                    setBackupMsg(t('desktopImportEmpty'))
+                                    return
+                                }
+                                Alert.alert(
+                                    t('desktopImportTitle'),
+                                    tf('desktopImportMsg', { n: desktopAccounts.length }),
+                                    [
+                                        { text: t('cancel'), style: 'cancel' },
+                                        {
+                                            text: t('restoreBtn'),
+                                            onPress: () => {
+                                                void restoreAccounts(mergeAccountLists(accounts, desktopAccounts), active?.id ?? null).then(() => {
+                                                    setImportText('')
+                                                    router.replace('/')
+                                                })
+                                            },
+                                        },
+                                    ],
+                                )
+                                return
+                            }
                             const backup = parseBackup(raw)
                             Alert.alert(
                                 t('restoreTitle'),
@@ -1594,6 +1619,13 @@ export default function SettingsTab() {
             >
                 <Ionicons name="qr-code-outline" size={16} color="#fff" />
                 <Text style={styles.backupBtnText}>{t('shareSetupBtn')}</Text>
+            </TvTouchable>
+            <TvTouchable
+                style={[styles.backupBtn, { marginBottom: spacing.md }]}
+                onPress={() => router.push('/pairdesktop')}
+            >
+                <Ionicons name="desktop-outline" size={16} color="#fff" />
+                <Text style={styles.backupBtnText}>{t('pairBtn')}</Text>
             </TvTouchable>
 
             </> : null}

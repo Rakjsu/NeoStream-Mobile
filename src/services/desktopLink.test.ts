@@ -27,3 +27,26 @@ describe('parseDesktopPush (comando playOnMobile do desktop)', () => {
         expect(parseDesktopPush('{oops')).toBeNull()
     })
 })
+
+describe('parseVodPush / parseNotifyPush (pushes novos do desktop)', () => {
+    it('aceita VOD e episódio com defaults sensatos', async () => {
+        const { parseVodPush } = await import('./desktopLink')
+        expect(parseVodPush(JSON.stringify({ type: 'playVodOnMobile', kind: 'movie', sid: '42', container: 'mkv', name: 'Filme' })))
+            .toEqual({ kind: 'movie', sid: '42', container: 'mkv', name: 'Filme' })
+        expect(parseVodPush(JSON.stringify({ type: 'playVodOnMobile', kind: 'series', sid: '7' })))
+            .toEqual({ kind: 'series', sid: '7', container: 'mp4', name: '' })
+        // kind desconhecido cai em movie; sem sid é inválido
+        expect(parseVodPush(JSON.stringify({ type: 'playVodOnMobile', kind: 'x', sid: '1' }))?.kind).toBe('movie')
+        expect(parseVodPush(JSON.stringify({ type: 'playVodOnMobile' }))).toBeNull()
+        expect(parseVodPush('lixo')).toBeNull()
+        expect(parseVodPush(JSON.stringify({ type: 'playOnMobile', streamId: '1' }))).toBeNull()
+    })
+
+    it('aceita notifyMobile só com título válido', async () => {
+        const { parseNotifyPush } = await import('./desktopLink')
+        expect(parseNotifyPush(JSON.stringify({ type: 'notifyMobile', title: 'Gravação pronta', body: 'Globo 1h' })))
+            .toEqual({ title: 'Gravação pronta', body: 'Globo 1h' })
+        expect(parseNotifyPush(JSON.stringify({ type: 'notifyMobile', body: 'sem título' }))).toBeNull()
+        expect(parseNotifyPush('{}')).toBeNull()
+    })
+})

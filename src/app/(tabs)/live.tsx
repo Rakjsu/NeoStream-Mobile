@@ -10,6 +10,7 @@ import { hiddenIdSet, hideChannel } from '../../services/hidden'
 import { groupChannelVariants } from '../../services/channelVariants'
 import AsyncStorage from '@react-native-async-storage/async-storage'
 import { recordRecentChannel } from '../../services/recents'
+import { isDesktopLinked, sendToDesktop } from '../../services/desktopLink'
 import { cachedFetch, getClient } from '../../services/session'
 import { hasCatchup } from '../../services/xtream'
 import type { Category, EpgProgram, LiveChannel, NowNext } from '../../services/xtream'
@@ -268,6 +269,19 @@ export default function LiveTab() {
                                     color={colors.textDim}
                                 />
                             </TouchableOpacity>
+                            {isDesktopLinked() ? (
+                                <TouchableOpacity
+                                    style={styles.favBtn}
+                                    accessibilityLabel={t('a11yPlayOnDesktop')}
+                                    onPress={() => {
+                                        if (sendToDesktop({ action: 'playChannel', channelId: String(item.stream_id) })) {
+                                            Alert.alert(t('sentToDesktop'))
+                                        }
+                                    }}
+                                >
+                                    <Ionicons name="desktop-outline" size={18} color={colors.accent} />
+                                </TouchableOpacity>
+                            ) : null}
                             <TouchableOpacity style={styles.favBtn} onPress={() => toggleFav(item)}>
                                 <Ionicons
                                     name={fav ? 'heart' : 'heart-outline'}

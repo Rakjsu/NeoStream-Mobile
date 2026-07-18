@@ -6,6 +6,7 @@
  * canal com a PRÓPRIA conta. Endereço+PIN vêm do pareamento (pairdesktop).
  */
 import AsyncStorage from '@react-native-async-storage/async-storage'
+import { notifyNow } from './notify'
 import { router } from 'expo-router'
 import { getClient } from './session'
 import { setZapContext } from './zap'
@@ -79,7 +80,66 @@ async function playPushed(push: { streamId: string; name: string }): Promise<voi
     })
 }
 
+/** Mensagem do desktop pedindo pra tocar um VOD/episódio aqui (PURO). */
+export function parseVodPush(text: string): { kind: 'movie' | 'series'; sid: string; container: string; name: string } | null {
+    let parsed: unknown
+    try {
+        parsed = JSON.parse(text)
+    } catch {
+        return null
+    }
+    const message = parsed as { type?: unknown; kind?: unknown; sid?: unknown; container?: unknown; name?: unknown } | null
+    if (!message || message.type !== 'playVodOnMobile' || typeof message.sid !== 'string' || !message.sid) return null
+    return {
+        kind: message.kind === 'series' ? 'series' : 'movie',
+        sid: message.sid,
+        container: typeof message.container === 'string' && message.container ? message.container : 'mp4',
+        name: typeof message.name === 'string' ? message.name : '',
+    }
+}
+
+/** Aviso vindo do desktop (ex.: gravação concluída) pra notificar aqui (PURO). */
+export function parseNotifyPush(text: string): { title: string; body: string } | null {
+    let parsed: unknown
+    try {
+        parsed = JSON.parse(text)
+    } catch {
+        return null
+    }
+    const message = parsed as { type?: unknown; title?: unknown; body?: unknown } | null
+    if (!message || message.type !== 'notifyMobile' || typeof message.title !== 'string' || !message.title) return null
+    return { title: message.title, body: typeof message.body === 'string' ? message.body : '' }
+}
+
+async function playPushedVod(push: { kind: 'movie' | 'series'; sid: string; container: string; name: string }): Promise<void> {
+    const client = await getClient()
+    if (!client) return
+    const url = push.kind === 'series'
+        ? client.seriesStreamUrl(push.sid, push.container)
+        : client.vodStreamUrl(push.sid, push.container)
+    router.push({ pathname: '/player', params: { url, title: push.name } })
+}
+
+// 🖥️ Estado da ponte + envio de comandos crus (o controle web valida a action).
+let connected = false
+
+export function isDesktopLinked(): boolean {
+    return connected
+}
+
+/** Envia um comando pro controle web do desktop (ex.: playChannel). */
+export function sendToDesktop(message: object): boolean {
+    if (!socket || socket.readyState !== WebSocket.OPEN) return false
+    try {
+        socket.send(JSON.stringify(message))
+        return true
+    } catch {
+        return false
+    }
+}
+
 export function disconnectDesktopLink(): void {
+    connected = false
     if (retryTimer) {
         clearTimeout(retryTimer)
         retryTimer = null
@@ -100,15 +160,22 @@ export async function connectDesktopLink(): Promise<void> {
         const ws = new WebSocket(`ws://${address}/?pin=${encodeURIComponent(config.pin)}`)
         socket = ws
         ws.onopen = () => {
+            connected = true
             try {
                 ws.send(JSON.stringify({ action: 'helloMobile', name: 'NeoStream Mobile' }))
             } catch { /* cai no retry do onclose */ }
         }
         ws.onmessage = event => {
-            const push = parseDesktopPush(typeof event.data === 'string' ? event.data : '')
-            if (push) void playPushed(push)
+            const text = typeof event.data === 'string' ? event.data : ''
+            const push = parseDesktopPush(text)
+            if (push) { void playPushed(push); return }
+            const vod = parseVodPush(text)
+            if (vod) { void playPushedVod(vod); return }
+            const notice = parseNotifyPush(text)
+            if (notice) void notifyNow(notice.title, notice.body, '/(tabs)/home')
         }
         const scheduleRetry = () => {
+            connected = false
             if (socket !== ws) return // desconexão pedida ou já substituída
             socket = null
             retryTimer = setTimeout(() => { void connectDesktopLink() }, RETRY_MS)

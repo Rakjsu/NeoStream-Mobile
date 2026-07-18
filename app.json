@@ -2,7 +2,7 @@
   "expo": {
     "name": "NeoStream",
     "slug": "neostream-mobile",
-    "version": "0.12.0",
+    "version": "0.13.0",
     "orientation": "default",
     "icon": "./assets/images/icon.png",
     "scheme": "neostream",
@@ -26,11 +26,20 @@
       "intentFilters": [
         {
           "action": "VIEW",
-          "category": ["DEFAULT", "BROWSABLE"],
+          "category": [
+            "DEFAULT",
+            "BROWSABLE"
+          ],
           "data": [
-            { "mimeType": "application/x-mpegURL" },
-            { "mimeType": "audio/x-mpegurl" },
-            { "mimeType": "application/vnd.apple.mpegurl" }
+            {
+              "mimeType": "application/x-mpegURL"
+            },
+            {
+              "mimeType": "audio/x-mpegurl"
+            },
+            {
+              "mimeType": "application/vnd.apple.mpegurl"
+            }
           ]
         }
       ]

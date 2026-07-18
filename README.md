@@ -4,6 +4,8 @@ Player IPTV pra celular (Android primeiro) — o irmão mobile do [NeoStream des
 
 > **Status: v0.6** — streaming completo: catálogo (Xtream, M3U e portal MAC), guia visual com **catch-up/replay**, fichas com **TMDB**, downloads offline (com pausa), Chromecast, **multi-view 2×2**, modo infantil, biometria, multi-conta, 3 idiomas e **Android TV**.
 
+> 📺 Rodando na **Android TV** (emulador, D-pad por adb, Maestro): [docs/ANDROID_TV.md](docs/ANDROID_TV.md)
+
 ## Funcionalidades
 
 - **Contas**: Xtream Codes, lista M3U (URL **ou arquivo**, séries por `SxxEyy`) e **portal Stalker/MAC** (TV ao vivo); multi-conta com apelidos e troca rápida

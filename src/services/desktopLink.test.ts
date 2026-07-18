@@ -1,4 +1,10 @@
 import { describe, expect, it, vi } from 'vitest'
+
+// O desktopLink agora importa o notify (expo-notifications referencia __DEV__,
+// que não existe no ambiente do vitest) — mock total no grafo do teste.
+vi.mock('./notify', () => ({
+    notifyNow: vi.fn(async () => undefined),
+}))
 import { parseDesktopPush } from './desktopLink'
 
 // Hoisted pelo vitest — evita os imports reais (que puxam react-native).

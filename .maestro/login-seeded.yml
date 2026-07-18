@@ -1,0 +1,48 @@
+# 🔐 Login Xtream com conta seedada por variáveis de ambiente (item 127).
+# O Maestro injeta automaticamente as env vars com prefixo MAESTRO_:
+#
+#   MAESTRO_XTREAM_URL=http://servidor.tv:8080 \
+#   MAESTRO_XTREAM_USER=usuario MAESTRO_XTREAM_PASS=senha \
+#   maestro test .maestro/login-seeded.yml
+#
+# No CI o workflow "Maestro E2E" só roda esta tag quando os secrets
+# MAESTRO_XTREAM_* estiverem configurados no repositório.
+appId: com.rakjsu.neostream
+tags:
+    - seeded
+---
+- launchApp:
+    clearState: true
+
+# Primeira execução cai no onboarding — pula pro login.
+- runFlow:
+    when:
+        visible:
+            text: ".*(Começar|Get started|Comenzar).*"
+    commands:
+        - tapOn:
+              text: ".*(Começar|Get started|Comenzar).*"
+
+# Formulário Xtream: URL + usuário + senha (placeholders do login.tsx).
+- extendedWaitUntil:
+    visible:
+        text: "http://servidor.tv:8080"
+    timeout: 20000
+- tapOn:
+    text: "http://servidor.tv:8080"
+- inputText: ${MAESTRO_XTREAM_URL}
+- tapOn:
+    text: ".*(usuário|username|usuario).*"
+- inputText: ${MAESTRO_XTREAM_USER}
+- tapOn:
+    text: ".*(senha|password|contraseña).*"
+- inputText: ${MAESTRO_XTREAM_PASS}
+- hideKeyboard
+- tapOn:
+    text: ".*(Entrar|Sign in).*"
+
+# Autenticou e chegou nas abas (Início/TV) com o catálogo carregando.
+- extendedWaitUntil:
+    visible:
+        text: ".*(Início|Home|Inicio).*"
+    timeout: 60000

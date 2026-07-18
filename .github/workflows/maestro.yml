@@ -55,12 +55,20 @@ jobs:
           disable-animations: true
           script: |
             adb install android/app/build/outputs/apk/release/app-release.apk
-            maestro test .maestro/ --format junit --output maestro-report.xml
+            maestro test .maestro/ --exclude-tags seeded --format junit --output maestro-report.xml
+            # Flows com conta seedada só rodam quando os secrets existem.
+            if [ -n "$MAESTRO_XTREAM_URL" ]; then
+              maestro test .maestro/ --include-tags seeded --format junit --output maestro-seeded-report.xml
+            fi
+        env:
+          MAESTRO_XTREAM_URL: ${{ secrets.MAESTRO_XTREAM_URL }}
+          MAESTRO_XTREAM_USER: ${{ secrets.MAESTRO_XTREAM_USER }}
+          MAESTRO_XTREAM_PASS: ${{ secrets.MAESTRO_XTREAM_PASS }}
 
       - name: Upload Maestro report
         if: always()
         uses: actions/upload-artifact@v7
         with:
           name: maestro-report
-          path: maestro-report.xml
+          path: maestro-*report.xml
           if-no-files-found: ignore

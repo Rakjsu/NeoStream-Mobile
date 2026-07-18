@@ -14,6 +14,7 @@ import { cachedFetch, getClient } from '../services/session'
 import { tapLight } from '../services/haptics'
 import type { Category, LiveChannel } from '../services/xtream'
 import { rankChannels } from '../services/zap'
+import { isMvLayout, mvCellFrame, mvSlotCount, nextMvLayout, type MvLayout } from '../services/mvLayout'
 import { EmptyState, Loading, SearchBar, TvTouchable } from '../ui/components'
 import { colors, spacing } from '../ui/theme'
 import { t, tf } from '../i18n/strings'
@@ -43,8 +44,24 @@ function isDoubleTap(ref: { current: { index: number; at: number } }, index: num
 
 const SAVE_KEY = 'neostream_multiview'
 const PRESETS_KEY = 'neostream_multiview_presets'
-type Layout = '2x2' | '1x2'
-type PresetMap = Record<string, { slots: Slot[]; layout: Layout }>
+type PresetMap = Record<string, { slots: Slot[]; layout: MvLayout }>
+
+// Ícone do botão de ciclo de layout no header.
+const MV_LAYOUT_ICONS = {
+    '2x2': 'grid-outline',
+    '1x2': 'tablet-landscape-outline',
+    '1+2': 'browsers-outline',
+    '1+3': 'albums-outline',
+} as const
+
+/** Frame absoluto (em %) do quadrante — os mosaicos 1+2/1+3 não saem de flexWrap. */
+function mvFrameStyle(layout: MvLayout, index: number) {
+    const frame = mvCellFrame(layout, index)
+    return {
+        left: `${frame.left}%`, top: `${frame.top}%`,
+        width: `${frame.width}%`, height: `${frame.height}%`,
+    } as const
+}
 
 /**
  * Multi-view 2×2 (tablet/TV): até 4 canais ao vivo lado a lado. Toque num
@@ -53,7 +70,7 @@ type PresetMap = Record<string, { slots: Slot[]; layout: Layout }>
  */
 export default function MultiView() {
     const [slots, setSlots] = useState<Slot[]>([EMPTY_SLOT, EMPTY_SLOT, EMPTY_SLOT, EMPTY_SLOT])
-    const [layout, setLayout] = useState<Layout>('2x2')
+    const [layout, setLayout] = useState<MvLayout>('2x2')
     const [active, setActive] = useState(0)
     const [picking, setPicking] = useState<number | null>(null)
 
@@ -84,10 +101,10 @@ export default function MultiView() {
     useEffect(() => {
         queueMicrotask(() => {
             void AsyncStorage.getItem(SAVE_KEY).then(raw => {
-                const saved = raw ? (JSON.parse(raw) as { slots?: Slot[]; layout?: Layout }) : null
+                const saved = raw ? (JSON.parse(raw) as { slots?: Slot[]; layout?: MvLayout }) : null
                 if (saved?.slots?.some(slot => slot.url)) {
                     setSlots(saved.slots.slice(0, 4))
-                    if (saved.layout) setLayout(saved.layout)
+                    if (isMvLayout(saved.layout)) setLayout(saved.layout)
                 } else {
                     setPicking(0) // primeira vez: já abre escolhendo o 1º canal
                 }
@@ -95,7 +112,7 @@ export default function MultiView() {
         })
     }, [])
 
-    const persist = (nextSlots: Slot[], nextLayout: Layout) => {
+    const persist = (nextSlots: Slot[], nextLayout: MvLayout) => {
         void AsyncStorage.setItem(SAVE_KEY, JSON.stringify({ slots: nextSlots, layout: nextLayout })).catch(() => undefined)
     }
     const [channels, setChannels] = useState<LiveChannel[] | null>(null)
@@ -187,12 +204,12 @@ export default function MultiView() {
                             style={{ paddingHorizontal: 14 }}
                             accessibilityLabel={t('multiviewLayout')}
                             onPress={() => {
-                                const next: Layout = layout === '2x2' ? '1x2' : '2x2'
+                                const next = nextMvLayout(layout)
                                 setLayout(next)
                                 persist(slots, next)
                             }}
                         >
-                            <Ionicons name={layout === '2x2' ? 'grid-outline' : 'tablet-landscape-outline'} size={20} color={colors.text} />
+                            <Ionicons name={MV_LAYOUT_ICONS[layout]} size={20} color={colors.text} />
                         </TvTouchable>
                     ),
                 }}
@@ -222,11 +239,11 @@ export default function MultiView() {
                 {presetMsg ? <Text style={styles.presetMsg}>{presetMsg}</Text> : null}
             </View>
             <View style={styles.grid}>
-                {slots.slice(0, layout === '1x2' ? 2 : 4).map((slot, index) => (
+                {slots.slice(0, mvSlotCount(layout)).map((slot, index) => (
                     <TvTouchable
                         key={index}
                         accessibilityLabel={slot.name || t('multiviewAdd')}
-                        style={[styles.cell, layout === '1x2' && styles.cellHalf,
+                        style={[styles.cell, mvFrameStyle(layout, index),
                             index === active && slot.url ? styles.cellActive : null]}
                         onPress={() => pressSlot(index)}
                         onLongPress={() => setPicking(index)}
@@ -309,15 +326,13 @@ const styles = StyleSheet.create({
     presetChipOn: { borderColor: colors.accent, backgroundColor: colors.accentSoft },
     presetText: { color: colors.textDim, fontSize: 13, fontWeight: '800' },
     presetMsg: { flex: 1, color: colors.textDim, fontSize: 12 },
-    grid: { flex: 1, flexDirection: 'row', flexWrap: 'wrap' },
+    grid: { flex: 1 },
     cell: {
-        width: '50%',
-        height: '50%',
+        position: 'absolute',
         borderColor: colors.border,
         borderWidth: StyleSheet.hairlineWidth,
     },
     cellActive: { borderColor: colors.accent, borderWidth: 2 },
-    cellHalf: { width: '50%', height: '100%' },
     video: { flex: 1 },
     cellLabel: {
         position: 'absolute',

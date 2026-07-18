@@ -8,6 +8,7 @@ import { t } from '../i18n/strings'
 import { useRef, useState } from 'react'
 import { useNetworkState } from 'expo-network'
 import { skipImages } from '../services/dataSaver'
+import { pingActivity } from '../services/idle'
 import { colors, spacing } from './theme'
 import { isTV, tvSize } from './tv'
 
@@ -69,15 +70,18 @@ export function EmptyState({ icon, label }: { icon: keyof typeof Ionicons.glyphM
  * TouchableOpacity com foco visível de D-pad (Android TV): a borda acende
  * quando o controle chega no item. No touch, nada muda.
  */
-export function TvTouchable({ focusStyle, style, children, onFocus, onBlur, ...props }: React.ComponentProps<typeof TouchableOpacity> & { focusStyle?: object }) {
+export function TvTouchable({ focusStyle, style, children, onFocus, onBlur, onPress, ...props }: React.ComponentProps<typeof TouchableOpacity> & { focusStyle?: object }) {
     const [focused, setFocused] = useState(false)
     return (
         <TouchableOpacity
             accessibilityRole="button"
             {...props}
             style={[style, focused && (focusStyle ?? styles.tvFocus)]}
-            onFocus={event => { setFocused(true); onFocus?.(event) }}
+            // Foco do D-pad e toques alimentam o relógio de inatividade
+            // do protetor de tela da TV.
+            onFocus={event => { setFocused(true); pingActivity(); onFocus?.(event) }}
             onBlur={event => { setFocused(false); onBlur?.(event) }}
+            onPress={onPress ? event => { pingActivity(); onPress(event) } : undefined}
         >
             {children}
         </TouchableOpacity>

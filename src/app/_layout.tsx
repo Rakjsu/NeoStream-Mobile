@@ -1,5 +1,5 @@
-import { router, Stack } from 'expo-router'
-import { useEffect } from 'react'
+import { router, Stack, usePathname } from 'expo-router'
+import { useEffect, useRef } from 'react'
 import { StatusBar } from 'expo-status-bar'
 import AsyncStorage from '@react-native-async-storage/async-storage'
 import { notifyNow, onNotificationRoute } from '../services/notify'
@@ -11,6 +11,8 @@ import { connectDesktopLink } from '../services/desktopLink'
 import { ErrorBoundary } from '../ui/ErrorBoundary'
 import { recordError } from '../services/errorLog'
 import { colors } from '../ui/theme'
+import { isTV } from '../ui/tv'
+import { idleMinutes, pingActivity } from '../services/idle'
 import { t, tf } from '../i18n/strings'
 
 // 🧯 Erros JS não tratados (fora do React) também entram no log dos Ajustes.
@@ -30,6 +32,31 @@ function installGlobalErrorLog(): void {
     })
 }
 installGlobalErrorLog()
+
+/**
+ * 🌙 Protetor de tela da TV: 5 min sem interação fora do player abre a
+ * tela ambiente. Os pings vêm do TvTouchable (foco do D-pad e toques).
+ */
+const SCREENSAVER_BLOCKED = ['/player', '/multiview', '/screensaver', '/wrapped']
+function ScreensaverArm() {
+    const pathname = usePathname()
+    const pathRef = useRef(pathname)
+    useEffect(() => {
+        pathRef.current = pathname
+        pingActivity() // navegar também é atividade
+    }, [pathname])
+    useEffect(() => {
+        const timer = setInterval(() => {
+            void (async () => {
+                const off = (await AsyncStorage.getItem('neostream_tv_screensaver').catch(() => null)) === '0'
+                if (off || SCREENSAVER_BLOCKED.includes(pathRef.current)) return
+                if (idleMinutes() >= 5) router.push('/screensaver')
+            })()
+        }, 30_000)
+        return () => clearInterval(timer)
+    }, [])
+    return null
+}
 
 export default function RootLayout() {
     // Clique em notificação (ex.: download concluído) navega pra rota do payload.
@@ -70,6 +97,7 @@ export default function RootLayout() {
     return (
         <ErrorBoundary>
             <StatusBar style="light" />
+            {isTV ? <ScreensaverArm /> : null}
             <Stack
                 screenOptions={{
                     headerStyle: { backgroundColor: colors.bg },
@@ -90,6 +118,7 @@ export default function RootLayout() {
                 <Stack.Screen name="history" options={{ title: t('historyTitle') }} />
                 <Stack.Screen name="now" options={{ title: t('nowTitle') }} />
                 <Stack.Screen name="wrapped" options={{ headerShown: false }} />
+                <Stack.Screen name="screensaver" options={{ headerShown: false, animation: 'fade' }} />
             </Stack>
         </ErrorBoundary>
     )

@@ -5,6 +5,7 @@ import { useEffect, useState } from 'react'
 import { needsUnlock } from '../services/appLock'
 import { initProfiles, shouldPickProfile } from '../services/profiles'
 import { initTheme } from '../ui/theme'
+import { initTv } from '../ui/tv'
 import { getClient, loadAccount } from '../services/session'
 import { listRecentChannels } from '../services/recents'
 import { Loading } from '../ui/components'
@@ -23,9 +24,10 @@ export default function Index() {
             AsyncStorage.getItem('neostream_onboarded').catch(() => null),
             initProfiles(),
             initTheme(),
+            initTv(),
             AsyncStorage.getItem('neostream_boot_tab').catch(() => null),
             Linking.getInitialURL().catch(() => null),
-        ]).then(([account, locked, onboarded, , , bootTab, initialUrl]) => {
+        ]).then(([account, locked, onboarded, , , , bootTab, initialUrl]) => {
             if (!alive) return
             // Lista .m3u aberta de fora (navegador/arquivos) → login preenchido.
             const sharedM3u = typeof initialUrl === 'string'

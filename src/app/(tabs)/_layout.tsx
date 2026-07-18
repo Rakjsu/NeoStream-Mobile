@@ -9,9 +9,12 @@ import { stopRecording } from '../../services/recorder'
 import { OfflineBanner } from '../../ui/components'
 import { t } from '../../i18n/strings'
 import { colors } from '../../ui/theme'
-import { isTV, overscan, tvSize } from '../../ui/tv'
+import { isTV, tvSize, useOverscan } from '../../ui/tv'
 
 export default function TabsLayout() {
+    // Overscan ajustável nos Ajustes (seção 📺 TV) — aplica na hora.
+    const overscan = useOverscan()
+
     // Gravação agendada: checa em QUALQUER aba, a cada minuto com o app aberto.
     useEffect(() => {
         const run = () => { void checkScheduledRecordings() }

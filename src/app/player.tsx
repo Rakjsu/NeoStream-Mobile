@@ -13,6 +13,8 @@ import { enqueueDownloads, getDownload, isSmartDownloads, removeDownload } from 
 import { castAvailable, castToCurrentSession, onCastSessionStarted, showCastPicker, type CastControls } from '../services/cast'
 import { fetchChapters, findIntroChapter, type IntroChapter } from '../services/chapters'
 import { nextEpisodeAfter, type QueuedEpisode } from '../services/episodeQueue'
+import { nextVodAfter } from '../services/watchQueue'
+import { fetchSrtForTitle, cueAt, hasOsKey, type SubtitleCue } from '../services/opensubtitles'
 import { getEntry, resumePosition, saveSample, type ProgressKind } from '../services/progress'
 import { listRecentChannels, recordRecentChannel } from '../services/recents'
 import { loadFavorites, persistToggle } from '../services/favorites'
@@ -34,12 +36,16 @@ import { currentZapChannel, hasZapContext, peekZap, rankChannels, zapBy, zapList
 import { TvTouchable } from '../ui/components'
 import { isTV, tvSize } from '../ui/tv'
 import { colors, spacing } from '../ui/theme'
-import { t, tf } from '../i18n/strings'
+import { t, tf, currentLang } from '../i18n/strings'
 
 // Atribuições de faixa ficam fora do componente: o expo-video expõe as
 // faixas como propriedades atribuíveis, o que a regra react-hooks/immutability
 // não deixa fazer direto num handler.
 type TrackPlayer = { audioTrack: AudioTrack | null; subtitleTrack: SubtitleTrack | null }
+
+// Item do overlay "A seguir": episódio da série OU VOD da fila — o kind
+// decide a URL no replace (fica no módulo pra não "reativar" o playNext).
+type UpNextItem = QueuedEpisode & { kind: 'episode' | 'movie' }
 function applyAudioTrack(target: TrackPlayer, track: AudioTrack) {
     target.audioTrack = track
 }
@@ -330,6 +336,28 @@ export default function Player() {
         // eslint-disable-next-line react-hooks/exhaustive-deps
     }, [status])
 
+    // 💬 Legenda externa (OpenSubtitles, credenciais do usuário): overlay
+    // React próprio sincronizado por polling — legendas embutidas continuam
+    // com o botão nativo. Obs.: overlay não aparece dentro do PiP.
+    const [osReady, setOsReady] = useState(false)
+    const [extCues, setExtCues] = useState<SubtitleCue[] | null>(null)
+    const [extSubText, setExtSubText] = useState<string | null>(null)
+    const [subSize, setSubSize] = useState(18)
+    useEffect(() => {
+        void hasOsKey().then(setOsReady)
+        void AsyncStorage.getItem('neostream_sub_size').then(raw => {
+            const parsed = Number(raw)
+            if (parsed === 14 || parsed === 18 || parsed === 24) setSubSize(parsed)
+        })
+    }, [])
+    useEffect(() => {
+        if (!extCues) { queueMicrotask(() => setExtSubText(null)); return }
+        const timer = setInterval(() => {
+            setExtSubText(cueAt(extCues, (player.currentTime ?? 0) * 1000))
+        }, 400)
+        return () => clearInterval(timer)
+    }, [extCues, player])
+
     const showTrackToast = (text: string) => {
         setTrackToast(text)
         if (toastTimer.current) clearTimeout(toastTimer.current)
@@ -569,6 +597,34 @@ export default function Player() {
         const next = audioTracks[(index + 1) % audioTracks.length]
         applyAudioTrack(player, next)
         showTrackToast(`🎧 ${next.label || next.language || tf('audioN', { n: (index + 1) % audioTracks.length + 1 })}`)
+    }
+
+    // Ciclo do botão 💬: carregar → Aa 18 → Aa 24 → desligar (padrão dos
+    // outros botões de ciclo do player: aspecto, sleep, faixas).
+    const cycleExtSub = () => {
+        if (!extCues) {
+            showTrackToast(t('subLoading'))
+            void (async () => {
+                const lang = ({ pt: 'pt-br', en: 'en', es: 'es' } as Record<string, string>)[currentLang()] ?? 'en'
+                const cues = await fetchSrtForTitle(String(title ?? ''), lang)
+                if (cues) { setExtCues(cues); showTrackToast(t('subLoaded')) }
+                else showTrackToast(t('subNone'))
+            })()
+            return
+        }
+        const order = [14, 18, 24]
+        const index = order.indexOf(subSize)
+        if (index >= 0 && index < order.length - 1) {
+            const next = order[index + 1]
+            setSubSize(next)
+            void AsyncStorage.setItem('neostream_sub_size', String(next))
+            showTrackToast(tf('subSize', { size: String(next) }))
+        } else {
+            setExtCues(null)
+            setSubSize(14)
+            void AsyncStorage.setItem('neostream_sub_size', '14')
+            showTrackToast(t('subOff'))
+        }
     }
 
     const cycleSubtitle = () => {
@@ -953,10 +1009,12 @@ export default function Player() {
     // Autoplay: fim do episódio → overlay "A seguir" com contagem regressiva.
     // A fila vem da tela da série (episodeQueue); trocar de episódio é um
     // router.replace com os params novos — o effect do `url` recria o player.
-    const [upNext, setUpNext] = useState<QueuedEpisode | null>(null)
+    // 🎬 O overlay "A seguir" também serve pra fila de VODs (item 26) — o
+    // kind vem DENTRO do item, então o playNext continua não-reativo.
+    const [upNext, setUpNext] = useState<UpNextItem | null>(null)
     const [countdown, setCountdown] = useState(5)
 
-    const playNext = (episode: QueuedEpisode) => {
+    const playNext = (episode: UpNextItem) => {
         void (async () => {
             const client = await getClient()
             if (!client) return
@@ -964,8 +1022,10 @@ export default function Player() {
             router.replace({
                 pathname: '/player',
                 params: {
-                    url: client.seriesStreamUrl(episode.sid, episode.container),
-                    title: episode.title, pid: episode.pid, kind: 'episode',
+                    url: episode.kind === 'movie'
+                        ? client.vodStreamUrl(episode.sid, episode.container)
+                        : client.seriesStreamUrl(episode.sid, episode.container),
+                    title: episode.title, pid: episode.pid, kind: episode.kind,
                     sid: episode.sid, container: episode.container, cover: episode.cover,
                 },
             })
@@ -973,7 +1033,19 @@ export default function Player() {
     }
 
     useEventListener(player, 'playToEnd', () => {
-        if (kind !== 'episode' || !trackable) return
+        if (!trackable) return
+        if (kind === 'movie') {
+            // 🎬 Fila de reprodução: emenda o próximo VOD montado nas fichas.
+            if (stopAfterRef.current) {
+                stopAfterRef.current = false
+                setStopAfter(false)
+                return
+            }
+            const nextVod = nextVodAfter(String(pid))
+            if (nextVod) { setCountdown(5); setUpNext({ ...nextVod, kind: 'movie' }) }
+            return
+        }
+        if (kind !== 'episode') return
         // Smart downloads: visto baixado sai; o próximo entra na fila sozinho.
         void (async () => {
             if (!(await isSmartDownloads())) return
@@ -997,7 +1069,7 @@ export default function Player() {
             return // pediu pra parar aqui — sem próximo episódio
         }
         const next = nextEpisodeAfter(String(pid))
-        if (next) { setCountdown(5); setUpNext(next) }
+        if (next) { setCountdown(5); setUpNext({ ...next, kind: 'episode' }) }
     })
 
     useEffect(() => {
@@ -1070,7 +1142,7 @@ export default function Player() {
     }, [kind, pid])
     const skipToNext = () => {
         const next = nextEpisodeAfter(String(pid))
-        if (next) playNext(next)
+        if (next) playNext({ ...next, kind: 'episode' })
     }
 
     // ❤️ Favoritar o canal atual sem sair do player (re-checa a cada zap).
@@ -1357,8 +1429,19 @@ export default function Player() {
                         <Ionicons name="chatbox-ellipses" size={20} color={colors.text} />
                     </TvTouchable>
                 ) : null}
+                {osReady && live !== '1' ? (
+                    <TvTouchable style={styles.trackBtn} accessibilityLabel={t('a11yExtSub')} onPress={cycleExtSub}>
+                        <Ionicons name="chatbox-outline" size={20} color={extCues ? colors.accent : colors.text} />
+                    </TvTouchable>
+                ) : null}
             </View>
             )}
+
+            {extSubText ? (
+                <View pointerEvents="none" style={styles.extSubWrap}>
+                    <Text style={[styles.extSubText, { fontSize: subSize }]}>{extSubText}</Text>
+                </View>
+            ) : null}
 
             {trackToast ? (
                 <View style={styles.trackToast}>
@@ -1738,6 +1821,21 @@ const styles = StyleSheet.create({
         gap: spacing.md,
     },
     numPadIcon: { color: colors.text, fontSize: 13, fontWeight: '700' },
+    extSubWrap: {
+        position: 'absolute',
+        left: 24,
+        right: 24,
+        bottom: 72,
+        alignItems: 'center',
+    },
+    extSubText: {
+        color: '#fff',
+        backgroundColor: 'rgba(0,0,0,0.65)',
+        paddingHorizontal: 10,
+        paddingVertical: 4,
+        borderRadius: 6,
+        textAlign: 'center',
+    },
     numPad: {
         position: 'absolute',
         right: 64,

@@ -18,6 +18,7 @@ import { clearErrors, listErrors, type LoggedError } from '../../services/errorL
 import { cancelScheduled, getNotifySnoozeUntil, listScheduled, setNotifySnooze, type ScheduledReminder } from '../../services/notify'
 import { listRecurring, removeRecurring, type RecurringReminder } from '../../services/recurring'
 import { buildSetupLink } from '../../services/setupLink'
+import { getOsCredentials, setOsCredentials } from '../../services/opensubtitles'
 import { getTmdbKey, setTmdbKey } from '../../services/tmdb'
 import { hideChannel, listHiddenChannels, unhideChannel, type HiddenChannel } from '../../services/hidden'
 import { applyBackup, collectBackup, decryptBackup, isEncryptedBackup, mergeAccountLists, parseBackup, parseDesktopBackupAccounts, protectBackup, serializeBackup } from '../../services/backup'
@@ -221,6 +222,9 @@ export default function SettingsTab() {
     const [gatePin, setGatePin] = useState('')
     const [gateError, setGateError] = useState('')
     const [tmdbDraft, setTmdbDraft] = useState('')
+    const [osKeyDraft, setOsKeyDraft] = useState('')
+    const [osUserDraft, setOsUserDraft] = useState('')
+    const [osPassDraft, setOsPassDraft] = useState('')
     const [speedMsg, setSpeedMsg] = useState('')
     const [wifiOnly, setWifiOnlyState] = useState(false)
     const [smartDl, setSmartDlState] = useState(false)
@@ -263,6 +267,11 @@ export default function SettingsTab() {
         void listKidsCategories().then(list => setKidsCatCount(list.length))
         void listBlockedCategories().then(list => setBlockedCount(list.length))
         void getTmdbKey().then(setTmdbDraft)
+        void getOsCredentials().then(creds => {
+            setOsKeyDraft(creds.apiKey)
+            setOsUserDraft(creds.username)
+            setOsPassDraft(creds.password)
+        })
         void loadAppLock().then(state => setLockOn(state.enabled))
         void listAutoBackups().then(setAutoCopies)
         void listHiddenChannels().then(setHiddenList)
@@ -1678,6 +1687,46 @@ export default function SettingsTab() {
                     <TvTouchable
                         style={styles.parentalBtn}
                         onPress={() => { void setTmdbKey(tmdbDraft).then(() => Alert.alert(t('tmdbSaved'))) }}
+                    >
+                        <Text style={styles.parentalBtnText}>{t('saveBtn')}</Text>
+                    </TvTouchable>
+                </View>
+                <Text style={styles.parentalHint}>{t('osHint')}</Text>
+                <TextInput
+                    style={styles.pinInput}
+                    value={osKeyDraft}
+                    onChangeText={setOsKeyDraft}
+                    placeholder={t('osKeyPh')}
+                    placeholderTextColor={colors.textDim}
+                    autoCapitalize="none"
+                    autoCorrect={false}
+                />
+                <View style={styles.pinRow}>
+                    <TextInput
+                        style={styles.pinInput}
+                        value={osUserDraft}
+                        onChangeText={setOsUserDraft}
+                        placeholder={t('osUserPh')}
+                        placeholderTextColor={colors.textDim}
+                        autoCapitalize="none"
+                        autoCorrect={false}
+                    />
+                    <TextInput
+                        style={styles.pinInput}
+                        value={osPassDraft}
+                        onChangeText={setOsPassDraft}
+                        placeholder={t('osPassPh')}
+                        placeholderTextColor={colors.textDim}
+                        secureTextEntry
+                        autoCapitalize="none"
+                        autoCorrect={false}
+                    />
+                    <TvTouchable
+                        style={styles.parentalBtn}
+                        onPress={() => {
+                            void setOsCredentials({ apiKey: osKeyDraft, username: osUserDraft, password: osPassDraft })
+                                .then(() => Alert.alert(t('osSaved')))
+                        }}
                     >
                         <Text style={styles.parentalBtnText}>{t('saveBtn')}</Text>
                     </TvTouchable>

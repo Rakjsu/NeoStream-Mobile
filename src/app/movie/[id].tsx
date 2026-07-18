@@ -9,6 +9,7 @@ import { activeProgress, getDownload, removeDownload, startDownload, subscribeDo
 import { tapLight } from '../../services/haptics'
 import { emptyFavorites, isFavorite, loadFavorites, persistToggle, type Favorites } from '../../services/favorites'
 import { listCollections, toggleInCollection } from '../../services/collections'
+import { addToWatchQueue } from '../../services/watchQueue'
 import { buildProgressId, getEntry, progressPct, resumePosition } from '../../services/progress'
 import { getClient, resolvePlayableUrl , cachedFetch } from '../../services/session'
 import type { VodMovie , VodDetails } from '../../services/xtream'
@@ -193,6 +194,20 @@ export default function MovieDetail() {
                     onPress={() => { tapLight(); void persistToggle('movie', String(id)).then(setFavorites) }}
                 >
                     <Ionicons name={fav ? 'heart' : 'heart-outline'} size={20} color={fav ? '#fff' : colors.danger} />
+                </TouchableOpacity>
+                <TouchableOpacity
+                    style={styles.favBtn}
+                    accessibilityLabel={t('queueAdd')}
+                    onPress={() => {
+                        tapLight()
+                        const size = addToWatchQueue({
+                            pid, sid: String(id), container: String(container || 'mp4'),
+                            title: name ?? '', cover: details?.cover || String(cover ?? ''),
+                        })
+                        Alert.alert(tf('queueAdded', { n: String(size) }))
+                    }}
+                >
+                    <Ionicons name="albums-outline" size={20} color={colors.text} />
                 </TouchableOpacity>
                 <TouchableOpacity
                     style={styles.favBtn}

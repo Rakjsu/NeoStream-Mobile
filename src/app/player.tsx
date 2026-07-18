@@ -1439,7 +1439,7 @@ export default function Player() {
 
             {extSubText ? (
                 <View pointerEvents="none" style={styles.extSubWrap}>
-                    <Text style={[styles.extSubText, { fontSize: subSize }]}>{extSubText}</Text>
+                    <Text style={[styles.extSubText, { fontSize: tvSize(subSize) }]}>{extSubText}</Text>
                 </View>
             ) : null}
 

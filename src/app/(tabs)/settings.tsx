@@ -45,7 +45,7 @@ import { heatmapCells, loadHabits } from '../../services/habit'
 import { parseExpiry } from '../../services/xtream'
 import { TvTouchable } from '../../ui/components'
 import { ACCENT_PRESETS, colors, currentAccent, setAccent, setThemeVariant, spacing, themeVariant, type AccentName } from '../../ui/theme'
-import { isTV, tvSize } from '../../ui/tv'
+import { getOverscan, isTV, OVERSCAN_STEPS, setOverscan, tvSize } from '../../ui/tv'
 import { t, tf } from '../../i18n/strings'
 
 
@@ -147,6 +147,63 @@ function InfoRow({ label, value }: { label: string; value: string }) {
         </View>
     )
 }
+
+/** 📺 Ajustes específicos da TV: overscan manual + protetor de tela. */
+function TvSection() {
+    const [oscan, setOscan] = useState(getOverscan())
+    const [saver, setSaver] = useState(true)
+    useEffect(() => {
+        queueMicrotask(() => {
+            void AsyncStorage.getItem('neostream_tv_screensaver')
+                .then(raw => setSaver(raw !== '0'))
+                .catch(() => undefined)
+        })
+    }, [])
+    return (
+        <>
+            <Text style={styles.section}>{t('secTv')}</Text>
+            <View style={[styles.card, { gap: spacing.sm }]}>
+                <Text style={styles.parentalHint}>{t('tvOverscanHint')}</Text>
+                <View style={{ flexDirection: 'row', gap: spacing.sm }}>
+                    {OVERSCAN_STEPS.map(px => (
+                        <TvTouchable
+                            key={px}
+                            style={[stylesTv.chip, oscan === px && stylesTv.chipOn]}
+                            accessibilityLabel={`${t('tvOverscan')} ${px}`}
+                            onPress={() => { setOscan(px); setOverscan(px) }}
+                        >
+                            <Text style={[stylesTv.chipText, oscan === px && { color: colors.accent }]}>{px}</Text>
+                        </TvTouchable>
+                    ))}
+                </View>
+                <TvTouchable
+                    style={styles.saverRow}
+                    onPress={() => {
+                        const next = !saver
+                        setSaver(next)
+                        void AsyncStorage.setItem('neostream_tv_screensaver', next ? '1' : '0').catch(() => undefined)
+                    }}
+                >
+                    <Ionicons
+                        name={saver ? 'checkbox' : 'square-outline'}
+                        size={20}
+                        color={saver ? colors.accent : colors.textDim}
+                    />
+                    <View style={{ flex: 1 }}>
+                        <Text style={styles.saverTitle}>{t('tvScreensaver')}</Text>
+                        <Text style={styles.parentalHint}>{t('tvScreensaverHint')}</Text>
+                    </View>
+                </TvTouchable>
+            </View>
+        </>
+    )
+}
+
+const stylesTv = StyleSheet.create({
+    chip: { minWidth: 44, alignItems: 'center', paddingVertical: 6, borderRadius: 8, borderWidth: 1, borderColor: colors.border },
+    chipOn: { borderColor: colors.accent, backgroundColor: colors.accentSoft },
+    chipText: { color: colors.textDim, fontSize: tvSize(13), fontWeight: '700' },
+})
 
 export default function SettingsTab() {
     const [accounts, setAccounts] = useState<StoredAccount[]>([])
@@ -1307,6 +1364,7 @@ export default function SettingsTab() {
             </View>
 
             </> : null}
+            {isTV ? <TvSection /> : null}
             <TvTouchable disabled={!isTV} onPress={() => toggleSec('remindersSection')}>
                 <Text style={styles.section}>{isTV ? (openSecs.has('remindersSection') ? '▾ ' : '▸ ') : ''}{t('remindersSection')}</Text>
             </TvTouchable>

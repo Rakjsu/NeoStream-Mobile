@@ -6,7 +6,8 @@
  * canal com a PRÓPRIA conta. Endereço+PIN vêm do pareamento (pairdesktop).
  */
 import AsyncStorage from '@react-native-async-storage/async-storage'
-import { notifyNow } from './notify'
+import { listScheduled, notifyAt, notifyNow } from './notify'
+import { isFavorite, loadFavorites, persistToggle } from './favorites'
 import { router } from 'expo-router'
 import { getClient } from './session'
 import { setZapContext } from './zap'
@@ -47,6 +48,72 @@ export async function setDesktopLinkConfig(partial: Partial<DesktopLinkConfig>):
         await AsyncStorage.setItem(CONFIG_KEY, JSON.stringify(cachedConfig))
     } catch { /* best-effort */ }
     return cachedConfig
+}
+
+/** ⭐ Favoritos vindos do desktop (PURO): mapeia o type do desktop pro kind local. */
+export function parseFavoritesPush(text: string): { kind: 'live' | 'movie' | 'series'; id: string }[] | null {
+    let parsed: unknown
+    try {
+        parsed = JSON.parse(text)
+    } catch {
+        return null
+    }
+    const message = parsed as { type?: unknown; items?: unknown } | null
+    if (!message || message.type !== 'favorites' || !Array.isArray(message.items)) return null
+    const out: { kind: 'live' | 'movie' | 'series'; id: string }[] = []
+    for (const raw of message.items) {
+        const item = raw as { id?: unknown; type?: unknown } | null
+        if (!item || typeof item.id !== 'string' || !item.id) continue
+        const kind = item.type === 'channel' ? 'live'
+            : item.type === 'movie' ? 'movie'
+            : item.type === 'series' ? 'series'
+            : null
+        if (kind) out.push({ kind, id: item.id })
+    }
+    return out
+}
+
+/** ⏰ Lembretes vindos do desktop (PURO): só os futuros interessam. */
+export function parseRemindersPush(text: string, nowMs: number): { title: string; channelName: string; startMs: number }[] | null {
+    let parsed: unknown
+    try {
+        parsed = JSON.parse(text)
+    } catch {
+        return null
+    }
+    const message = parsed as { type?: unknown; items?: unknown } | null
+    if (!message || message.type !== 'reminders' || !Array.isArray(message.items)) return null
+    const out: { title: string; channelName: string; startMs: number }[] = []
+    for (const raw of message.items) {
+        const item = raw as { title?: unknown; channelName?: unknown; startIso?: unknown } | null
+        if (!item || typeof item.title !== 'string' || !item.title || typeof item.startIso !== 'string') continue
+        const startMs = Date.parse(item.startIso)
+        if (!Number.isFinite(startMs) || startMs <= nowMs) continue
+        out.push({
+            title: item.title,
+            channelName: typeof item.channelName === 'string' ? item.channelName : '',
+            startMs,
+        })
+    }
+    return out
+}
+
+// 🔄 Itens 123/124: favoritos entram por união (ids do provedor — mesmo
+// servidor casa direto); lembretes futuros viram notificações locais com
+// dedupe por título + horário (~1 min de tolerância).
+async function applyFavoritesSync(items: { kind: 'live' | 'movie' | 'series'; id: string }[]): Promise<void> {
+    const current = await loadFavorites()
+    for (const item of items) {
+        if (!isFavorite(current, item.kind, item.id)) await persistToggle(item.kind, item.id)
+    }
+}
+
+async function applyRemindersSync(items: { title: string; channelName: string; startMs: number }[]): Promise<void> {
+    const scheduled = await listScheduled()
+    for (const reminder of items.slice(0, 20)) {
+        const exists = scheduled.some(s => s.title === reminder.title && Math.abs(s.atMs - reminder.startMs) < 60_000)
+        if (!exists) await notifyAt(reminder.title, reminder.channelName, '/(tabs)/live', reminder.startMs)
+    }
 }
 
 /** Mensagem do desktop pedindo pra tocar um canal aqui (PURO). */
@@ -163,6 +230,9 @@ export async function connectDesktopLink(): Promise<void> {
             connected = true
             try {
                 ws.send(JSON.stringify({ action: 'helloMobile', name: 'NeoStream Mobile' }))
+                // 🔄 Pede o snapshot de favoritos e lembretes do desktop (v4.34+).
+                ws.send(JSON.stringify({ action: 'requestFavorites' }))
+                ws.send(JSON.stringify({ action: 'requestReminders' }))
             } catch { /* cai no retry do onclose */ }
         }
         ws.onmessage = event => {
@@ -171,6 +241,10 @@ export async function connectDesktopLink(): Promise<void> {
             if (push) { void playPushed(push); return }
             const vod = parseVodPush(text)
             if (vod) { void playPushedVod(vod); return }
+            const favorites = parseFavoritesPush(text)
+            if (favorites) { void applyFavoritesSync(favorites); return }
+            const reminders = parseRemindersPush(text, Date.now())
+            if (reminders) { void applyRemindersSync(reminders); return }
             const notice = parseNotifyPush(text)
             if (notice) void notifyNow(notice.title, notice.body, '/(tabs)/home')
         }

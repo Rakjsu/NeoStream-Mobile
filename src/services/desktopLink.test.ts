@@ -52,4 +52,24 @@ describe('parseVodPush / parseNotifyPush (pushes novos do desktop)', () => {
         expect(parseNotifyPush(JSON.stringify({ type: 'notifyMobile', body: 'sem título' }))).toBeNull()
         expect(parseNotifyPush('{}')).toBeNull()
     })
+
+    it('parseFavoritesPush mapeia channel→live e ignora lixo', async () => {
+        const { parseFavoritesPush } = await import('./desktopLink')
+        expect(parseFavoritesPush(JSON.stringify({ type: 'favorites', items: [
+            { id: '10', type: 'channel' }, { id: '20', type: 'movie' }, { id: '', type: 'series' }, { type: 'series' },
+        ] }))).toEqual([{ kind: 'live', id: '10' }, { kind: 'movie', id: '20' }])
+        expect(parseFavoritesPush(JSON.stringify({ type: 'favorites' }))).toBeNull()
+        expect(parseFavoritesPush('lixo')).toBeNull()
+    })
+
+    it('parseRemindersPush só devolve lembretes futuros válidos', async () => {
+        const { parseRemindersPush } = await import('./desktopLink')
+        const nowMs = Date.parse('2026-07-18T12:00:00Z')
+        expect(parseRemindersPush(JSON.stringify({ type: 'reminders', items: [
+            { title: 'Jogo', channelName: 'ESPN', startIso: '2026-07-18T15:00:00Z' },
+            { title: 'Passado', channelName: 'X', startIso: '2026-07-18T10:00:00Z' },
+            { title: '', startIso: '2026-07-18T15:00:00Z' },
+        ] }), nowMs)).toEqual([{ title: 'Jogo', channelName: 'ESPN', startMs: Date.parse('2026-07-18T15:00:00Z') }])
+        expect(parseRemindersPush('nada', nowMs)).toBeNull()
+    })
 })

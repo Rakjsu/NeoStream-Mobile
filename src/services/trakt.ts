@@ -288,6 +288,28 @@ export async function fetchTraktWatchedMovies(): Promise<string[]> {
     }
 }
 
+/** Episódios vistos no Trakt, achatados por série — pro sync inicial. */
+export interface TraktWatchedEpisode { show: string; season: number; episode: number }
+export async function fetchTraktWatchedEpisodes(): Promise<TraktWatchedEpisode[]> {
+    const token = await getToken()
+    const { clientId } = await getTraktCreds()
+    if (!token || !clientId) return []
+    try {
+        const rows = await traktGet('/sync/watched/shows', clientId, token.access) as {
+            show?: TraktHit
+            seasons?: { number: number; episodes?: { number: number }[] }[]
+        }[]
+        return rows.flatMap(row => {
+            const title = row.show?.title
+            if (!title) return []
+            return (row.seasons ?? []).flatMap(season =>
+                (season.episodes ?? []).map(ep => ({ show: title, season: season.number, episode: ep.number })))
+        })
+    } catch {
+        return []
+    }
+}
+
 /** Nota 1–10 no Trakt: filme direto; episódio avalia a SÉRIE (mais útil). */
 export async function traktRate(kind: 'movie' | 'episode', title: string, rating: number): Promise<boolean> {
     const token = await getToken()

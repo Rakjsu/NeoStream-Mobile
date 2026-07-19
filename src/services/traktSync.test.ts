@@ -1,4 +1,5 @@
 import { describe, expect, it } from 'vitest'
+import { pickTmdbHitIds } from './trakt'
 import { cleanTitle, episodeKey, traktWins, titleMatches } from './traktSync'
 import type { ProgressEntry } from './progress'
 
@@ -67,5 +68,17 @@ describe('titleMatches (fix: matching estrito, sem "Sex Drive" fantasma)', () =>
     it('substring solta NÃO casa — "Drive" não vira "Sex Drive"', () => {
         expect(titleMatches('Sex Drive: Rumo ao Sexo', 'Drive')).toBe(false)
         expect(titleMatches('Driven', 'Drive')).toBe(false)
+    })
+})
+
+describe('pickTmdbHitIds (resolução exata pelo TMDB id)', () => {
+    it('extrai os ids do tipo pedido', () => {
+        expect(pickTmdbHitIds([{ type: 'movie', movie: { ids: { trakt: 1, tmdb: 550 } } }], 'movie'))
+            .toEqual({ trakt: 1, tmdb: 550 })
+    })
+
+    it('ignora hits de outro tipo e lixo', () => {
+        expect(pickTmdbHitIds([{ type: 'show', show: { ids: { trakt: 9 } } }], 'movie')).toBeNull()
+        expect(pickTmdbHitIds(null, 'movie')).toBeNull()
     })
 })

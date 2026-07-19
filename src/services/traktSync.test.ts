@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { cleanTitle, episodeKey, traktWins } from './traktSync'
+import { cleanTitle, episodeKey, traktWins, titleMatches } from './traktSync'
 import type { ProgressEntry } from './progress'
 
 function entry(partial: Partial<ProgressEntry>): ProgressEntry {
@@ -51,5 +51,21 @@ describe('traktSync — helpers de casamento', () => {
     it('episodeKey é estável e case-insensitive no show', () => {
         expect(episodeKey('Breaking Bad', 2, 5)).toBe('breaking bad|2|5')
         expect(episodeKey('breaking BAD (2008)', 2, 5)).toBe('breaking bad|2|5')
+    })
+})
+
+describe('titleMatches (fix: matching estrito, sem "Sex Drive" fantasma)', () => {
+    it('igualdade normalizada casa (ano e caixa ignorados)', () => {
+        expect(titleMatches('Drive (2011)', 'drive')).toBe(true)
+    })
+
+    it('título com subtítulo casa com o título base', () => {
+        expect(titleMatches('Sex Drive: Rumo ao Sexo', 'Sex Drive')).toBe(true)
+        expect(titleMatches('Mad Max - Estrada da Fúria', 'Mad Max')).toBe(true)
+    })
+
+    it('substring solta NÃO casa — "Drive" não vira "Sex Drive"', () => {
+        expect(titleMatches('Sex Drive: Rumo ao Sexo', 'Drive')).toBe(false)
+        expect(titleMatches('Driven', 'Drive')).toBe(false)
     })
 })

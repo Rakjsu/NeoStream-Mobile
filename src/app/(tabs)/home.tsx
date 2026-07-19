@@ -32,7 +32,7 @@ import { downloadAndInstall } from '../../services/updater'
 import { checkWhatsNew } from '../../services/whatsnew'
 import { probeAll } from '../../services/probe'
 import { fetchTraktPlayback, fetchTraktWatchlist } from '../../services/trakt'
-import { autoTraktSync, traktWins } from '../../services/traktSync'
+import { autoTraktSync, titleMatches, traktWins } from '../../services/traktSync'
 import { getCloudBackupDir } from '../../services/autoBackup'
 import { ChannelRail, ContinueRail, EmptyState, HomeSkeleton, PosterRail, TvTouchable, type RailItem } from '../../ui/components'
 import { isTV, tvSize } from '../../ui/tv'
@@ -140,13 +140,12 @@ export default function HomeTab() {
                 const have = new Set(watchlist.map(item => item.name.toLowerCase()))
                 const extra: RailItem[] = []
                 for (const item of traktItems) {
-                    const wanted = item.title.toLowerCase()
-                    if (have.has(wanted)) continue
+                    if (have.has(item.title.toLowerCase())) continue
                     if (item.kind === 'movie') {
-                        const movie = visibleVod.find(m => m.name.toLowerCase().includes(wanted))
+                        const movie = visibleVod.find(m => titleMatches(m.name, item.title))
                         if (movie) extra.push({ ...movieRail(movie), key: `tw${movie.stream_id}` })
                     } else {
-                        const show = visibleShows.find(s => s.name.toLowerCase().includes(wanted))
+                        const show = visibleShows.find(s => titleMatches(s.name, item.title))
                         if (show) extra.push({ ...seriesRail(show), key: `tws${show.series_id}` })
                     }
                 }
@@ -158,9 +157,8 @@ export default function HomeTab() {
             void cachedFetch('trakt-playback', () => fetchTraktPlayback()).then(async paused => {
                 let added = false
                 for (const item of paused) {
-                    const wanted = item.title.toLowerCase()
                     if (item.kind === 'movie') {
-                        const movie = visibleVod.find(m => m.name.toLowerCase().includes(wanted))
+                        const movie = visibleVod.find(m => titleMatches(m.name, item.title))
                         if (!movie) continue
                         const progressId = `movie:${movie.stream_id}`
                         // 🔄 Maior progresso vence: o % do Trakt só sobrescreve se for maior.
@@ -181,7 +179,7 @@ export default function HomeTab() {
                         continue
                     }
                     // Episódio: casa a série por nome e resolve o id na ficha.
-                    const show = visibleShows.find(s => s.name.toLowerCase().includes(wanted))
+                    const show = visibleShows.find(s => titleMatches(s.name, item.title))
                     if (!show || !item.season || !item.episode) continue
                     try {
                         const info = await client.getSeriesInfo(String(show.series_id))

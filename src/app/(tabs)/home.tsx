@@ -32,7 +32,7 @@ import { downloadAndInstall } from '../../services/updater'
 import { checkWhatsNew } from '../../services/whatsnew'
 import { probeAll } from '../../services/probe'
 import { fetchTraktPlayback, fetchTraktWatchlist } from '../../services/trakt'
-import { traktWins } from '../../services/traktSync'
+import { autoTraktSync, traktWins } from '../../services/traktSync'
 import { getCloudBackupDir } from '../../services/autoBackup'
 import { ChannelRail, ContinueRail, EmptyState, HomeSkeleton, PosterRail, TvTouchable, type RailItem } from '../../ui/components'
 import { isTV, tvSize } from '../../ui/tv'
@@ -387,6 +387,10 @@ export default function HomeTab() {
     }, [])
 
     // A Home reflete favoritos/progresso feitos em outras telas → recarrega no foco.
+    // 🔄 Trakt: sync automático no boot (1x/12h) — cobre quem já estava
+    // conectado antes do sync inicial existir.
+    useEffect(() => { void autoTraktSync() }, [])
+
     useFocusEffect(useCallback(() => { queueMicrotask(() => { void load() }) }, [load]))
 
     const openRailItem = (item: RailItem) => {

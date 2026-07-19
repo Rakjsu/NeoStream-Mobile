@@ -1,4 +1,5 @@
-import { fetchTraktPlayback, fetchTraktWatchedEpisodes, fetchTraktWatchedMovies, parseEpisodeTitle, syncTraktWatched } from './trakt'
+import AsyncStorage from '@react-native-async-storage/async-storage'
+import { fetchTraktPlayback, fetchTraktWatchedEpisodes, fetchTraktWatchedMovies, isTraktConnected, parseEpisodeTitle, syncTraktWatched, traktScrobble } from './trakt'
 import { getEntry, isFinished, loadProgress, loadWatched, markWatched, progressPct, saveSample, type ProgressEntry } from './progress'
 import { cachedFetch, getClient } from './session'
 
@@ -79,6 +80,19 @@ export async function runTraktInitialSync(): Promise<TraktSyncReport | null> {
         }
     }
 
+    // ---- PUSH: tempos parciais (filme na metade) viram playback no Trakt ----
+    let pauseBudget = 10
+    for (const entry of Object.values(progressMap)) {
+        if (pauseBudget <= 0) break
+        if (entry.kind !== 'movie' || entry.fromTraktPct) continue
+        const pct = entry.duration > 0 ? (entry.position / entry.duration) * 100 : 0
+        if (pct < 5 || pct >= 85) continue
+        if (await traktScrobble('pause', 'movie', entry.title, Math.round(pct))) {
+            report.pushed++
+            pauseBudget--
+        }
+    }
+
     // ---- PULL: filmes vistos no Trakt viram vistos locais ----
     for (const movie of vod) {
         const clean = cleanTitle(movie.name)
@@ -152,4 +166,24 @@ export async function runTraktInitialSync(): Promise<TraktSyncReport | null> {
     }
 
     return report
+}
+
+// ---- Auto-sync no boot: cobre quem JA estava conectado antes do sync ----
+const AUTO_KEY = 'neostream_trakt_autosync_at'
+const AUTO_EVERY_MS = 12 * 3600_000
+let autoRanThisSession = false
+
+/**
+ * Dispara o sync inicial sozinho (1x por sessão, no máx. a cada 12h) — sem
+ * isso, quem conectou o Trakt ANTES do traktSync existir nunca sincronizava
+ * a menos que apertasse o botão dos Ajustes.
+ */
+export async function autoTraktSync(): Promise<void> {
+    if (autoRanThisSession) return
+    autoRanThisSession = true
+    if (!(await isTraktConnected())) return
+    const last = Number(await AsyncStorage.getItem(AUTO_KEY)) || 0
+    if (Date.now() - last < AUTO_EVERY_MS) return
+    await AsyncStorage.setItem(AUTO_KEY, String(Date.now()))
+    await runTraktInitialSync().catch(() => null)
 }

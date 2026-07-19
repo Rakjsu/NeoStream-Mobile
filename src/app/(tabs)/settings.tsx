@@ -34,7 +34,6 @@ import { getExtEpgUrl, setExtEpgUrl } from '../../services/extEpg'
 import { defaultRailPrefs, loadRailPrefs, moveRail, railOrderAll, saveRailPrefs, toggleRail, type RailKey, type RailPrefs } from '../../services/homeRails'
 import { createCollection, listCollections, removeCollection, type Collection } from '../../services/collections'
 import { M3uClient, buildM3u } from '../../services/m3u'
-import { loadSpeedHistory, runSpeedTest, saveSpeedSample, type SpeedSample, type SpeedVerdict } from '../../services/speedtest'
 import { clearHistory } from '../../services/progress'
 import { checkForUpdate } from '../../services/updates'
 import {
@@ -283,7 +282,6 @@ export default function SettingsTab() {
     const [osKeyDraft, setOsKeyDraft] = useState('')
     const [osUserDraft, setOsUserDraft] = useState('')
     const [osPassDraft, setOsPassDraft] = useState('')
-    const [speedMsg, setSpeedMsg] = useState('')
     const [wifiOnly, setWifiOnlyState] = useState(false)
     const [smartDl, setSmartDlState] = useState(false)
     const [nightOnly, setNightOnlyState] = useState(false)
@@ -293,7 +291,6 @@ export default function SettingsTab() {
     const [pinAttempts, setPinAttempts] = useState<PinAttempts>({ count: 0, lastMs: 0 })
     const [snoozeUntil, setSnoozeUntilState] = useState(0)
     const [cloudDir, setCloudDir] = useState('')
-    const [speedHist, setSpeedHist] = useState<SpeedSample[]>([])
     const [bootTab, setBootTab] = useState('')
     const [freeMsg, setFreeMsg] = useState('')
     const [kidsCatCount, setKidsCatCount] = useState(0)
@@ -341,7 +338,6 @@ export default function SettingsTab() {
         void isWifiOnly().then(setWifiOnlyState)
         void isSmartDownloads().then(setSmartDlState)
         void getCloudBackupDir().then(setCloudDir)
-        void loadSpeedHistory().then(setSpeedHist)
         void getExtEpgUrl().then(setExtEpgDraft)
         void loadRailPrefs().then(setRailPrefs)
         void getKidsTimeLimit().then(setKidsLimit)
@@ -405,48 +401,6 @@ export default function SettingsTab() {
         ])
     }
 
-
-    interface DiagRow { label: string; ok: boolean; ms: number; extra?: string }
-    const [diag, setDiag] = useState<DiagRow[] | 'running' | null>(null)
-
-    const testConnection = () => {
-        setDiag('running')
-        void (async () => {
-            const rows: DiagRow[] = []
-            const client = await getClient()
-            if (!client) { setDiag([]); return }
-            const timed = async (label: string, run: () => Promise<string>) => {
-                const startedAt = Date.now()
-                try {
-                    const extra = await run()
-                    rows.push({ label, ok: true, ms: Date.now() - startedAt, extra })
-                } catch {
-                    rows.push({ label, ok: false, ms: Date.now() - startedAt })
-                }
-            }
-            await timed(t('connAuth'), async () => {
-                await client.authenticate()
-                return ''
-            })
-            let firstChannel = ''
-            await timed(t('connChannels'), async () => {
-                const channels = await client.getLiveChannels()
-                firstChannel = channels[0] ? String(channels[0].stream_id) : ''
-                return tf('connItems', { n: channels.length })
-            })
-            await timed(t('connVod'), async () => {
-                const movies = await client.getVodMovies()
-                return tf('connItems', { n: movies.length })
-            })
-            if (firstChannel) {
-                await timed(t('connEpg'), async () => {
-                    const nowNext = await client.getShortEpg(firstChannel)
-                    return nowNext.now?.title ?? '—'
-                })
-            }
-            setDiag(rows)
-        })()
-    }
 
     // 🩺 Testa os streams dos favoritos em lote (teto de 30, 4 por vez).
     const runFavCheck = async () => {
@@ -676,11 +630,10 @@ export default function SettingsTab() {
                 <View style={{ paddingVertical: spacing.md, gap: spacing.sm }}>
                     <TvTouchable
                         style={styles.backupBtn}
-                        disabled={diag === 'running'}
-                        onPress={testConnection}
+                        onPress={() => router.push('/health')}
                     >
                         <Ionicons name="pulse-outline" size={16} color="#fff" />
-                        <Text style={styles.backupBtnText}>{diag === 'running' ? t('testing') : t('testConn')}</Text>
+                        <Text style={styles.backupBtnText}>{t('healthTitle')}</Text>
                     </TvTouchable>
                     <TvTouchable
                         style={[styles.backupBtn, styles.restoreBtn]}
@@ -693,49 +646,6 @@ export default function SettingsTab() {
                     >
                         <Ionicons name="refresh-circle-outline" size={16} color="#fff" />
                         <Text style={styles.backupBtnText}>{t('clearCacheBtn')}</Text>
-                    </TvTouchable>
-                    <TvTouchable
-                        style={styles.backupBtn}
-                        disabled={speedMsg === t('speedRunning')}
-                        onPress={() => {
-                            setSpeedMsg(t('speedRunning'))
-                            void (async () => {
-                                const client = await getClient()
-                                const first = client ? (await cachedFetch('live', () => client.getLiveChannels()))[0] : undefined
-                                if (!client || !first) { setSpeedMsg(t('speedFail')); return }
-                                const result = await runSpeedTest(client.liveStreamUrl(first.stream_id))
-                                if (!result) { setSpeedMsg(t('speedFail')); return }
-                                const verdictKey: Record<SpeedVerdict, 'speed4k' | 'speedHd' | 'speedSd' | 'speedSlow'> = {
-                                    '4k': 'speed4k', hd: 'speedHd', sd: 'speedSd', slow: 'speedSlow',
-                                }
-                                setSpeedMsg(tf('speedResult', { mbps: result.mbps, verdict: t(verdictKey[result.verdict]) }))
-                                await saveSpeedSample({ at: Date.now(), mbps: result.mbps, verdict: result.verdict })
-                                setSpeedHist(await loadSpeedHistory())
-                            })()
-                        }}
-                    >
-                        <Ionicons name="speedometer-outline" size={16} color="#fff" />
-                        <Text style={styles.backupBtnText}>{speedMsg || t('speedBtn')}</Text>
-                    </TvTouchable>
-                    <TvTouchable
-                        style={[styles.backupBtn, styles.restoreBtn]}
-                        onPress={() => {
-                            const lines = [
-                                `NeoStream Mobile v${Constants.expoConfig?.version ?? '?'}`,
-                                `Conta: ${active ? accountLabel(active).replace(/^[^@]+@/, '***@') : '—'} (${active?.type ?? 'xtream'})`,
-                                '',
-                                'Velocímetro:',
-                                ...speedHist.slice(0, 5).map(s =>
-                                    `  ${new Date(s.at).toLocaleString()} — ${s.mbps} Mbps (${s.verdict})`),
-                                '',
-                                'Últimos erros:',
-                                ...errorList.slice(0, 5).map(e => `  ${new Date(e.at).toLocaleString()} — ${e.message}`),
-                            ]
-                            void Share.share({ message: lines.join('\n') }).catch(() => undefined)
-                        }}
-                    >
-                        <Ionicons name="document-text-outline" size={16} color="#fff" />
-                        <Text style={styles.backupBtnText}>{t('diagCopyBtn')}</Text>
                     </TvTouchable>
                     <TvTouchable
                         style={[styles.backupBtn, styles.restoreBtn, favChecking && { opacity: 0.6 }]}
@@ -814,34 +724,6 @@ export default function SettingsTab() {
                             <Text style={styles.diagLabel} numberOfLines={1}>{miss.name}</Text>
                             <Text style={[styles.diagMeta, { color: colors.accent }]}>{t('epgFixBtn')}</Text>
                         </TouchableOpacity>
-                    )) : null}
-                    {speedHist.length > 0 ? (
-                        <View style={{ gap: 4 }}>
-                            <Text style={styles.parentalHint}>{t('speedHistTitle')}</Text>
-                            {speedHist.slice(0, 5).map(sample => (
-                                <View key={sample.at} style={styles.diagRow}>
-                                    <Ionicons name="speedometer-outline" size={14} color={colors.textDim} />
-                                    <Text style={styles.diagLabel}>
-                                        {new Date(sample.at).toLocaleDateString()} {new Date(sample.at).toLocaleTimeString().slice(0, 5)}
-                                    </Text>
-                                    <Text style={styles.diagMeta}>{sample.mbps} Mbps</Text>
-                                </View>
-                            ))}
-                        </View>
-                    ) : null}
-                    {Array.isArray(diag) ? diag.map(row => (
-                        <View key={row.label} style={styles.diagRow}>
-                            <Ionicons
-                                name={row.ok ? 'checkmark-circle' : 'close-circle'}
-                                size={16}
-                                color={row.ok ? colors.live : colors.danger}
-                            />
-                            <Text style={styles.diagLabel}>{row.label}</Text>
-                            <Text style={styles.diagMeta}>
-                                {row.ms >= 1000 ? `${(row.ms / 1000).toFixed(1)}s` : `${row.ms}ms`}
-                                {row.extra ? ` · ${row.extra}` : ''}
-                            </Text>
-                        </View>
                     )) : null}
                 </View>
             </View>

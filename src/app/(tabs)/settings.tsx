@@ -28,12 +28,13 @@ import { loadFavorites } from '../../services/favorites'
 import { disableParental, enableParental, isValidPin, listBlockedCategories, loadParental } from '../../services/parental'
 import { clearPinAttempts, getPinAttempts, type PinAttempts } from '../../services/parentalLog'
 import { getKidsTimeLimit, getKidsWindow, isKidsMode, listKidsCategories, setKidsMode, setKidsTimeLimit, setKidsWindow, type KidsWindow } from '../../services/kids'
-import { disconnectTrakt, fetchTraktProfile, fetchTraktWatchedMovies, getTraktCreds, isTraktConnected, pollDeviceToken, setTraktCreds, startDeviceAuth } from '../../services/trakt'
+import { disconnectTrakt, fetchTraktProfile, getTraktCreds, isTraktConnected, pollDeviceToken, setTraktCreds, startDeviceAuth } from '../../services/trakt'
+import { runTraktInitialSync } from '../../services/traktSync'
 import { getExtEpgUrl, setExtEpgUrl } from '../../services/extEpg'
 import { defaultRailPrefs, loadRailPrefs, moveRail, railOrderAll, saveRailPrefs, toggleRail, type RailKey, type RailPrefs } from '../../services/homeRails'
 import { createCollection, listCollections, removeCollection, type Collection } from '../../services/collections'
 import { M3uClient, buildM3u } from '../../services/m3u'
-import { clearHistory, loadWatched, markWatched } from '../../services/progress'
+import { clearHistory } from '../../services/progress'
 import { checkForUpdate } from '../../services/updates'
 import {
     accountLabel, cachedFetch, clearCatalogCache, getClient, listAccounts, loadAccount, removeAccount, renameAccount, resolvePlayableUrl, restoreAccounts, switchAccount,
@@ -446,28 +447,11 @@ export default function SettingsTab() {
     // ⬇️ Vistos do Trakt viram vistos locais (filmes, match exato por nome —
     // melhor esforço: nome do provedor diferente do Trakt fica de fora).
     const importTraktWatched = async () => {
-        setTraktImportMsg(t('testing'))
-        const titles = await fetchTraktWatchedMovies()
-        const client = await getClient()
-        if (titles.length === 0 || !client) {
-            setTraktImportMsg('')
-            Alert.alert(t('traktImportNone'))
-            return
-        }
-        const wanted = new Set(titles.map(title => title.toLowerCase().trim()))
-        const vod = await cachedFetch('vod', () => client.getVodMovies()).catch(() => [])
-        const watched = await loadWatched()
-        let imported = 0
-        for (const movie of vod) {
-            const clean = movie.name.replace(/\s*\(\d{4}\)\s*/g, ' ').trim().toLowerCase()
-            if (!wanted.has(clean) && !wanted.has(movie.name.toLowerCase().trim())) continue
-            const id = `movie:${movie.stream_id}`
-            if (watched.has(id)) continue
-            await markWatched(id)
-            imported++
-        }
+        setTraktImportMsg(t('traktSyncing'))
+        const report = await runTraktInitialSync().catch(() => null)
         setTraktImportMsg('')
-        Alert.alert(tf('traktImportDone', { n: imported }))
+        if (!report) { Alert.alert(t('traktImportNone')); return }
+        Alert.alert(tf('traktSyncDone', { pulled: report.pulledMovies + report.pulledEpisodes + report.playbackSeeded, pushed: report.pushed }))
     }
 
     // Trakt: salva as credenciais, mostra o código e fica perguntando até
@@ -490,6 +474,13 @@ export default function SettingsTab() {
                 setTraktMsg('')
                 void fetchTraktProfile().then(setTraktUser)
                 Alert.alert(t('traktConnected'))
+                // 🔄 Sync inicial: envia o que ja era visto aqui e puxa o que
+                // o Trakt tem (vistos + tempos, maior progresso vence).
+                setTraktImportMsg(t('traktSyncing'))
+                void runTraktInitialSync().then(report => {
+                    setTraktImportMsg('')
+                    if (report) Alert.alert(tf('traktSyncDone', { pulled: report.pulledMovies + report.pulledEpisodes + report.playbackSeeded, pushed: report.pushed }))
+                }).catch(() => setTraktImportMsg(''))
                 return
             }
             if (result === 'error') { setTraktMsg(''); Alert.alert(t('traktFail')); return }

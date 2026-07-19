@@ -32,6 +32,7 @@ import { downloadAndInstall } from '../../services/updater'
 import { checkWhatsNew } from '../../services/whatsnew'
 import { probeAll } from '../../services/probe'
 import { fetchTraktPlayback, fetchTraktWatchlist } from '../../services/trakt'
+import { traktWins } from '../../services/traktSync'
 import { getCloudBackupDir } from '../../services/autoBackup'
 import { ChannelRail, ContinueRail, EmptyState, HomeSkeleton, PosterRail, TvTouchable, type RailItem } from '../../ui/components'
 import { isTV, tvSize } from '../../ui/tv'
@@ -162,7 +163,8 @@ export default function HomeTab() {
                         const movie = visibleVod.find(m => m.name.toLowerCase().includes(wanted))
                         if (!movie) continue
                         const progressId = `movie:${movie.stream_id}`
-                        if (await getEntry(progressId)) continue // progresso local vence
+                        // 🔄 Maior progresso vence: o % do Trakt só sobrescreve se for maior.
+                        if (!traktWins(await getEntry(progressId) ?? undefined, item.progress)) continue
                         await saveSample({
                             id: progressId,
                             kind: 'movie',
@@ -187,7 +189,7 @@ export default function HomeTab() {
                         const found = episodes.find(ep => Number(ep.episode_num) === item.episode)
                         if (!found) continue
                         const progressId = `episode:${found.id}`
-                        if (await getEntry(progressId)) continue
+                        if (!traktWins(await getEntry(progressId) ?? undefined, item.progress)) continue
                         const pad = (n: number) => String(n).padStart(2, '0')
                         await saveSample({
                             id: progressId,

@@ -2,6 +2,7 @@ import { describe, it, expect, vi } from 'vitest'
 import {
     applySample, buildProgressId, isFinished, listContinue,
     pickNextEpisode, progressPct, resumePosition, type ProgressEntry,
+    mergeProgressPush,
 } from './progress'
 
 // Hoisted pelo vitest — evita o import real (que puxa react-native).
@@ -87,5 +88,41 @@ describe('listContinue', () => {
         }
         expect(listContinue(map).map(e => e.id)).toEqual(['episode:2', 'movie:3', 'movie:1'])
         expect(listContinue(map, 'movie').map(e => e.id)).toEqual(['movie:3', 'movie:1'])
+    })
+})
+
+describe('mergeProgressPush (item 11 — sync com o desktop)', () => {
+    const movie = (over: object = {}) => ({
+        kind: 'movie' as const, movieId: '42', title: 'Filme', positionSec: 600, durationSec: 6000, updatedAt: 2000, ...over,
+    })
+
+    it('cria entry de filme quando não existe (container mp4 default)', () => {
+        const next = mergeProgressPush({}, movie())
+        const entry = next?.[buildProgressId('movie', '42')]
+        expect(entry?.position).toBe(600)
+        expect(entry?.container).toBe('mp4')
+    })
+
+    it('LWW: amostra mais velha que a local é ignorada', () => {
+        const id = buildProgressId('movie', '42')
+        const map = {
+            [id]: { id, kind: 'movie' as const, streamId: '42', container: 'mkv', title: 'Filme', cover: '', position: 900, duration: 6000, updatedAt: 5000 },
+        }
+        expect(mergeProgressPush(map, movie({ updatedAt: 2000 }))).toBeNull()
+        const applied = mergeProgressPush(map, movie({ updatedAt: 9000, positionSec: 1200 }))
+        expect(applied?.[id]?.position).toBe(1200)
+        expect(applied?.[id]?.container).toBe('mkv') // metadados locais preservados
+    })
+
+    it('episódio: atualiza entry existente casando por série + SxxEyy do título', () => {
+        const map = {
+            'episode:7': { id: 'episode:7', kind: 'episode' as const, streamId: '7', container: 'mp4', title: 'Minha Série · S02E05', cover: '', position: 100, duration: 1200, updatedAt: 1000 },
+        }
+        const next = mergeProgressPush(map, { kind: 'episode', title: 'minha série', season: 2, episode: 5, positionSec: 700, durationSec: 1200, updatedAt: 2000 })
+        expect(next?.['episode:7']?.position).toBe(700)
+    })
+
+    it('episódio sem match local é ignorado (chega pelo Trakt depois)', () => {
+        expect(mergeProgressPush({}, { kind: 'episode', title: 'Outra Série', season: 1, episode: 1, positionSec: 700, durationSec: 1200, updatedAt: 2000 })).toBeNull()
     })
 })

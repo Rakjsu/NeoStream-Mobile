@@ -5,7 +5,7 @@
  */
 import AsyncStorage from '@react-native-async-storage/async-storage'
 import { onProfileSwitch, profileKey } from './profiles'
-import { syncTraktWatched } from './trakt'
+import { parseEpisodeTitle, syncTraktWatched } from './trakt'
 
 export type ProgressKind = 'movie' | 'episode'
 
@@ -24,6 +24,10 @@ export interface ProgressEntry {
     position: number
     duration: number
     updatedAt: number
+    /** 🔄 Item 11: metadados do episódio pro sync com o desktop (opcionais). */
+    show?: string
+    season?: number
+    episode?: number
 }
 
 const STORAGE_KEY = 'neostream_progress'
@@ -76,6 +80,69 @@ export function applySample(
     const ids = Object.keys(next).sort((a, b) => next[b].updatedAt - next[a].updatedAt)
     for (const id of ids.slice(maxEntries)) delete next[id]
     return next
+}
+
+/**
+ * 🔄 Item 11: amostra de progresso vinda do DESKTOP (push progressSync).
+ * Filme casa por stream_id (cria a entry se não existir — container mp4 é o
+ * default seguro); episódio só ATUALIZA uma entry existente (sem o id do
+ * episódio não dá pra criar — os novos chegam pelo Trakt). LWW por updatedAt.
+ */
+export interface ProgressPush {
+    kind: ProgressKind
+    movieId?: string
+    /** Filme: título; episódio: nome da série. */
+    title: string
+    season?: number
+    episode?: number
+    positionSec: number
+    durationSec: number
+    updatedAt: number
+}
+
+/** Merge puro do push no mapa — null quando não há nada a aplicar. */
+export function mergeProgressPush(
+    map: Record<string, ProgressEntry>,
+    push: ProgressPush,
+): Record<string, ProgressEntry> | null {
+    if (push.kind === 'movie') {
+        if (!push.movieId) return null
+        const id = buildProgressId('movie', push.movieId)
+        const existing = map[id]
+        if (existing && existing.updatedAt >= push.updatedAt) return null
+        const entry: ProgressEntry = existing
+            ? { ...existing, position: push.positionSec, duration: push.durationSec, updatedAt: push.updatedAt }
+            : {
+                id, kind: 'movie', streamId: push.movieId, container: 'mp4',
+                title: push.title, cover: '', position: push.positionSec,
+                duration: push.durationSec, updatedAt: push.updatedAt,
+            }
+        return applySample(map, entry)
+    }
+    const wanted = push.title.trim().toLowerCase()
+    for (const entry of Object.values(map)) {
+        if (entry.kind !== 'episode') continue
+        const meta = (entry.show !== undefined && entry.season !== undefined && entry.episode !== undefined)
+            ? { show: entry.show, season: entry.season, episode: entry.episode }
+            : parseEpisodeTitle(entry.title)
+        if (!meta) continue
+        if (meta.show.trim().toLowerCase() !== wanted || meta.season !== push.season || meta.episode !== push.episode) continue
+        if (entry.updatedAt >= push.updatedAt) return null
+        return applySample(map, { ...entry, position: push.positionSec, duration: push.durationSec, updatedAt: push.updatedAt })
+    }
+    return null
+}
+
+/** Aplica o push com persistência (sem efeitos Trakt — o desktop já cuidou). */
+export async function applyRemoteSample(push: ProgressPush): Promise<boolean> {
+    const map = await loadProgress()
+    const next = mergeProgressPush(map, push)
+    if (!next) return false
+    cache = next
+    try {
+        await AsyncStorage.setItem(profileKey(STORAGE_KEY), JSON.stringify(cache))
+    } catch { /* melhor perder uma amostra que travar o link */ }
+    return true
 }
 
 /** Rail "Continuar assistindo": mais recente primeiro, opcionalmente por tipo. */

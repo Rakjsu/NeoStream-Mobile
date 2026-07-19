@@ -6,6 +6,7 @@
  * busca de título; nunca trava o fluxo de progresso local.
  */
 import AsyncStorage from '@react-native-async-storage/async-storage'
+import { getTmdbKey, parseSearchId, searchUrl } from './tmdb'
 
 const API = 'https://api.trakt.tv'
 const CREDS_KEY = 'neostream_trakt_creds'
@@ -175,6 +176,35 @@ async function traktPost(path: string, body: unknown, clientId: string, access: 
     if (!response.ok) throw new Error(`HTTP ${response.status}`)
 }
 
+/** 🎯 Extrai os ids do Trakt de um resultado /search/tmdb/{id}. PURO. */
+export function pickTmdbHitIds(results: unknown, type: 'movie' | 'show'): Record<string, unknown> | null {
+    if (!Array.isArray(results)) return null
+    for (const hit of results) {
+        const item = (hit as Record<string, { ids?: Record<string, unknown> } | undefined>)[type]
+        if (item?.ids) return item.ids
+    }
+    return null
+}
+
+/**
+ * 🎯 Resolução EXATA pelo TMDB id: com a chave TMDB configurada, o título
+ * vira id no TMDB e o Trakt é consultado por /search/tmdb/{id} — títulos
+ * ambíguos ("Obsessão") deixam de depender da busca por texto (fallback).
+ */
+async function resolveIdsViaTmdb(kind: 'movie' | 'show', title: string, clientId: string, access: string): Promise<Record<string, unknown> | null> {
+    try {
+        const key = await getTmdbKey()
+        if (!key) return null
+        const res = await fetch(searchUrl(kind === 'movie' ? 'movie' : 'tv', title, key, 'pt-BR'))
+        const tmdbId = parseSearchId(await res.json())
+        if (!tmdbId) return null
+        const results = await traktGet(`/search/tmdb/${tmdbId}?type=${kind}`, clientId, access)
+        return pickTmdbHitIds(results, kind)
+    } catch {
+        return null // sem chave / offline — a busca textual cobre
+    }
+}
+
 // ids resolvidos por título nesta sessão — scrobble não repete a busca.
 const payloadCache = new Map<string, Record<string, unknown> | null>()
 
@@ -187,16 +217,24 @@ async function resolvePayload(kind: 'movie' | 'episode', title: string, clientId
         const year = Number(/\((\d{4})\)/.exec(title)?.[1]) || undefined
         const clean = title.replace(/\s*\(\d{4}\)\s*/g, ' ').trim()
         if (clean) {
-            const results = await traktGet(`/search/movie?query=${encodeURIComponent(clean)}`, clientId, access) as { movie?: TraktHit }[]
-            const hit = pickSearchHit(results, clean, year)
-            if (hit?.ids) piece = { movie: { ids: hit.ids } }
+            const exact = await resolveIdsViaTmdb('movie', clean, clientId, access)
+            if (exact) piece = { movie: { ids: exact } }
+            else {
+                const results = await traktGet(`/search/movie?query=${encodeURIComponent(clean)}`, clientId, access) as { movie?: TraktHit }[]
+                const hit = pickSearchHit(results, clean, year)
+                if (hit?.ids) piece = { movie: { ids: hit.ids } }
+            }
         }
     } else {
         const parsed = parseEpisodeTitle(title)
         if (parsed) {
-            const results = await traktGet(`/search/show?query=${encodeURIComponent(parsed.show)}`, clientId, access) as { show?: TraktHit }[]
-            const hit = pickSearchHit(results, parsed.show)
-            if (hit?.ids) piece = { show: { ids: hit.ids }, episode: { season: parsed.season, number: parsed.episode } }
+            const exact = await resolveIdsViaTmdb('show', parsed.show, clientId, access)
+            if (exact) piece = { show: { ids: exact }, episode: { season: parsed.season, number: parsed.episode } }
+            else {
+                const results = await traktGet(`/search/show?query=${encodeURIComponent(parsed.show)}`, clientId, access) as { show?: TraktHit }[]
+                const hit = pickSearchHit(results, parsed.show)
+                if (hit?.ids) piece = { show: { ids: hit.ids }, episode: { season: parsed.season, number: parsed.episode } }
+            }
         }
     }
     payloadCache.set(cacheKey, piece)
@@ -251,23 +289,19 @@ export async function syncTraktWatched(kind: 'movie' | 'episode', title: string)
     const { clientId } = await getTraktCreds()
     if (!token || !clientId) return false
     try {
+        // Mesmo resolvedor do scrobble: cache por título + TMDB id exato.
+        const piece = await resolvePayload(kind, title, clientId, token.access)
+        if (!piece) return false
         if (kind === 'movie') {
-            const year = Number(/\((\d{4})\)/.exec(title)?.[1]) || undefined
-            const clean = title.replace(/\s*\(\d{4}\)\s*/g, ' ').trim()
-            if (!clean) return false
-            const results = await traktGet(`/search/movie?query=${encodeURIComponent(clean)}`, clientId, token.access) as { movie?: TraktHit }[]
-            const hit = pickSearchHit(results, clean, year)
-            if (!hit?.ids) return false
-            await traktPost('/sync/history', { movies: [{ ids: hit.ids }] }, clientId, token.access)
+            const ids = (piece as { movie?: { ids?: Record<string, unknown> } }).movie?.ids
+            if (!ids) return false
+            await traktPost('/sync/history', { movies: [{ ids }] }, clientId, token.access)
             return true
         }
-        const parsed = parseEpisodeTitle(title)
-        if (!parsed) return false
-        const results = await traktGet(`/search/show?query=${encodeURIComponent(parsed.show)}`, clientId, token.access) as { show?: TraktHit }[]
-        const hit = pickSearchHit(results, parsed.show)
-        if (!hit?.ids) return false
+        const typed = piece as { show?: { ids?: Record<string, unknown> }; episode?: { season: number; number: number } }
+        if (!typed.show?.ids || !typed.episode) return false
         await traktPost('/sync/history', {
-            shows: [{ ids: hit.ids, seasons: [{ number: parsed.season, episodes: [{ number: parsed.episode }] }] }],
+            shows: [{ ids: typed.show.ids, seasons: [{ number: typed.episode.season, episodes: [{ number: typed.episode.number }] }] }],
         }, clientId, token.access)
         return true
     } catch {

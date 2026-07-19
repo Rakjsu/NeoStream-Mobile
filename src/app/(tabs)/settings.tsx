@@ -1704,6 +1704,13 @@ export default function SettingsTab() {
             </TvTouchable>
             <TvTouchable
                 style={[styles.backupBtn, { marginBottom: spacing.md }]}
+                onPress={() => router.push('/remote')}
+            >
+                <Ionicons name="game-controller-outline" size={16} color="#fff" />
+                <Text style={styles.backupBtnText}>{t('remoteBtn')}</Text>
+            </TvTouchable>
+            <TvTouchable
+                style={[styles.backupBtn, { marginBottom: spacing.md }]}
                 onPress={() => {
                     void (async () => {
                         const next = !deskLink

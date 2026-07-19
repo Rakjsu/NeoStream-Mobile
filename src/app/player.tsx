@@ -16,6 +16,7 @@ import { nextEpisodeAfter, type QueuedEpisode } from '../services/episodeQueue'
 import { nextVodAfter } from '../services/watchQueue'
 import { fetchSrtForTitle, cueAt, hasOsKey, type SubtitleCue } from '../services/opensubtitles'
 import { getEntry, resumePosition, saveSample, type ProgressKind } from '../services/progress'
+import { reportProgressToDesktop } from '../services/desktopLink'
 import { listRecentChannels, recordRecentChannel } from '../services/recents'
 import { loadFavorites, persistToggle } from '../services/favorites'
 import { cachedFetch, getClient, resolvePlayableUrl } from '../services/session'
@@ -26,7 +27,7 @@ import AsyncStorage from '@react-native-async-storage/async-storage'
 import { getAspect, nextAspect, setAspect, type AspectMode } from '../services/aspect'
 import { dayKey, formatMinutes, loadUsage, recordWatchMinute, summarize, usageGoalJustHit } from '../services/usage'
 import { getKidsTimeLimit, getKidsWindow, isKidsMode, isOutsideKidsWindow } from '../services/kids'
-import { traktRate, traktScrobble } from '../services/trakt'
+import { parseEpisodeTitle, traktRate, traktScrobble } from '../services/trakt'
 import * as ScreenOrientation from 'expo-screen-orientation'
 import { loadParental } from '../services/parental'
 import { recordPinAttempt } from '../services/parentalLog'
@@ -960,6 +961,13 @@ export default function Player() {
                 duration: castEp ? 0 : lastSample.current.duration,
                 updatedAt: now,
             })
+            // 🔄 Item 11: posição do cast também vai pro desktop pareado.
+            const castTitle = castEp?.title ?? String(title ?? '')
+            const castMeta = kind === 'episode' ? parseEpisodeTitle(castTitle) : null
+            const castDuration = castEp ? 0 : lastSample.current.duration
+            reportProgressToDesktop(kind === 'episode'
+                ? (castMeta && castDuration > 0 ? { kind: 'episode', title: castMeta.show, season: castMeta.season, episode: castMeta.episode, positionSec, durationSec: castDuration, updatedAt: now } : null)
+                : (castDuration > 0 ? { kind: 'movie', movieId: castEp?.sid ?? String(sid), title: castTitle, positionSec, durationSec: castDuration, updatedAt: now } : null))
         })
         // eslint-disable-next-line react-hooks/exhaustive-deps
     }, [casting, trackable, castEp])
@@ -1214,6 +1222,8 @@ export default function Player() {
         const persist = () => {
             const { position, duration } = lastSample.current
             if (position <= 0) return
+            const now = Date.now()
+            const meta = kind === 'episode' ? parseEpisodeTitle(String(title ?? '')) : null
             void saveSample({
                 id: String(pid),
                 kind: (kind === 'episode' ? 'episode' : 'movie') as ProgressKind,
@@ -1223,8 +1233,13 @@ export default function Player() {
                 cover: String(cover ?? ''),
                 position,
                 duration,
-                updatedAt: Date.now(),
+                updatedAt: now,
+                ...(meta ? { show: meta.show, season: meta.season, episode: meta.episode } : {}),
             })
+            // 🔄 Item 11: espelha a posição no desktop pareado em tempo real.
+            reportProgressToDesktop(kind === 'episode'
+                ? (meta ? { kind: 'episode', title: meta.show, season: meta.season, episode: meta.episode, positionSec: position, durationSec: duration, updatedAt: now } : null)
+                : { kind: 'movie', movieId: String(sid), title: String(title ?? ''), positionSec: position, durationSec: duration, updatedAt: now })
         }
         const timer = setInterval(() => {
             if (castingRef.current) return // a TV é a fonte do progresso agora

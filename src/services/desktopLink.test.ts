@@ -1,5 +1,5 @@
 import { describe, expect, it, vi } from 'vitest'
-import { parseDesktopPush } from './desktopLink'
+import { parseDesktopPush, parseProgressPush } from './desktopLink'
 
 // Hoisted pelo vitest — evita os imports reais (que puxam react-native).
 // O ./notify entrou no grafo (expo-notifications referencia __DEV__, que não
@@ -71,5 +71,26 @@ describe('parseVodPush / parseNotifyPush (pushes novos do desktop)', () => {
             { title: '', startIso: '2026-07-18T15:00:00Z' },
         ] }), nowMs)).toEqual([{ title: 'Jogo', channelName: 'ESPN', startMs: Date.parse('2026-07-18T15:00:00Z') }])
         expect(parseRemindersPush('nada', nowMs)).toBeNull()
+    })
+})
+
+describe('parseProgressPush (item 11 — sync de posições)', () => {
+    it('aceita progressSync de filme', () => {
+        const text = JSON.stringify({ type: 'progressSync', kind: 'movie', movieId: '42', title: 'Filme', positionSec: 300, durationSec: 6000, updatedAt: 1700000000000 })
+        expect(parseProgressPush(text)?.movieId).toBe('42')
+    })
+
+    it('aceita progressSync de episódio (série + SxxEyy)', () => {
+        const text = JSON.stringify({ type: 'progressSync', kind: 'episode', title: 'Minha Série', season: 2, episode: 5, positionSec: 10, durationSec: 1200, updatedAt: 1 })
+        const push = parseProgressPush(text)
+        expect(push?.season).toBe(2)
+        expect(push?.episode).toBe(5)
+    })
+
+    it('rejeita outros pushes e payloads inválidos', () => {
+        expect(parseProgressPush(JSON.stringify({ type: 'notifyMobile', title: 'x', body: 'y' }))).toBeNull()
+        expect(parseProgressPush(JSON.stringify({ type: 'progressSync', kind: 'movie', title: 'x', positionSec: 1, durationSec: 10, updatedAt: 1 }))).toBeNull()
+        expect(parseProgressPush(JSON.stringify({ type: 'progressSync', kind: 'movie', movieId: '1', title: 'x', positionSec: 1, durationSec: 0, updatedAt: 1 }))).toBeNull()
+        expect(parseProgressPush('not json')).toBeNull()
     })
 })

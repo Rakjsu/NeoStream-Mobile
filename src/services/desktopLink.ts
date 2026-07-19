@@ -11,6 +11,7 @@ import { isFavorite, loadFavorites, persistToggle } from './favorites'
 import { router } from 'expo-router'
 import { getClient } from './session'
 import { setZapContext } from './zap'
+import { applyRemoteSample, type ProgressPush } from './progress'
 
 const CONFIG_KEY = 'neostream_desktop_link'
 const RETRY_MS = 15_000
@@ -166,6 +167,45 @@ export function parseVodPush(text: string): { kind: 'movie' | 'series'; sid: str
 }
 
 /** Aviso vindo do desktop (ex.: gravação concluída) pra notificar aqui (PURO). */
+/** 🔄 Item 11: push progressSync do desktop → amostra validada (ou null). */
+export function parseProgressPush(text: string): ProgressPush | null {
+    let parsed: unknown
+    try {
+        parsed = JSON.parse(text)
+    } catch {
+        return null
+    }
+    if (parsed === null || typeof parsed !== 'object') return null
+    const r = parsed as Record<string, unknown>
+    if (r.type !== 'progressSync') return null
+    const kind = r.kind
+    if (kind !== 'movie' && kind !== 'episode') return null
+    const title = typeof r.title === 'string' ? r.title.trim() : ''
+    if (!title) return null
+    const positionSec = r.positionSec
+    const durationSec = r.durationSec
+    const updatedAt = r.updatedAt
+    if (typeof positionSec !== 'number' || !Number.isFinite(positionSec) || positionSec < 0) return null
+    if (typeof durationSec !== 'number' || !(durationSec > 0)) return null
+    if (typeof updatedAt !== 'number' || !(updatedAt > 0)) return null
+    if (kind === 'movie') {
+        const movieId = typeof r.movieId === 'string' ? r.movieId.trim() : ''
+        if (!movieId) return null
+        return { kind, movieId, title, positionSec, durationSec, updatedAt }
+    }
+    const season = r.season
+    const episode = r.episode
+    if (typeof season !== 'number' || !Number.isInteger(season) || season < 0) return null
+    if (typeof episode !== 'number' || !Number.isInteger(episode) || episode < 0) return null
+    return { kind, title, season, episode, positionSec, durationSec, updatedAt }
+}
+
+/** 🔄 Item 11: espelha a posição local no desktop pareado (no-op sem link). */
+export function reportProgressToDesktop(report: ProgressPush | null): boolean {
+    if (!report) return false
+    return sendToDesktop({ action: 'reportProgress', report })
+}
+
 export function parseNotifyPush(text: string): { title: string; body: string } | null {
     let parsed: unknown
     try {
@@ -245,6 +285,8 @@ export async function connectDesktopLink(): Promise<void> {
             if (favorites) { void applyFavoritesSync(favorites); return }
             const reminders = parseRemindersPush(text, Date.now())
             if (reminders) { void applyRemindersSync(reminders); return }
+            const progress = parseProgressPush(text)
+            if (progress) { void applyRemoteSample(progress); return }
             const notice = parseNotifyPush(text)
             if (notice) void notifyNow(notice.title, notice.body, '/(tabs)/home')
         }

@@ -1,6 +1,6 @@
 import AsyncStorage from '@react-native-async-storage/async-storage'
 import { fetchTraktPlayback, fetchTraktWatchedEpisodes, fetchTraktWatchedMovies, isTraktConnected, parseEpisodeTitle, syncTraktWatched, traktScrobble } from './trakt'
-import { getEntry, isFinished, loadProgress, loadWatched, markWatched, progressPct, saveSample, type ProgressEntry } from './progress'
+import { getEntry, isFinished, loadProgress, loadWatched, markWatched, progressPct, saveSample, type ProgressEntry, listContinue, removeEntry } from './progress'
 import { cachedFetch, getClient } from './session'
 
 /**
@@ -24,6 +24,8 @@ export interface TraktSyncReport {
     pulledMovies: number
     pulledEpisodes: number
     playbackSeeded: number
+    /** Cards fantasmas removidos (matching antigo por substring). */
+    cleaned: number
 }
 
 /** Nome do provedor → chave de comparação (tira ano e espaços extras). */
@@ -39,6 +41,25 @@ export function traktWins(local: ProgressEntry | undefined, traktPct: number): b
 }
 
 /** Chave única de episódio visto no Trakt pra deduplicar o push. */
+/** titleMatches com os dois lados JÁ normalizados (evita re-limpar em loop). */
+function titleMatchesClean(a: string, b: string): boolean {
+    if (!a || !b) return false
+    if (a === b) return true
+    if (!a.startsWith(b)) return false
+    return /^\s*[:\-\u2013(]/.test(a.slice(b.length))
+}
+
+/**
+ * Casamento SEGURO de título Trakt ↔ catálogo: igualdade normalizada, ou um
+ * lado é o outro + subtítulo (": …", " - …", " (…"). Nunca substring solta —
+ * "Drive" não pode casar com "Sex Drive: Rumo ao Sexo". PURO.
+ */
+export function titleMatches(a: string, b: string): boolean {
+    const cleanA = cleanTitle(a)
+    const cleanB = cleanTitle(b)
+    return titleMatchesClean(cleanA, cleanB) || titleMatchesClean(cleanB, cleanA)
+}
+
 export function episodeKey(show: string, season: number, episode: number): string {
     return `${cleanTitle(show)}|${season}|${episode}`
 }
@@ -46,7 +67,7 @@ export function episodeKey(show: string, season: number, episode: number): strin
 export async function runTraktInitialSync(): Promise<TraktSyncReport | null> {
     const client = await getClient()
     if (!client) return null
-    const report: TraktSyncReport = { pushed: 0, pulledMovies: 0, pulledEpisodes: 0, playbackSeeded: 0 }
+    const report: TraktSyncReport = { pushed: 0, pulledMovies: 0, pulledEpisodes: 0, playbackSeeded: 0, cleaned: 0 }
 
     const [traktMovies, traktEpisodes, vod, watched, progressMap] = await Promise.all([
         fetchTraktWatchedMovies(),
@@ -117,7 +138,7 @@ export async function runTraktInitialSync(): Promise<TraktSyncReport | null> {
         let showBudget = SHOW_CAP
         for (const [showName, eps] of byShow) {
             if (showBudget <= 0) break
-            const show = seriesList.find(s => cleanTitle(s.name) === showName || s.name.toLowerCase().includes(showName))
+            const show = seriesList.find(s => titleMatches(s.name, showName))
             if (!show) continue
             showBudget--
             try {
@@ -139,9 +160,8 @@ export async function runTraktInitialSync(): Promise<TraktSyncReport | null> {
     // ---- PLAYBACK: tempos do Trakt, maior progresso vence ----
     const paused = await fetchTraktPlayback().catch(() => [] as Awaited<ReturnType<typeof fetchTraktPlayback>>)
     for (const item of paused) {
-        const wanted = item.title.toLowerCase()
         if (item.kind === 'movie') {
-            const movie = vod.find(m => m.name.toLowerCase().includes(wanted))
+            const movie = vod.find(m => titleMatches(m.name, item.title))
             if (!movie) continue
             const progressId = `movie:${movie.stream_id}`
             const local = await getEntry(progressId)
@@ -163,6 +183,21 @@ export async function runTraktInitialSync(): Promise<TraktSyncReport | null> {
         // Episódios pausados seguem entrando pelo Início (home), que usa a
         // mesma regra traktWins — aqui só os filmes pra não custar uma ficha
         // de série por item logo na conexão.
+
+        // 🧹 Faxina: o matching antigo (substring) criava cards fantasmas —
+        // entradas que NASCERAM do Trakt (fromTraktPct) e não casam mais com
+        // nenhum playback atual somem do rail.
+        const validFromTrakt = new Set<string>()
+        for (const item of paused) {
+            if (item.kind !== 'movie') continue
+            const movie = vod.find(m => titleMatches(m.name, item.title))
+            if (movie) validFromTrakt.add(`movie:${movie.stream_id}`)
+        }
+        for (const entry of listContinue(await loadProgress(), 'movie')) {
+            if (!entry.fromTraktPct || validFromTrakt.has(entry.id)) continue
+            await removeEntry(entry.id)
+            report.cleaned++
+        }
     }
 
     return report

@@ -3,6 +3,8 @@ import { Stack, router } from 'expo-router'
 import { useState } from 'react'
 import { Alert, StyleSheet, Text, TextInput, View } from 'react-native'
 import { setDesktopLinkConfig } from '../services/desktopLink'
+import { discoverDesktop } from '../services/lanDiscovery'
+import { REMOTE_PORT } from '../services/lanDiscoveryHelpers'
 import { restoreAccounts } from '../services/session'
 import { extractSetupParam, parseSetupParam, type SetupPayload } from '../services/setupLink'
 import { TvTouchable } from '../ui/components'
@@ -18,7 +20,25 @@ export default function PairDesktop() {
     const [addr, setAddr] = useState('')
     const [pin, setPin] = useState('')
     const [busy, setBusy] = useState(false)
+    const [scanning, setScanning] = useState(false)
     const [msg, setMsg] = useState('')
+
+    // 🔎 Item 125: varre a /24 atrás do /health do controle web (v4.33+).
+    const scanLan = () => {
+        if (scanning) return
+        setScanning(true)
+        setMsg(t('scanScanning'))
+        void discoverDesktop()
+            .then(host => {
+                if (host) {
+                    setAddr(`${host}:${REMOTE_PORT}`)
+                    setMsg(t('scanFound'))
+                } else {
+                    setMsg(t('scanNotFound'))
+                }
+            })
+            .finally(() => setScanning(false))
+    }
 
     const fetchFromDesktop = () => {
         const address = addr.trim().replace(/^https?:\/\//i, '').replace(/\/+$/, '')
@@ -89,6 +109,11 @@ export default function PairDesktop() {
                 autoCorrect={false}
                 keyboardType="url"
             />
+            <TvTouchable onPress={scanLan} disabled={scanning}>
+                <Text style={[styles.cancelText, scanning && { opacity: 0.5 }]}>
+                    {scanning ? '…' : t('scanBtn')}
+                </Text>
+            </TvTouchable>
             <TextInput
                 style={styles.input}
                 value={pin}

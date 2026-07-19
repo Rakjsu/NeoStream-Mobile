@@ -209,7 +209,7 @@ function createGesturePan(side: 'left' | 'right', refs: GestureRefs) {
 }
 
 export default function Player() {
-    const { url, title, live, pid, kind, sid, container, cover } = useLocalSearchParams<{
+    const { url, title, live, pid, kind, sid, container, cover, startAt } = useLocalSearchParams<{
         url: string
         title?: string
         live?: string
@@ -219,7 +219,7 @@ export default function Player() {
         sid?: string
         container?: string
         cover?: string
-    }>()
+    ; startAt?: string }>()
     const insets = useSafeAreaInsets()
     useKeepAwake()
     const videoRef = useRef<VideoView>(null)
@@ -1115,6 +1115,13 @@ export default function Player() {
     useEffect(() => {
         if (!trackable) return
         let cancelled = false
+        // 📱 Item 39: deep link do QR traz a posição exata — prioridade sobre
+        // o progresso salvo (o usuário acabou de escolher continuar dali).
+        const fromQr = Math.floor(Number(startAt) || 0)
+        if (fromQr > 0) {
+            queueMicrotask(() => { player.currentTime = fromQr })
+            return
+        }
         void getEntry(String(pid)).then(entry => {
             if (cancelled) return
             if (entry?.fromTraktPct) {

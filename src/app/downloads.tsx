@@ -9,6 +9,7 @@ import {
     startDownload, subscribeDownloads, type DownloadItem, type DownloadRequest,
 } from '../services/downloads'
 import * as Sharing from 'expo-sharing'
+import { sendDownloadToDesktop } from '../services/desktopTransfer'
 import { recordingTitle, stopRecording } from '../services/recorder'
 import { listScheduledRecs, removeScheduledRec, type ScheduledRec } from '../services/schedRec'
 import { colors, spacing } from '../ui/theme'
@@ -30,6 +31,8 @@ export default function Downloads() {
     const [recActive, setRecActive] = useState<string | null>(null)
     const [queued, setQueued] = useState<{ id: string; title: string }[]>([])
     const [nightOnly, setNightOnlyState] = useState(false)
+    // 💻 Item 12: upload em andamento pro desktop (um por vez).
+    const [sendingId, setSendingId] = useState<string | null>(null)
 
     const refresh = useCallback(() => {
         void listDownloads().then(setItems)
@@ -61,6 +64,22 @@ export default function Downloads() {
                 container: item.container,
                 cover: item.cover,
             },
+        })
+    }
+
+    // 💻 Item 12: sobe o arquivo baixado pro NeoStream desktop pela LAN.
+    const sendToPc = (item: DownloadItem) => {
+        if (sendingId) return
+        setSendingId(item.id)
+        void sendDownloadToDesktop(item).then(result => {
+            setSendingId(null)
+            if (result.ok) {
+                Alert.alert(t('sendPcTitle'), tf('sendPcOk', { title: item.title }))
+            } else {
+                const key = result.error === 'unpaired' ? 'sendPcUnpaired'
+                    : result.error === 'pin' ? 'sendPcPin' : 'sendPcFail'
+                Alert.alert(t('sendPcTitle'), t(key))
+            }
         })
     }
 
@@ -250,7 +269,18 @@ export default function Downloads() {
                         style={styles.row}
                         onPress={() => play(item)}
                         onLongPress={() => {
-                            if (!item.id.startsWith('rec:')) return
+                            if (!item.id.startsWith('rec:')) {
+                                // 💻 Item 12: ações do download comum (enviar pro PC).
+                                Alert.alert(item.title, undefined, [
+                                    { text: t('cancel'), style: 'cancel' },
+                                    {
+                                        text: sendingId === item.id ? t('sendPcBusy') : t('sendPcBtn'),
+                                        onPress: () => sendToPc(item),
+                                    },
+                                    { text: t('delete'), style: 'destructive', onPress: () => confirmRemove(item) },
+                                ])
+                                return
+                            }
                             // Ficha da gravação: data + tamanho e as ações juntas.
                             Alert.alert(
                                 item.title,

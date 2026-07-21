@@ -73,7 +73,8 @@ describe('convidado', () => {
         await initProfiles()
         await switchProfile('guest')
         expect(activeProfileId()).toBe('guest')
-        expect((AsyncStorage as unknown as { multiRemove: { mock: { calls: unknown[][] } } }).multiRemove).toHaveBeenCalled()
+        // async-storage 3.x não tem multiRemove — a faxina remove um a um.
+        expect((AsyncStorage as unknown as { removeItem: { mock: { calls: unknown[][] } } }).removeItem).toHaveBeenCalled()
         expect(profileKey('neostream_favorites')).toBe('neostream_favorites_p_guest')
     })
 })

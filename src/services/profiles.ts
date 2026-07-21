@@ -81,10 +81,10 @@ export function isGuestProfile(): boolean {
 /** Apaga os dados do convidado — chamado ao ENTRAR nele (sessão sempre limpa). */
 async function wipeGuestData(): Promise<void> {
     try {
-        await AsyncStorage.multiRemove([
+        await Promise.all([
             'neostream_favorites', 'neostream_progress', 'neostream_watched',
             'neostream_watchlist', 'neostream_usage', 'neostream_usage_titles', 'neostream_usage_months', 'neostream_usage_habits',
-        ].map(base => `${base}_p_${GUEST_PROFILE_ID}`))
+        ].map(base => AsyncStorage.removeItem(`${base}_p_${GUEST_PROFILE_ID}`)))
     } catch { /* best-effort */ }
 }
 
@@ -134,12 +134,12 @@ export async function removeProfile(id: string): Promise<void> {
     await persistExtras()
     // Faxina: apaga os dados do perfil removido.
     try {
-        await AsyncStorage.multiRemove([
+        await Promise.all([
             `neostream_favorites_p_${id}`,
             `neostream_progress_p_${id}`,
             `neostream_watched_p_${id}`,
             `neostream_watchlist_p_${id}`,
-        ])
+        ].map(key => AsyncStorage.removeItem(key)))
     } catch { /* best-effort */ }
     if (activeId === id) await switchProfile(DEFAULT_PROFILE_ID)
 }

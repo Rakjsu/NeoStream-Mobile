@@ -105,7 +105,7 @@ async function loadState(): Promise<{ accounts: StoredAccount[]; activeId: strin
                 activeId = result.entry.id
                 await AsyncStorage.setItem(ACCOUNTS_KEY, JSON.stringify(accounts))
                 await AsyncStorage.setItem(ACTIVE_KEY, activeId)
-                await AsyncStorage.multiRemove([LEGACY_ACCOUNT_KEY, LEGACY_USER_INFO_KEY])
+                await Promise.all([LEGACY_ACCOUNT_KEY, LEGACY_USER_INFO_KEY].map(key => AsyncStorage.removeItem(key)))
             }
         } catch { /* segue deslogado */ }
     }
@@ -274,7 +274,7 @@ async function writePersisted(storageKey: string, data: unknown): Promise<void> 
 /** Remove o catálogo persistido de uma conta (chamado ao removê-la). */
 async function dropPersistedCatalog(id: string): Promise<void> {
     try {
-        await AsyncStorage.multiRemove([...PERSISTABLE_KEYS].map(key => catalogStorageKey(id, key)))
+        await Promise.all([...PERSISTABLE_KEYS].map(key => AsyncStorage.removeItem(catalogStorageKey(id, key))))
     } catch { /* best-effort */ }
 }
 
